@@ -179,11 +179,38 @@ The cause is visible in the schema. `admins` has a `parent_admin` column, and ev
 
 Geofabrik's US extract is clipped at the national boundary and does not carry the complete USA country relation. Valhalla's own error text is the hint: *"Ignore if not using a planet extract."*
 
-**Remaining options, in increasing order of cost:**
+#### North America does not fix it either, and the reason is specific
 
-1. Build admins from `north-america-latest.osm.pbf` (18 GB). Untested. The USA relation's members lie within North America, so this plausibly works.
-2. Build admins from the full planet. Guaranteed by the error text, and the heaviest.
-3. Patch the sqlite directly: synthesise a USA country row from the union of the state geometries and set `parent_admin` on each state. Cheap, and a hack that the pipeline would carry forever.
+Tested on 2026-09-10 with `north-america-latest.osm.pbf` (19 GB on disk). The resulting 39 MB database finally contains country rows:
+
+| Admin level | Rows |
+| --- | --- |
+| 2 (countries) | 6 |
+| 4 (subdivisions) | 102 |
+
+The six countries are México, Canada, Bermuda, Kalaallit Nunaat, Île de Clipperton, and Saint-Pierre-et-Miquelon. **The United States is not among them**, and the string "United States" never appears anywhere in the build log.
+
+The parenting mechanism itself works correctly:
+
+| Subdivision | Parent |
+| --- | --- |
+| Ontario | Canada |
+| British Columbia | Canada |
+| Jalisco | México |
+| Sonora | México |
+| Colorado | *none* |
+| Texas | *none* |
+
+51 level-4 rows are left orphaned, which is the 50 states plus DC.
+
+So this is not a general failure of extract-based admin building. Canada and Mexico assemble fine. It is the USA boundary relation specifically that cannot be built from a North America extract, and the most likely reason is that the relation includes territories outside North America — Guam, American Samoa, the Northern Mariana Islands — so the extract cannot close its rings.
+
+**Remaining options:**
+
+1. Build admins from the full planet. Guaranteed by Valhalla's own error text ("Ignore if not using a planet extract"), and the heaviest at roughly 80 GB of PBF.
+2. Synthesise the missing row: insert a level-2 `US` admin whose geometry is the spatial union of the 51 orphaned level-4 rows, then set `parent_admin` on each. Cheap and testable, and a hack the pipeline carries forever.
+
+Either way this is a one-time build whose output is a single file reused across every regional tile build.
 
 Tile size was unchanged at 467 MB across all three builds, so none of this affects the 145 MB download figure.
 
@@ -217,7 +244,7 @@ The asymmetry buys a better cold start than BaseCamp, which makes you install ma
 
 ## Open questions
 
-- Getting country and state to attach. A US-wide `admins.sqlite` was tested and does not work; North America or the planet is next.
+- Getting country and state to attach. State-level, US-wide and North America extracts have all been tested and none work, because the USA boundary relation never assembles. Remaining choices are a planet build or a synthesised country row.
 - macOS support in `valhalla-mobile`, or whether the Mac needs its own CMake build.
 - ODbL classification of routing graphs, for commercial release.
 - Whether to ship elevation for grade-aware routing, which is attractive for motorcycle touring and expensive in storage.
