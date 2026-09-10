@@ -1,0 +1,68 @@
+name: Swiftcamp
+options:
+  bundleIdPrefix: com.swiftcamp
+  createIntermediateGroups: true
+  groupSortPosition: top
+  developmentLanguage: en
+
+configs:
+  Debug: debug
+  Release: release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    from: "6.29.0"
+
+targets:
+  Swiftcamp-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Swiftcamp
+        excludes:
+          - "Info.plist"
+          - "Resources"
+      # Folder references, so these directories survive into the bundle
+      # with their subpaths intact.
+      #
+      # Reference the *subdirectories*, never `Resources` itself. An iOS
+      # .app containing a directory literally named `Resources` makes
+      # CFBundle read it as an old-style macOS bundle and look for
+      # Info.plist inside it — the app then installs with "Missing bundle
+      # ID" and simctl refuses to launch it. tachbase-ios avoids this the
+      # same way, by referencing Web/, Glyphs/, BundledTiles/ individually.
+      - path: Swiftcamp/Resources/basemap
+        type: folder
+      - path: Swiftcamp/Resources/web
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app
+        INFOPLIST_FILE: Swiftcamp/Info.plist
+        PRODUCT_NAME: Swiftcamp
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.navigation
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - package: MapLibre
+        product: MapLibre
+
+schemes:
+  Swiftcamp-iOS:
+    build:
+      targets:
+        Swiftcamp-iOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release

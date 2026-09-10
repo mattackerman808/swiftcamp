@@ -1,0 +1,11 @@
+.DS_Store
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+
+# Generated from project.yml by XcodeGen — do not commit
+Swiftcamp.xcodeproj/
+
+.swiftpm/
+.build/
