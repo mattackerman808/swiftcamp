@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="maplibre-gl.css">
+<style>
+  html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
+  /* Attribution is drawn by SwiftUI over the web view, matching iOS, so
+     the in-map control is suppressed rather than duplicated. */
+  .maplibregl-ctrl-attrib, .maplibregl-ctrl-logo { display: none !important; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script src="maplibre-gl.js"></script>
+<script src="pmtiles.js"></script>
+<script>
+// Forward console output and errors to Swift. Without this a failure in
+// here is invisible — the web view just shows an empty page and the app
+// has no idea anything went wrong.
+(function () {
+  function send(level, args) {
+    try {
+      window.webkit.messageHandlers.swiftcamp.postMessage({
+        level: level,
+        text: Array.from(args).map(String).join(' ')
+      });
+    } catch (e) {}
+  }
+  ['log', 'warn', 'error'].forEach(function (level) {
+    var original = console[level];
+    console[level] = function () { send(level, arguments); original.apply(console, arguments); };
+  });
+  window.onerror = function (msg, src, line) { send('error', [msg + ' @' + src + ':' + line]); };
+})();
+
+(function () {
+  // Registers the pmtiles:// protocol with MapLibre. Range requests from
+  // here land on BundleSchemeHandler in Swift.
+  var protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+
+  var style = window.__SWIFTCAMP_STYLE__;
+  if (!style) { console.error('style was not injected'); return; }
+
+  var map = new maplibregl.Map({
+    container: 'map',
+    style: style,
+    center: [-105.5, 39.0],
+    zoom: 3,
+    attributionControl: false
+  });
+
+  map.on('idle', function () {
+    // 'idle' rather than 'load': it fires once tiles have actually been
+    // fetched, decoded and drawn, so a non-zero feature count here proves
+    // the range requests reached real data. 'load' only means the style
+    // parsed, which an empty map would also satisfy.
+    if (map.__reported) { return; }
+    map.__reported = true;
+    var features = map.queryRenderedFeatures();
+    console.log('map idle, ' + map.getStyle().layers.length + ' layers, ' +
+                features.length + ' rendered features');
+  });
+  map.on('error', function (e) { console.error('map error: ' + (e && e.error ? e.error.message : e)); });
+})();
+</script>
+</body>
+</html>

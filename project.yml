@@ -57,11 +57,46 @@ targets:
       - package: MapLibre
         product: MapLibre
 
+  Swiftcamp-macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Swiftcamp
+        excludes:
+          - "Info.plist"
+          - "Resources"
+      - path: Swiftcamp/Resources/basemap
+        type: folder
+      - path: Swiftcamp/Resources/web
+        type: folder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app.mac
+        PRODUCT_NAME: Swiftcamp
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.navigation
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+    # Deliberately NO MapLibre dependency. The distributed XCFramework has
+    # only ios-arm64 and ios-arm64_x86_64-simulator slices, so linking it
+    # here would not build. macOS renders through MapLibre GL JS instead —
+    # see Map/macOS/MapWebView.swift.
+
 schemes:
   Swiftcamp-iOS:
     build:
       targets:
         Swiftcamp-iOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  Swiftcamp-macOS:
+    build:
+      targets:
+        Swiftcamp-macOS: all
     run:
       config: Debug
     archive:

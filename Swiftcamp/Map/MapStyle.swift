@@ -16,10 +16,33 @@ import Foundation
 /// basemap exists to provide. Bundling a glyph set (as tachbase-ios does
 /// under `Resources/Glyphs`) is the fix, and is deliberately deferred.
 enum MapStyle {
+    /// The style as JSON text.
+    ///
+    /// macOS needs the string (it is injected into the web view before the
+    /// page loads); iOS needs a file URL. Both come from here so there is
+    /// exactly one definition of the cartography.
+    static func json(sourceURL: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: dictionary(sourceURL: sourceURL),
+                                              options: [.prettyPrinted])
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        return text
+    }
+
     /// Writes the style to a temp file and returns its URL, because
-    /// MapLibre takes a style *URL* rather than a string.
+    /// MapLibre Native takes a style *URL* rather than a string.
     static func write(sourceURL: String) throws -> URL {
-        let style: [String: Any] = [
+        let data = try JSONSerialization.data(withJSONObject: dictionary(sourceURL: sourceURL),
+                                              options: [.prettyPrinted])
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("swiftcamp-style.json")
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    private static func dictionary(sourceURL: String) -> [String: Any] {
+        [
             "version": 8,
             "name": "Swiftcamp Base",
             "sources": [
@@ -31,12 +54,6 @@ enum MapStyle {
             ],
             "layers": layers(),
         ]
-
-        let data = try JSONSerialization.data(withJSONObject: style, options: [.prettyPrinted])
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("swiftcamp-style.json")
-        try data.write(to: url, options: .atomic)
-        return url
     }
 
     // MARK: - Palette
