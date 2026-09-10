@@ -205,12 +205,40 @@ The parenting mechanism itself works correctly:
 
 So this is not a general failure of extract-based admin building. Canada and Mexico assemble fine. It is the USA boundary relation specifically that cannot be built from a North America extract, and the most likely reason is that the relation includes territories outside North America — Guam, American Samoa, the Northern Mariana Islands — so the extract cannot close its rings.
 
-**Remaining options:**
+#### Resolved: only a planet build works
 
-1. Build admins from the full planet. Guaranteed by Valhalla's own error text ("Ignore if not using a planet extract"), and the heaviest at roughly 80 GB of PBF.
-2. Synthesise the missing row: insert a level-2 `US` admin whose geometry is the spatial union of the 51 orphaned level-4 rows, then set `parent_admin` on each. Cheap and testable, and a hack the pipeline carries forever.
+Built from `planet-latest.osm.pbf` on 2026-09-10 and confirmed end to end. Valhalla's own error text was right all along: *"Ignore if not using a planet extract."*
 
-Either way this is a one-time build whose output is a single file reused across every regional tile build.
+| | Value |
+| --- | --- |
+| Planet PBF | 89 GB, ~10 min from an OSM community mirror |
+| Admin build | ~48 min, single-threaded, 1.4 GB RSS |
+| `admins.sqlite` | 517 MB |
+| Countries (level 2) | 233 |
+| Subdivisions (level 4) | 3,051 |
+
+`United States` is present with `iso_code` `US` and `drive_on_right` set, and the state rows parent to it. Rebuilding the Colorado tiles against it, then querying a Denver intersection on a tiles-only deployment:
+
+```
+time_zone_name   'America/Denver'
+state            'Colorado'
+iso_3166-2       'CO'
+country          'United States'
+iso_3166-1       'US'
+```
+
+Routing is unaffected: Denver to Grand Junction on motorcycle costing still returns 392.2 km over 3.77 hours with 10 maneuvers.
+
+Pack size is essentially unchanged, so correct admin data is free:
+
+| Artifact | Size |
+| --- | --- |
+| `valhalla_tiles.tar` | 476 MB |
+| `valhalla_tiles.tar.zst` | 145 MB |
+
+**Pipeline rule:** build `admins.sqlite` once from the planet, keep the 517 MB file, and reuse it for every regional tile build. Rebuild it only when admin boundaries need refreshing, which is rarely. The 89 GB planet PBF can be deleted immediately afterwards.
+
+Ignore the `GEOS error: TopologyException` lines during the build. They come from invalid boundary geometry (observed near Xiamen, China) and do not affect the result.
 
 Tile size was unchanged at 467 MB across all three builds, so none of this affects the 145 MB download figure.
 
@@ -244,9 +272,8 @@ The asymmetry buys a better cold start than BaseCamp, which makes you install ma
 
 ## Open questions
 
-- Getting country and state to attach. State-level, US-wide and North America extracts have all been tested and none work, because the USA boundary relation never assembles. Remaining choices are a planet build or a synthesised country row.
 - macOS support in `valhalla-mobile`, or whether the Mac needs its own CMake build.
 - ODbL classification of routing graphs, for commercial release.
 - Whether to ship elevation for grade-aware routing, which is attractive for motorcycle touring and expensive in storage.
 
-Answered by the 2026-09-10 Colorado spike: per-region tile size (145 MB compressed), whether the sqlite databases ship (they do not), and whether a state extract yields usable admin data (it does not).
+Answered by the 2026-09-10 spikes: per-region tile size (145 MB compressed), whether the sqlite databases ship (they do not), and how to get usable admin data (only a planet-built `admins.sqlite` works).
