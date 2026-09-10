@@ -9,3 +9,7 @@ Swiftcamp.xcodeproj/
 
 .swiftpm/
 .build/
+
+# Bundled basemap — ~43 MB, regenerate with scripts/fetch-basemap.sh.
+# Kept out of git so repeated refreshes don't accumulate in history.
+Swiftcamp/Resources/basemap/*.pmtiles

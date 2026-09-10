@@ -84,6 +84,14 @@ These are the author's established habits; follow them unless told otherwise.
 
 ## Build commands
 
+The bundled basemap (`Swiftcamp/Resources/basemap/world-z6.pmtiles`, ~43 MB) is
+**not in git**. Run `./scripts/fetch-basemap.sh` after cloning, or the app builds
+but asserts at launch with no map. It is excluded because PMTiles is read by byte
+range, so regenerating it costs about five HTTP requests and a second against the
+Protomaps planet build — cheap enough that carrying every refreshed copy in git
+history forever is the worse trade.
+
+
 None yet. If XcodeGen is adopted, tachbase-ios's `Makefile` is the model:
 
 ```bash
