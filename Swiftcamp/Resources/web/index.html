@@ -52,6 +52,14 @@
     attributionControl: false
   });
 
+  // MapLibre GL JS sizes its canvas once and does not track its container.
+  // On macOS the window is resizable and the web view starts at zero size
+  // before SwiftUI lays it out, so without this the canvas stays at
+  // whatever it was first measured at and the rest of the view renders as
+  // empty background. Native handles this itself; the JS build does not.
+  var resizeObserver = new ResizeObserver(function () { map.resize(); });
+  resizeObserver.observe(document.getElementById('map'));
+
   map.on('idle', function () {
     // 'idle' rather than 'load': it fires once tiles have actually been
     // fetched, decoded and drawn, so a non-zero feature count here proves
@@ -60,8 +68,15 @@
     if (map.__reported) { return; }
     map.__reported = true;
     var features = map.queryRenderedFeatures();
+    var c = map.getCanvas();
     console.log('map idle, ' + map.getStyle().layers.length + ' layers, ' +
                 features.length + ' rendered features');
+    console.log('sizes: innerHeight=' + window.innerHeight +
+                ' bodyH=' + document.body.clientHeight +
+                ' mapH=' + document.getElementById('map').clientHeight +
+                ' canvasCSSH=' + c.style.height +
+                ' canvasPxH=' + c.height +
+                ' dpr=' + window.devicePixelRatio);
   });
   map.on('error', function (e) { console.error('map error: ' + (e && e.error ? e.error.message : e)); });
 })();
