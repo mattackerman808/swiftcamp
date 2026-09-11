@@ -132,6 +132,30 @@ enum MapStyle {
         return out
     }
 
+    /// Halo colour per shield: the opposite of its numeral colour, which
+    /// approximates the shield's own background. Derived from the catalog
+    /// rather than listed separately so it cannot fall out of step.
+    private static func shieldHaloColor(_ shieldBase: [Any]) -> [Any] {
+        var out: [Any] = ["match", shieldBase]
+        for (name, hex) in ShieldCatalog.textColors.sorted(by: { $0.key < $1.key }) {
+            out.append(name)
+            out.append(isLight(hex) ? "#1d1d1d" : "#ffffff")
+        }
+        out.append("#ffffff")
+        return out
+    }
+
+    /// Relative luminance of a `#rrggbb` string, used only to decide which
+    /// way round a halo goes.
+    private static func isLight(_ hex: String) -> Bool {
+        let h = hex.dropFirst()
+        guard h.count == 6, let v = Int(h, radix: 16) else { return false }
+        let r = Double((v >> 16) & 0xff) / 255
+        let g = Double((v >> 8) & 0xff) / 255
+        let b = Double(v & 0xff) / 255
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.5
+    }
+
     /// Zoom at which the bundled world layers stop drawing.
     ///
     /// One past the bundled archive's own depth of 6, so it stays visible
@@ -376,6 +400,12 @@ enum MapStyle {
                 // definitions rather than inferred: Idaho's plate is black,
                 // Minnesota's blue, California's spade green.
                 "text-color": shieldTextColor(shieldBase),
+                // A halo in the shield's own background colour, so a numeral
+                // stays readable where it crosses a line in the artwork —
+                // DC's diagonal and Oklahoma's panhandle both run straight
+                // through where the number sits.
+                "text-halo-color": shieldHaloColor(shieldBase),
+                "text-halo-width": 0.9,
             ],
         ])
 

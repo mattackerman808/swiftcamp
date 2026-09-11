@@ -170,10 +170,17 @@ def centre_text_box(img, pad, scale):
     top, bottom = pad["top"] * scale, pad["bottom"] * scale
     cx, cy = (left + (w - right)) / 2.0, (top + (h - bottom)) / 2.0
 
-    pl = int(round(max(0, (cx - w / 2) * 2)))
-    pr = int(round(max(0, (w / 2 - cx) * 2)))
-    pt = int(round(max(0, (cy - h / 2) * 2)))
-    pb = int(round(max(0, (h / 2 - cy) * 2)))
+    # Solve for padding that puts the text box at the new image centre.
+    # With padding pt/pb the box sits at cy + pt and the centre at
+    # (h + pt + pb) / 2, so pt - pb = h - 2*cy. A text box BELOW centre
+    # therefore needs padding on the BOTTOM, which pushes the image centre
+    # down onto it. Getting this backwards moves the text the wrong way by
+    # exactly the amount it should have moved the right way, which on
+    # Colorado put the number in the flag band instead of under it.
+    pr = int(round(max(0, (cx - w / 2) * 2)))
+    pl = int(round(max(0, (w / 2 - cx) * 2)))
+    pb = int(round(max(0, (cy - h / 2) * 2)))
+    pt = int(round(max(0, (h / 2 - cy) * 2)))
     if pl + pr + pt + pb == 0:
         return img
     out = Image.new("RGBA", (w + pl + pr, h + pt + pb), (0, 0, 0, 0))
