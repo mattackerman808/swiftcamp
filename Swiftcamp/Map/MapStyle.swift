@@ -114,6 +114,8 @@ enum MapStyle {
         static let labelHalo       = "#f7f5f0"
         static let roadLabel       = "#5d6470"
         static let shieldText      = "#3d3226"
+        static let track           = "#b9ab92"
+        static let path            = "#cfc9bd"
     }
 
     /// Zoom at which the bundled world layers stop drawing.
@@ -194,15 +196,33 @@ enum MapStyle {
         // pixels. An earlier version used one unfiltered casing layer at
         // motorway width beneath every road, which at z13 painted a solid
         // tan mass over the whole city and buried the street grid.
-        let minor = ["minor_road", "other", "path"]
+        //
+        // Class matters as much as width. `path` covers sidewalks, footways
+        // and pedestrian crossings, which in most US suburbs are mapped
+        // separately and run parallel to every street. Drawing them at
+        // residential width made each road look doubled or tripled. They
+        // now get their own deliberately faint treatment, far down this
+        // list, and never enter the casing layers.
+        let residential = ["residential", "unclassified", "living_street"]
         let major = ["highway", "major_road"]
 
         out.append(line("roads-minor-casing", src: "streets", layer: "roads", color: Palette.roadCasing,
                         widths: [[11, 1.4], [13, 2.8], [15, 6.0], [17, 13.0]],
-                        filter: ["match", ["get", "kind"], minor, true, false]))
+                        filter: ["all", ["==", ["get", "kind"], "minor_road"],
+                                 ["match", ["get", "kind_detail"], residential, true, false]]))
         out.append(line("roads-minor", src: "streets", layer: "roads", color: Palette.roadMinor,
                         widths: [[11, 0.6], [13, 1.6], [15, 4.0], [17, 10.0]],
-                        filter: ["match", ["get", "kind"], minor, true, false]))
+                        filter: ["all", ["==", ["get", "kind"], "minor_road"],
+                                 ["match", ["get", "kind_detail"], residential, true, false]]))
+
+        // Service roads: driveways, alleys, parking aisles. Real vehicle
+        // ways, so they stay solid, but at roughly half width so they read
+        // as subordinate rather than as more streets.
+        out.append(line("roads-service", src: "streets", layer: "roads", color: Palette.roadMinor,
+                        widths: [[14, 0.8], [16, 2.2], [18, 5.0]],
+                        filter: ["all", ["==", ["get", "kind"], "minor_road"],
+                                 ["==", ["get", "kind_detail"], "service"]],
+                        minZoom: 14))
 
         // Motorways and trunk roads read warmer than everything else —
         // these are the roads a touring route actually follows.
@@ -212,6 +232,22 @@ enum MapStyle {
         out.append(line("roads-major", src: "streets", layer: "roads", color: Palette.roadMajor,
                         widths: [[6, 0.8], [10, 2.0], [13, 4.5], [16, 12.0], [18, 24.0]],
                         filter: ["match", ["get", "kind"], major, true, false]))
+
+        // Unpaved tracks. Kept visible from a regional zoom and styled
+        // distinctly because on a touring map they are a route option, not
+        // clutter — a dual-sport rider wants to see them.
+        out.append(line("roads-track", src: "streets", layer: "roads", color: Palette.track,
+                        widths: [[12, 0.6], [15, 1.4], [18, 3.0]],
+                        filter: ["all", ["==", ["get", "kind"], "path"],
+                                 ["==", ["get", "kind_detail"], "track"]]))
+
+        // Sidewalks, footways, crossings. Deliberately faint and late —
+        // pedestrian infrastructure is not what this map is for, but it
+        // does help orient inside a town centre.
+        out.append(line("roads-path", src: "streets", layer: "roads", color: Palette.path,
+                        widths: [[16, 0.5], [18, 1.4]],
+                        filter: ["all", ["==", ["get", "kind"], "path"],
+                                 ["!=", ["get", "kind_detail"], "track"]]))
 
         out.append(line("boundaries", src: "streets", layer: "boundaries", color: Palette.boundary,
                         widths: [[2, 0.4], [6, 0.8], [10, 1.4]],
@@ -357,6 +393,8 @@ enum MapStyle {
                              color: String,
                              widths: [[Double]],
                              filter: [Any]? = nil,
+                             minZoom: Double? = nil,
+                             dash: [Double]? = nil,
                              dashed: Bool = false) -> [String: Any] {
         var stops: [Any] = ["interpolate", ["linear"], ["zoom"]]
         for pair in widths {
@@ -368,7 +406,8 @@ enum MapStyle {
             "line-color": color,
             "line-width": stops,
         ]
-        if dashed { paint["line-dasharray"] = [2.0, 2.0] }
+        if let dash { paint["line-dasharray"] = dash }
+        else if dashed { paint["line-dasharray"] = [2.0, 2.0] }
 
         var out: [String: Any] = [
             "id": id,
@@ -379,6 +418,7 @@ enum MapStyle {
             "paint": paint,
         ]
         if let filter { out["filter"] = filter }
+        if let minZoom { out["minzoom"] = minZoom }
         return out
     }
 }
