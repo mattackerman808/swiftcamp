@@ -142,13 +142,31 @@ enum MapStyle {
         out.append(fill("world-earth", src: "world", layer: "earth", color: Palette.earth, maxZoom: worldLayerMaxZoom))
         out.append(fill("world-landcover", src: "world", layer: "landcover", color: Palette.landcover, maxZoom: worldLayerMaxZoom))
         out.append(fill("world-landuse", src: "world", layer: "landuse", color: Palette.landuse, maxZoom: worldLayerMaxZoom))
-        out.append(fill("world-water", src: "world", layer: "water", color: Palette.water, maxZoom: worldLayerMaxZoom))
+        out.append(fill("world-water", src: "world", layer: "water", color: Palette.water, maxZoom: worldLayerMaxZoom,
+                        filter: ["==", ["geometry-type"], "Polygon"]))
 
         // Streamed detail, painting over the bundled fills where it exists.
         out.append(fill("earth", src: "streets", layer: "earth", color: Palette.earth))
         out.append(fill("landcover", src: "streets", layer: "landcover", color: Palette.landcover))
         out.append(fill("landuse", src: "streets", layer: "landuse", color: Palette.landuse))
-        out.append(fill("water", src: "streets", layer: "water", color: Palette.water))
+        // Water carries BOTH polygons (lakes, reservoirs, riverbanks) and
+        // linestrings (stream and river centrelines) in the same layer.
+        // Filling a linestring makes MapLibre close the path, which turns a
+        // creek into an enormous blob following its course — this is what
+        // produced the phantom blue bands across Campbell and Saratoga.
+        // Fill polygons only; draw the centrelines as lines below.
+        out.append(fill("water", src: "streets", layer: "water", color: Palette.water,
+                        filter: ["==", ["geometry-type"], "Polygon"]))
+
+        // Stream and river centrelines, as lines. `min_zoom` is the
+        // tileset's own hint for when a feature becomes appropriate to
+        // show; honouring it keeps every irrigation ditch out of a
+        // regional view.
+        out.append(line("water-lines", src: "streets", layer: "water", color: Palette.water,
+                        widths: [[10, 0.5], [13, 1.2], [16, 3.5]],
+                        filter: ["all",
+                                 ["==", ["geometry-type"], "LineString"],
+                                 ["<=", ["coalesce", ["get", "min_zoom"], 0], ["zoom"]]]))
 
         // Above every fill, below every road. Subtle on purpose: this is a
         // road-touring map, so relief is context for why a road bends, not
@@ -316,7 +334,8 @@ enum MapStyle {
                              src: String,
                              layer: String,
                              color: String,
-                             maxZoom: Double? = nil) -> [String: Any] {
+                             maxZoom: Double? = nil,
+                             filter: [Any]? = nil) -> [String: Any] {
         var out: [String: Any] = [
             "id": id,
             "type": "fill",
@@ -325,6 +344,7 @@ enum MapStyle {
             "paint": ["fill-color": color],
         ]
         if let maxZoom { out["maxzoom"] = maxZoom }
+        if let filter { out["filter"] = filter }
         return out
     }
 
