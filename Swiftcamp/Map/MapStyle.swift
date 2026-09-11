@@ -28,10 +28,11 @@ import Foundation
 /// *then* hillshade, *then* roads and boundaries. Putting hillshade below
 /// the streets fills would hide it entirely, since those fills are opaque.
 ///
-/// **No text layers yet.** Labels need a `glyphs` URL, and pointing that at
-/// a remote server would break the offline guarantee the bundled archive
-/// exists to provide. Bundling a glyph set (as tachbase-ios does under
-/// `Resources/Glyphs`) is the fix, and is deliberately deferred.
+/// **`places` and `pois` are not drawn.** Both are label layers, and text
+/// needs a `glyphs` URL. Pointing that at a remote server would break the
+/// offline guarantee the bundled archive exists to provide, so bundling a
+/// glyph set (as tachbase-ios does under `Resources/Glyphs`) is the fix.
+/// Deliberately deferred — it is the largest remaining visual gap.
 enum MapStyle {
     /// The style as JSON text.
     ///
@@ -102,7 +103,12 @@ enum MapStyle {
         static let boundary   = "#9a9a9a"
         static let roadMinor  = "#ffffff"
         static let roadMajor  = "#fdf3d8"
-        static let roadCasing = "#e0d9c4"
+        static let roadCasing      = "#d8d2c4"
+        static let roadMajorCasing = "#e8c77a"
+        // Distinct enough from `earth` to read as built form rather than
+        // ground. At z13 a downtown block is mostly building, so too little
+        // contrast here and the city looks like an empty field.
+        static let building        = "#dcd5c8"
     }
 
     private static func layers() -> [[String: Any]] {
@@ -140,18 +146,36 @@ enum MapStyle {
             ],
         ])
 
-        out.append(line("roads-casing", src: "streets", layer: "roads", color: Palette.roadCasing,
-                        widths: [[4, 0.6], [8, 2.0], [12, 5.0], [16, 14.0]]))
+        // Buildings sit above the fills and hillshade but below roads, so a
+        // route line and the roads it follows stay readable across a dense
+        // downtown block. Only present from z11 in the tileset.
+        out.append(fill("buildings", src: "streets", layer: "buildings", color: Palette.building))
+
+        // Roads are drawn casing-then-fill, minor classes first so majors
+        // cross over them cleanly.
+        //
+        // The casing width must track its own fill width plus a couple of
+        // pixels. An earlier version used one unfiltered casing layer at
+        // motorway width beneath every road, which at z13 painted a solid
+        // tan mass over the whole city and buried the street grid.
+        let minor = ["minor_road", "other", "path"]
+        let major = ["highway", "major_road"]
+
+        out.append(line("roads-minor-casing", src: "streets", layer: "roads", color: Palette.roadCasing,
+                        widths: [[11, 1.4], [13, 2.8], [15, 6.0], [17, 13.0]],
+                        filter: ["match", ["get", "kind"], minor, true, false]))
+        out.append(line("roads-minor", src: "streets", layer: "roads", color: Palette.roadMinor,
+                        widths: [[11, 0.6], [13, 1.6], [15, 4.0], [17, 10.0]],
+                        filter: ["match", ["get", "kind"], minor, true, false]))
 
         // Motorways and trunk roads read warmer than everything else —
         // these are the roads a touring route actually follows.
+        out.append(line("roads-major-casing", src: "streets", layer: "roads", color: Palette.roadMajorCasing,
+                        widths: [[6, 1.6], [10, 3.2], [13, 6.5], [16, 16.0], [18, 30.0]],
+                        filter: ["match", ["get", "kind"], major, true, false]))
         out.append(line("roads-major", src: "streets", layer: "roads", color: Palette.roadMajor,
-                        widths: [[4, 0.4], [8, 1.4], [12, 3.6], [16, 10.0]],
-                        filter: ["match", ["get", "kind"], ["highway", "major_road"], true, false]))
-
-        out.append(line("roads-minor", src: "streets", layer: "roads", color: Palette.roadMinor,
-                        widths: [[8, 0.4], [12, 1.6], [16, 6.0]],
-                        filter: ["match", ["get", "kind"], ["minor_road", "other", "path"], true, false]))
+                        widths: [[6, 0.8], [10, 2.0], [13, 4.5], [16, 12.0], [18, 24.0]],
+                        filter: ["match", ["get", "kind"], major, true, false]))
 
         out.append(line("boundaries", src: "streets", layer: "boundaries", color: Palette.boundary,
                         widths: [[2, 0.4], [6, 0.8], [10, 1.4]],
