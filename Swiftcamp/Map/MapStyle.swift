@@ -119,6 +119,16 @@ enum MapStyle {
         static let path            = "#cfc9bd"
     }
 
+    /// State codes with shield artwork in the sprite sheet, kept in step
+    /// with `scripts/make_shields.py`. Anything outside this list falls back
+    /// to the generic plate.
+    private static let shieldStates: [String] = [
+        "al", "ak", "az", "ar", "ca", "co", "ct", "de", "dc", "fl", "ga", "hi", "id", "il",
+        "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "mo", "mt", "ne",
+        "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd",
+        "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy",
+    ]
+
     /// Zoom at which the bundled world layers stop drawing.
     ///
     /// One past the bundled archive's own depth of 6, so it stays visible
@@ -302,19 +312,33 @@ enum MapStyle {
             ],
         ])
 
-        // Highway markers, drawn as real shields.
+        // Highway markers, drawn as authentic route shields.
         //
-        // The shield is one stretchable sprite per network type, sized to
-        // its text by `icon-text-fit` — so a single image serves "6" and
-        // "285" without the curved shoulders deforming. Artwork and the
-        // stretch zones come from `scripts/make_shields.py`.
+        // Artwork is openstreetmap-americana's (CC0), so California gets its
+        // green spade, Colorado its flag, New Mexico the zia, Texas and
+        // Nevada their state outlines. See `scripts/make_shields.py`.
         //
-        // `network` distinguishes the three US patterns: `US:I` is an
-        // Interstate, `US:US` a US route, and `US:<state>` a state route
-        // (including variants like `US:CO:E470`), which falls through to
-        // the generic plate.
-        let isInterstate: [Any] = ["==", ["get", "network"], "US:I"]
-        let isUSRoute: [Any] = ["==", ["get", "network"], "US:US"]
+        // Shields are NOT stretched to fit their text. A 3-digit California
+        // spade is a different shape from a 2-digit one, not the same shape
+        // scaled, so every network ships `-2` and `-3` artwork and the style
+        // picks on text length.
+        //
+        // `network` gives `US:I`, `US:US`, or `US:<state>` (sometimes with a
+        // further suffix, e.g. `US:CO:E470`, hence the slice). The state
+        // code is matched against a known list rather than concatenated
+        // blind: an unrecognised code would name an image that does not
+        // exist, and MapLibre answers a missing image by logging on every
+        // frame rather than by failing once.
+        let net: [Any] = ["get", "network"]
+        let digits: [Any] = ["case", [">", ["length", ["get", "shield_text"]], 2], "3", "2"]
+        let stateCode: [Any] = ["downcase", ["slice", net, 3, 5]]
+
+        var stateMatch: [Any] = ["match", stateCode, Self.shieldStates,
+                                 ["concat", "shield-", stateCode, "-", digits],
+                                 ["concat", "shield-plate-", digits]]
+
+        let isInterstate: [Any] = ["==", net, "US:I"]
+        let isUSRoute: [Any] = ["==", net, "US:US"]
 
         out.append([
             "id": "highway-shields",
@@ -328,17 +352,15 @@ enum MapStyle {
             "layout": [
                 "symbol-placement": "line",
                 "icon-image": ["case",
-                               isInterstate, "shield-interstate",
-                               isUSRoute, "shield-us",
-                               "shield-state"],
-                "icon-text-fit": "both",
-                "icon-text-fit-padding": [1, 4, 1, 4],
+                               isInterstate, ["concat", "shield-interstate-", digits],
+                               isUSRoute, ["concat", "shield-us-", digits],
+                               stateMatch],
                 "text-field": ["get", "shield_text"],
                 "text-font": ["Noto Sans Bold"],
-                "text-size": ["interpolate", ["linear"], ["zoom"], 7, 9.0, 13, 11.0],
+                "text-size": ["interpolate", ["linear"], ["zoom"], 7, 8.5, 13, 10.5],
                 "symbol-spacing": 220,
-                // Shields stay upright when the map rotates; a rotated
-                // route marker is unreadable in a way a street name is not.
+                // Shields stay upright when the map rotates; a rotated route
+                // marker is unreadable in a way a street name is not.
                 "text-rotation-alignment": "viewport",
                 "icon-rotation-alignment": "viewport",
                 "text-pitch-alignment": "viewport",
@@ -346,9 +368,13 @@ enum MapStyle {
                 "symbol-sort-key": ["case", isInterstate, 0.0, isUSRoute, 1.0, 2.0],
             ],
             "paint": [
-                // White reads on the Interstate's blue field; the other two
-                // are white plates, so their numerals go dark.
-                "text-color": ["case", isInterstate, "#ffffff", "#1d1d1d"],
+                // Interstates carry white numerals on blue; California's
+                // spade is green and also needs white. Every other marker in
+                // the set is a light plate.
+                "text-color": ["case",
+                               isInterstate, "#ffffff",
+                               ["==", stateCode, "ca"], "#ffffff",
+                               "#1d1d1d"],
             ],
         ])
 
