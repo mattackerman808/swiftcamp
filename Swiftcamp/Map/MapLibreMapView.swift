@@ -19,7 +19,8 @@ struct MapLibreMapView: UIViewRepresentable {
         // network. Passing the style up front means that request never happens.
         let styleURL: URL?
         if let source = BasemapSource.bundledURL {
-            styleURL = try? MapStyle.write(bundledURL: source)
+            styleURL = try? MapStyle.write(bundledURL: source,
+                                           glyphsURL: BasemapSource.bundledGlyphsURL ?? "")
         } else {
             assertionFailure("world-z6.pmtiles missing from the app bundle")
             styleURL = nil

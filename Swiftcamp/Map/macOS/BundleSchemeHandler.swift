@@ -38,6 +38,12 @@ final class BundleSchemeHandler: NSObject, WKURLSchemeHandler {
         "pmtiles://\(scheme)://\(host)/basemap/\(BasemapSource.bundledName).pmtiles"
     }
 
+    /// Glyph URL template for the style. Goes through this handler like
+    /// everything else, because WebKit refuses to fetch `file://`.
+    static var glyphsURL: String {
+        "\(scheme)://\(host)/glyphs/{fontstack}/{range}.pbf"
+    }
+
     private let root: URL
 
     override init() {

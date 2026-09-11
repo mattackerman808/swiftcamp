@@ -75,6 +75,21 @@ enum BasemapSource {
     /// not a generic credit. Belongs on screen whenever terrain is visible.
     static let terrainAttribution = "© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA"
 
+    /// Bundled glyph directory, as a `file://` URL template.
+    ///
+    /// Label text needs a `glyphs` URL. Pointing it at a remote font server
+    /// would break the offline guarantee the bundled archive exists to
+    /// provide, so the ranges ship in the app: Noto Sans Regular and Bold,
+    /// Latin plus Latin Extended, about 1.7 MB. SIL Open Font License.
+    ///
+    /// macOS does not use this — its web view cannot fetch `file://`, so it
+    /// goes through `BundleSchemeHandler` instead.
+    static var bundledGlyphsURL: String? {
+        guard let root = Bundle.main.resourceURL else { return nil }
+        return root.appendingPathComponent("glyphs", isDirectory: true)
+            .absoluteString + "{fontstack}/{range}.pbf"
+    }
+
     /// Name of the bundled archive, without extension.
     static let bundledName = "world-z6"
 

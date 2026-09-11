@@ -39,8 +39,8 @@ enum MapStyle {
     /// macOS needs the string (it is injected into the web view before the
     /// page loads); iOS needs a file URL. Both come from here so there is
     /// exactly one definition of the cartography.
-    static func json(bundledURL: String) throws -> String {
-        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL),
+    static func json(bundledURL: String, glyphsURL: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL, glyphsURL: glyphsURL),
                                               options: [.prettyPrinted])
         guard let text = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
@@ -50,8 +50,8 @@ enum MapStyle {
 
     /// Writes the style to a temp file and returns its URL, because
     /// MapLibre Native takes a style *URL* rather than a string.
-    static func write(bundledURL: String) throws -> URL {
-        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL),
+    static func write(bundledURL: String, glyphsURL: String) throws -> URL {
+        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL, glyphsURL: glyphsURL),
                                               options: [.prettyPrinted])
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("swiftcamp-style.json")
@@ -59,10 +59,11 @@ enum MapStyle {
         return url
     }
 
-    private static func dictionary(bundledURL: String) -> [String: Any] {
+    private static func dictionary(bundledURL: String, glyphsURL: String) -> [String: Any] {
         [
             "version": 8,
             "name": "Swiftcamp Base",
+            "glyphs": glyphsURL,
             "sources": [
                 "world": [
                     "type": "vector",
@@ -109,6 +110,10 @@ enum MapStyle {
         // ground. At z13 a downtown block is mostly building, so too little
         // contrast here and the city looks like an empty field.
         static let building        = "#dcd5c8"
+        static let label           = "#40464e"
+        static let labelHalo       = "#f7f5f0"
+        static let roadLabel       = "#5d6470"
+        static let shieldText      = "#3d3226"
     }
 
     private static func layers() -> [[String: Any]] {
@@ -180,6 +185,114 @@ enum MapStyle {
         out.append(line("boundaries", src: "streets", layer: "boundaries", color: Palette.boundary,
                         widths: [[2, 0.4], [6, 0.8], [10, 1.4]],
                         dashed: true))
+
+        out.append(contentsOf: labelLayers())
+
+        return out
+    }
+
+    // MARK: - Labels
+
+    /// Text layers, drawn last so nothing paints over them.
+    ///
+    /// Every one of these needs the `glyphs` URL set on the style; without
+    /// it MapLibre silently renders no text at all rather than erroring.
+    ///
+    /// `text-field` uses the plain `name` rather than a localised
+    /// `name:xx`. The tileset carries about 45 translations per feature,
+    /// and picking one is a real decision about who the app is for, not a
+    /// default to stumble into.
+    private static func labelLayers() -> [[String: Any]] {
+        var out: [[String: Any]] = []
+
+        // Road names, laid along the line. Kept below place names: at a
+        // junction the town matters more than the street.
+        out.append([
+            "id": "road-labels",
+            "type": "symbol",
+            "source": "streets",
+            "source-layer": "roads",
+            "minzoom": 12,
+            "filter": ["all",
+                       ["has", "name"],
+                       ["match", ["get", "kind"],
+                        ["highway", "major_road", "minor_road"], true, false]],
+            "layout": [
+                "symbol-placement": "line",
+                "text-field": ["get", "name"],
+                "text-font": ["Noto Sans Regular"],
+                "text-size": ["interpolate", ["linear"], ["zoom"], 12, 9.0, 16, 12.0],
+                "text-max-angle": 30,
+                "text-padding": 4,
+                // Repeat long streets so the name is never far off screen.
+                "symbol-spacing": 260,
+            ],
+            "paint": [
+                "text-color": Palette.roadLabel,
+                "text-halo-color": Palette.labelHalo,
+                "text-halo-width": 1.4,
+            ],
+        ])
+
+        // Highway markers. The tileset carries `shield_text` (the bare
+        // number) and `network` (e.g. US:I) alongside the full `ref`.
+        // Real shields would need a sprite sheet keyed by network; the
+        // number in bold with a heavy halo reads well enough without one
+        // and costs no extra assets.
+        out.append([
+            "id": "highway-shields",
+            "type": "symbol",
+            "source": "streets",
+            "source-layer": "roads",
+            "minzoom": 7,
+            "filter": ["all",
+                       ["has", "shield_text"],
+                       ["match", ["get", "kind"], ["highway"], true, false]],
+            "layout": [
+                "symbol-placement": "line",
+                "text-field": ["get", "shield_text"],
+                "text-font": ["Noto Sans Bold"],
+                "text-size": ["interpolate", ["linear"], ["zoom"], 7, 10.0, 14, 13.0],
+                "symbol-spacing": 200,
+                "text-padding": 6,
+                "text-rotation-alignment": "viewport",
+                "text-pitch-alignment": "viewport",
+            ],
+            "paint": [
+                "text-color": Palette.shieldText,
+                "text-halo-color": "#ffffff",
+                "text-halo-width": 2.6,
+            ],
+        ])
+
+        // Place names. `population_rank` is the tileset's own importance
+        // ordering, so it drives both size and which labels survive
+        // collision — larger towns win, which is what a touring map wants.
+        out.append([
+            "id": "place-labels",
+            "type": "symbol",
+            "source": "streets",
+            "source-layer": "places",
+            "filter": ["all",
+                       ["has", "name"],
+                       ["match", ["get", "kind"],
+                        ["locality", "region", "country"], true, false]],
+            "layout": [
+                "text-field": ["get", "name"],
+                "text-font": ["Noto Sans Bold"],
+                "text-size": ["interpolate", ["linear"], ["zoom"],
+                              4, ["interpolate", ["linear"], ["get", "population_rank"], 0, 9.0, 15, 15.0],
+                              12, ["interpolate", ["linear"], ["get", "population_rank"], 0, 11.0, 15, 22.0]],
+                "text-max-width": 7,
+                "text-padding": 6,
+                "symbol-sort-key": ["-", 20, ["coalesce", ["get", "population_rank"], 0]],
+            ],
+            "paint": [
+                "text-color": Palette.label,
+                "text-halo-color": Palette.labelHalo,
+                "text-halo-width": 1.8,
+            ],
+        ])
 
         return out
     }
