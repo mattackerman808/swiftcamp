@@ -250,6 +250,59 @@ Impact if left unfixed: missing driving side, ISO codes, and admin-derived acces
 
 Continental coverage is not a goal. Touring is regional, and a state or small cluster of neighbouring states is the natural unit.
 
+## Map layers
+
+Measured 2026-09-11 by extracting a Colorado bounding box from each upstream planet archive.
+
+| Layer | Source | Licence | Colorado extract |
+| --- | --- | --- | --- |
+| Street | Protomaps planet, 138 GB | ODbL | **235 MB** to z14 |
+| Terrain | Mapterhorn planet, 331 GB | Copernicus DEM | **58 MB** to z10, **569 MB** to z12 |
+| Routing | Built from Geofabrik | ODbL | **145 MB** compressed |
+| Satellite | see below | — | not viable as a download |
+
+Both upstreams are PMTiles archives served with range support, so `pmtiles extract --bbox` cuts a region without downloading the planet. Colorado terrain to z12 took 19 seconds and 82 HTTP requests against a 331 GB file.
+
+### Terrain
+
+[Mapterhorn](https://mapterhorn.com) distributes Terrarium-encoded WebP tiles at 512 px as PMTiles, from Copernicus DEM at 30 m globally (swissALTI3D at 0.5 m in Switzerland). Free, no key, hosted on Cloudflare R2.
+
+MapLibre Native supports this directly — the shipped binary contains `MLNHillshadeStyleLayer` and accepts both `mapbox` and `terrarium` raster-dem encodings — so hillshade works identically on both platforms from one source.
+
+**Contours do not.** The usual approach generates them on the fly from the DEM with `maplibre-contour`, which avoids pre-rendering 100+ GB of contour variations. That plugin is JavaScript, so it works on macOS and cannot work on iOS with MapLibre Native. Either pre-generate contour vector tiles for both platforms, or ship hillshade everywhere and treat drawn contours as macOS-only. **This is the first place the split-backend plan actually costs something**, and it should be decided before topo is promised as a feature.
+
+Zoom depth is the main size lever: z10 to z12 is a 10x jump for terrain.
+
+### Satellite is a licensing problem, not a technical one
+
+The commercial imagery layers cannot be used in an offline region pack at all:
+
+- **Esri World Imagery** sets the offline download limit to **0 tiles** and requires cached tiles be deleted after 3 days. This is what forced Gaia GPS to change their product.
+- **Mapbox Satellite** permits caching for performance only, for no more than 30 days, with no redistribution and use confined to Mapbox platforms.
+
+Neither survives contact with "download a region and keep it." The open alternatives:
+
+- **NAIP** (USDA): public domain, 60 cm, United States only, on AWS as Cloud Optimized GeoTIFFs in a requester-pays bucket. Genuinely excellent for US touring, but **not pre-tiled** — turning COGs into PMTiles is a pipeline we would own, and the raw dataset is enormous.
+- **Sentinel-2**: free and global, but 10 m, which is context rather than detail.
+
+BaseCamp's own precedent is instructive: Garmin sold aerial imagery as BirdsEye, a paid subscription add-on, rather than bundling it. **Recommendation: ship street and terrain first, defer satellite**, and if it happens later, build it from NAIP for the US.
+
+## The offline model
+
+One file per region per layer, not chunked archives.
+
+```
+basemap.pmtiles                      # streamed, full detail, all regions
+regions/colorado/street.pmtiles      # 235 MB
+regions/colorado/terrain.pmtiles     #  58 MB
+regions/colorado/routing.tar.zst     # 145 MB
+manifest.json
+```
+
+tachbase split its offline packs into sha256-verified chunks because it was shipping thousands of individual raster tiles and needed resumability across them. PMTiles removes that need: each layer is a single file, and an interrupted download resumes with an HTTP range request. **Do not port the chunked-tar machinery.** Keep the parts that matter — the manifest, per-file checksums, resumable transfer, and a visual region picker (`Tachbase/Offline/USStateMapView.swift` is the precedent).
+
+A Colorado pack is roughly 440 MB with terrain at z10, or about 950 MB at z12.
+
 ## First-run experience
 
 The asymmetry buys a better cold start than BaseCamp, which makes you install maps before anything works.
