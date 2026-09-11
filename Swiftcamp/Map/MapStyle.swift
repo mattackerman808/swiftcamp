@@ -119,15 +119,18 @@ enum MapStyle {
         static let path            = "#cfc9bd"
     }
 
-    /// State codes with shield artwork in the sprite sheet, kept in step
-    /// with `scripts/make_shields.py`. Anything outside this list falls back
-    /// to the generic plate.
-    private static let shieldStates: [String] = [
-        "al", "ak", "az", "ar", "ca", "co", "ct", "de", "dc", "fl", "ga", "hi", "id", "il",
-        "in", "ia", "ks", "ky", "la", "me", "md", "ma", "mi", "mn", "ms", "mo", "mt", "ne",
-        "nv", "nh", "nj", "nm", "ny", "nc", "nd", "oh", "ok", "or", "pa", "ri", "sc", "sd",
-        "tn", "tx", "ut", "vt", "va", "wa", "wv", "wi", "wy",
-    ]
+    /// Builds the `match` expression mapping a shield to its numeral
+    /// colour. Flattened from `ShieldCatalog` so the colours travel with the
+    /// generated sprite sheet instead of being restated here.
+    private static func shieldTextColor(_ shieldBase: [Any]) -> [Any] {
+        var out: [Any] = ["match", shieldBase]
+        for (name, hex) in ShieldCatalog.textColors.sorted(by: { $0.key < $1.key }) {
+            out.append(name)
+            out.append(hex)
+        }
+        out.append("#1d1d1d")
+        return out
+    }
 
     /// Zoom at which the bundled world layers stop drawing.
     ///
@@ -332,13 +335,17 @@ enum MapStyle {
         let net: [Any] = ["get", "network"]
         let digits: [Any] = ["case", [">", ["length", ["get", "shield_text"]], 2], "3", "2"]
         let stateCode: [Any] = ["downcase", ["slice", net, 3, 5]]
-
-        var stateMatch: [Any] = ["match", stateCode, Self.shieldStates,
-                                 ["concat", "shield-", stateCode, "-", digits],
-                                 ["concat", "shield-plate-", digits]]
-
         let isInterstate: [Any] = ["==", net, "US:I"]
         let isUSRoute: [Any] = ["==", net, "US:US"]
+
+        // Resolved once and reused for both the image and its text colour,
+        // so the two can never disagree about which shield is being drawn.
+        let shieldBase: [Any] = ["case",
+                                 isInterstate, "shield-interstate",
+                                 isUSRoute, "shield-us",
+                                 ["match", stateCode, ShieldCatalog.states,
+                                  ["concat", "shield-", stateCode],
+                                  "shield-plate"]]
 
         out.append([
             "id": "highway-shields",
@@ -351,10 +358,7 @@ enum MapStyle {
                        ["match", ["get", "kind"], ["highway", "major_road"], true, false]],
             "layout": [
                 "symbol-placement": "line",
-                "icon-image": ["case",
-                               isInterstate, ["concat", "shield-interstate-", digits],
-                               isUSRoute, ["concat", "shield-us-", digits],
-                               stateMatch],
+                "icon-image": ["concat", shieldBase, "-", digits],
                 "text-field": ["get", "shield_text"],
                 "text-font": ["Noto Sans Bold"],
                 "text-size": ["interpolate", ["linear"], ["zoom"], 7, 8.5, 13, 10.5],
@@ -368,13 +372,10 @@ enum MapStyle {
                 "symbol-sort-key": ["case", isInterstate, 0.0, isUSRoute, 1.0, 2.0],
             ],
             "paint": [
-                // Interstates carry white numerals on blue; California's
-                // spade is green and also needs white. Every other marker in
-                // the set is a light plate.
-                "text-color": ["case",
-                               isInterstate, "#ffffff",
-                               ["==", stateCode, "ca"], "#ffffff",
-                               "#1d1d1d"],
+                // Numeral colour per shield, from americana's own
+                // definitions rather than inferred: Idaho's plate is black,
+                // Minnesota's blue, California's spade green.
+                "text-color": shieldTextColor(shieldBase),
             ],
         ])
 
