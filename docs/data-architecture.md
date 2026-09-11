@@ -57,6 +57,38 @@ Egress is free, which is what makes this viable.
 | Free tier | 10 GB, 10M Class B ops/month |
 | Reads beyond free tier | $0.36 per million |
 
+### Live deployment
+
+Stood up 2026-09-11. Bucket `swiftcamp-tiles`, Standard class, fronted by `cdn.swiftcamp.app`.
+
+| Object | Size | Contents |
+| --- | --- | --- |
+| `street-20260910.pmtiles` | 8.2 GB | MVT, z0–14, CONUS, 3.7M tiles |
+| `terrain-20260910.pmtiles` | 17.3 GB | Terrarium WebP, z0–12, CONUS, 239k tiles |
+| `manifest.json` | — | names, bounds, attribution |
+
+26 GB at $0.015/GB over the 10 GB free tier is about **$0.24/month**, egress free. Class B reads are the only meter that grows with usage: 10M/month free, then $0.36/M.
+
+Extraction from the upstream planets took 77 seconds (street) and about 2 minutes (terrain). Re-cutting for a different region is cheap; only the upload is slow.
+
+### Two things that will bite whoever sets this up again
+
+**A bucket-scoped API token cannot list buckets**, so rclone tries `CreateBucket` before uploading and gets a 403. Set `no_check_bucket = true` on the remote. The scoped token is the right choice; this is just its consequence.
+
+**CORS is required, and macOS alone needs it.** The bucket must return CORS headers or WebKit blocks every range request and MapLibre GL JS reports only "Load failed". MapLibre Native has no same-origin policy, so iOS works without it — which makes this look like a macOS bug rather than a bucket misconfiguration. The policy:
+
+```json
+[{
+  "AllowedOrigins": ["*"],
+  "AllowedMethods": ["GET", "HEAD"],
+  "AllowedHeaders": ["range", "if-match"],
+  "ExposeHeaders": ["etag", "content-range", "content-length", "accept-ranges"],
+  "MaxAgeSeconds": 3600
+}]
+```
+
+`ExposeHeaders` is the part that gets missed. Without it the browser may issue the range request but cannot read `content-range` back, and the PMTiles reader fails anyway. Wildcard origin is correct here: the data is public, and the web view's custom scheme arrives as `Origin: null`.
+
 ### Bucket layout
 
 ```
