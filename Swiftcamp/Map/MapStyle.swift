@@ -116,6 +116,12 @@ enum MapStyle {
         static let shieldText      = "#3d3226"
     }
 
+    /// Zoom at which the bundled world layers stop drawing.
+    ///
+    /// One past the bundled archive's own depth of 6, so it stays visible
+    /// for the whole range it actually has data for and no further.
+    private static let worldLayerMaxZoom: Double = 7
+
     private static func layers() -> [[String: Any]] {
         var out: [[String: Any]] = []
 
@@ -126,10 +132,17 @@ enum MapStyle {
         ])
 
         // Bundled world, the only thing visible outside the streamed bounds.
-        out.append(fill("world-earth", src: "world", layer: "earth", color: Palette.earth))
-        out.append(fill("world-landcover", src: "world", layer: "landcover", color: Palette.landcover))
-        out.append(fill("world-landuse", src: "world", layer: "landuse", color: Palette.landuse))
-        out.append(fill("world-water", src: "world", layer: "water", color: Palette.water))
+        //
+        // Capped at `worldLayerMaxZoom`. The bundled archive only goes to
+        // z6, and MapLibre overzooms past a source's depth rather than
+        // dropping it — so without this cap, z6 coastline geometry gets
+        // magnified several hundred times and smears across the detailed
+        // map as huge diagonal blue bands where there is no water at all.
+        // Above the cap the streamed archive is the only thing drawing.
+        out.append(fill("world-earth", src: "world", layer: "earth", color: Palette.earth, maxZoom: worldLayerMaxZoom))
+        out.append(fill("world-landcover", src: "world", layer: "landcover", color: Palette.landcover, maxZoom: worldLayerMaxZoom))
+        out.append(fill("world-landuse", src: "world", layer: "landuse", color: Palette.landuse, maxZoom: worldLayerMaxZoom))
+        out.append(fill("world-water", src: "world", layer: "water", color: Palette.water, maxZoom: worldLayerMaxZoom))
 
         // Streamed detail, painting over the bundled fills where it exists.
         out.append(fill("earth", src: "streets", layer: "earth", color: Palette.earth))
@@ -299,14 +312,20 @@ enum MapStyle {
 
     // MARK: - Layer helpers
 
-    private static func fill(_ id: String, src: String, layer: String, color: String) -> [String: Any] {
-        [
+    private static func fill(_ id: String,
+                             src: String,
+                             layer: String,
+                             color: String,
+                             maxZoom: Double? = nil) -> [String: Any] {
+        var out: [String: Any] = [
             "id": id,
             "type": "fill",
             "source": src,
             "source-layer": layer,
             "paint": ["fill-color": color],
         ]
+        if let maxZoom { out["maxzoom"] = maxZoom }
+        return out
     }
 
     /// `widths` is a list of `[zoom, width]` stops, turned into a MapLibre
