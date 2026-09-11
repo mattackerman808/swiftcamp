@@ -27,6 +27,7 @@ struct MapLibreMapView: UIViewRepresentable {
 
         let view = MLNMapView(frame: .zero, styleURL: styleURL)
         view.delegate = context.coordinator
+        view.maximumZoomLevel = BasemapSource.maxZoom
         view.logoView.isHidden = true          // attribution is drawn in SwiftUI instead
         view.attributionButton.isHidden = true
 

@@ -36,10 +36,31 @@ enum BasemapSource {
     /// along with bounds and attribution, and is the eventual source of
     /// truth. Reading it at launch is deferred until the region picker
     /// needs it, so for now these must be kept in step with it by hand.
-    static let streetArchive  = "street-20260910.pmtiles"
+    static let streetArchive  = "street-z15-20260910.pmtiles"
     static let terrainArchive = "terrain-20260910.pmtiles"
 
-    /// Full-detail street tiles, zoom 0-14, continental US.
+    /// Deepest zoom the map will go to.
+    ///
+    /// The street archive stops at z15, which is as deep as the upstream
+    /// Protomaps planet publishes. Past a vector tileset's maxzoom MapLibre
+    /// overzooms — it magnifies the deepest tiles it has — and because
+    /// vector geometry is quantised to a fixed grid inside each tile, that
+    /// shows up as visibly stair-stepped building edges.
+    ///
+    /// Capping two levels past the data keeps some zoom headroom for
+    /// inspecting a junction without ever reaching the depth where the
+    /// quantisation is obvious. A route-planning app lives at z10-z15
+    /// anyway.
+    ///
+    /// Raster basemaps do not have this problem, because every zoom level
+    /// is pre-rendered; that is why tachbase's CARTO raster layers stayed
+    /// crisp at z18 while its vector base was capped at z14 exactly like
+    /// this one. Going deeper than the upstream tileset would mean either
+    /// a raster layer (and a vendor back in the serving path) or generating
+    /// our own tiles with Planetiler.
+    static let maxZoom: Double = 17
+
+    /// Full-detail street tiles, zoom 0-15, continental US.
     static var streetURL: String { "pmtiles://\(cdnBase)/\(streetArchive)" }
 
     /// Terrarium-encoded elevation, zoom 0-12, continental US, feeding the
