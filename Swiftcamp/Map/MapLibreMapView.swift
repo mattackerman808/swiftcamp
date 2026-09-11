@@ -19,7 +19,7 @@ struct MapLibreMapView: UIViewRepresentable {
         // network. Passing the style up front means that request never happens.
         let styleURL: URL?
         if let source = BasemapSource.bundledURL {
-            styleURL = try? MapStyle.write(sourceURL: source)
+            styleURL = try? MapStyle.write(bundledURL: source)
         } else {
             assertionFailure("world-z6.pmtiles missing from the app bundle")
             styleURL = nil
@@ -32,8 +32,10 @@ struct MapLibreMapView: UIViewRepresentable {
 
         // Somewhere over the western US, zoomed out far enough that the
         // z0–6 bundled archive still has data to draw.
-        view.setCenter(CLLocationCoordinate2D(latitude: 39.0, longitude: -105.5),
-                       zoomLevel: 4,
+        // Colorado Front Range at a zoom where the streamed archive has
+        // real detail, so a launch immediately shows whether streaming works.
+        view.setCenter(CLLocationCoordinate2D(latitude: 39.74, longitude: -104.99),
+                       zoomLevel: 11,
                        animated: false)
 
         return view

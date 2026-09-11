@@ -23,7 +23,7 @@ struct MapWebView: NSViewRepresentable {
 
         // Inject the style before any page script runs, so index.html can
         // read it synchronously rather than waiting on a round trip.
-        if let json = try? MapStyle.json(sourceURL: BundleSchemeHandler.pmtilesSourceURL) {
+        if let json = try? MapStyle.json(bundledURL: BundleSchemeHandler.pmtilesSourceURL) {
             let script = WKUserScript(source: "window.__SWIFTCAMP_STYLE__ = \(json);",
                                       injectionTime: .atDocumentStart,
                                       forMainFrameOnly: true)

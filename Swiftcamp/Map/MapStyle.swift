@@ -1,28 +1,45 @@
 import Foundation
 
-/// Builds a MapLibre style JSON on disk for the Protomaps basemap schema.
+/// Builds a MapLibre style JSON for the Protomaps basemap schema.
 ///
 /// The same style feeds both platforms — MapLibre Native on iOS and
 /// MapLibre GL JS on macOS — which is the whole reason the split-backend
 /// plan is tolerable. Cartography is defined once here; only the host
 /// view differs. Never fork this file per platform.
 ///
-/// Layer names come from the tileset's own schema (`pmtiles show
-/// --metadata`): boundaries, buildings, earth, landcover, landuse,
-/// places, pois, roads, water.
+/// ## Three sources
 ///
-/// **No text layers yet.** Labels need a `glyphs` URL, and pointing that
-/// at a remote server would break the offline guarantee the bundled
-/// basemap exists to provide. Bundling a glyph set (as tachbase-ios does
-/// under `Resources/Glyphs`) is the fix, and is deliberately deferred.
+/// - `world` — the bundled zoom 0–6 archive in the app bundle. Guarantees
+///   something on screen with no network, and is the only thing that draws
+///   outside the continental US.
+/// - `streets` — the full-detail zoom 0–14 archive on our CDN, streamed by
+///   byte range. Continental US only.
+/// - `terrain` — Terrarium-encoded elevation on our CDN, feeding hillshade.
+///   Continental US only.
+///
+/// Both remote sources are bounded, so MapLibre simply requests nothing
+/// outside their bounds and the bundled world shows through. That is what
+/// makes the offline tier and the streamed tier compose without a
+/// "local or network" decision anywhere in the code.
+///
+/// ## Layer order is load-bearing
+///
+/// Fills first (world, then the detailed streets fills painting over them),
+/// *then* hillshade, *then* roads and boundaries. Putting hillshade below
+/// the streets fills would hide it entirely, since those fills are opaque.
+///
+/// **No text layers yet.** Labels need a `glyphs` URL, and pointing that at
+/// a remote server would break the offline guarantee the bundled archive
+/// exists to provide. Bundling a glyph set (as tachbase-ios does under
+/// `Resources/Glyphs`) is the fix, and is deliberately deferred.
 enum MapStyle {
     /// The style as JSON text.
     ///
     /// macOS needs the string (it is injected into the web view before the
     /// page loads); iOS needs a file URL. Both come from here so there is
     /// exactly one definition of the cartography.
-    static func json(sourceURL: String) throws -> String {
-        let data = try JSONSerialization.data(withJSONObject: dictionary(sourceURL: sourceURL),
+    static func json(bundledURL: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL),
                                               options: [.prettyPrinted])
         guard let text = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
@@ -32,8 +49,8 @@ enum MapStyle {
 
     /// Writes the style to a temp file and returns its URL, because
     /// MapLibre Native takes a style *URL* rather than a string.
-    static func write(sourceURL: String) throws -> URL {
-        let data = try JSONSerialization.data(withJSONObject: dictionary(sourceURL: sourceURL),
+    static func write(bundledURL: String) throws -> URL {
+        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL),
                                               options: [.prettyPrinted])
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("swiftcamp-style.json")
@@ -41,15 +58,30 @@ enum MapStyle {
         return url
     }
 
-    private static func dictionary(sourceURL: String) -> [String: Any] {
+    private static func dictionary(bundledURL: String) -> [String: Any] {
         [
             "version": 8,
             "name": "Swiftcamp Base",
             "sources": [
-                "protomaps": [
+                "world": [
                     "type": "vector",
-                    "url": sourceURL,
+                    "url": bundledURL,
                     "attribution": BasemapSource.attribution,
+                ],
+                "streets": [
+                    "type": "vector",
+                    "url": BasemapSource.streetURL,
+                    "attribution": BasemapSource.attribution,
+                ],
+                "terrain": [
+                    "type": "raster-dem",
+                    "url": BasemapSource.terrainURL,
+                    // Mapterhorn ships Terrarium encoding at 512px. Getting
+                    // either of these wrong yields a plausible-looking but
+                    // completely wrong hillshade rather than an error.
+                    "encoding": "terrarium",
+                    "tileSize": 512,
+                    "attribution": BasemapSource.terrainAttribution,
                 ],
             ],
             "layers": layers(),
@@ -82,27 +114,46 @@ enum MapStyle {
             "paint": ["background-color": Palette.background],
         ])
 
-        out.append(fill("earth", source: "earth", color: Palette.earth))
-        out.append(fill("landcover", source: "landcover", color: Palette.landcover))
-        out.append(fill("landuse", source: "landuse", color: Palette.landuse))
-        out.append(fill("water", source: "water", color: Palette.water))
+        // Bundled world, the only thing visible outside the streamed bounds.
+        out.append(fill("world-earth", src: "world", layer: "earth", color: Palette.earth))
+        out.append(fill("world-landcover", src: "world", layer: "landcover", color: Palette.landcover))
+        out.append(fill("world-landuse", src: "world", layer: "landuse", color: Palette.landuse))
+        out.append(fill("world-water", src: "world", layer: "water", color: Palette.water))
 
-        // Road casing under the fill gives roads a visible edge without
-        // needing two colours per road class.
-        out.append(line("roads-casing", source: "roads", color: Palette.roadCasing,
+        // Streamed detail, painting over the bundled fills where it exists.
+        out.append(fill("earth", src: "streets", layer: "earth", color: Palette.earth))
+        out.append(fill("landcover", src: "streets", layer: "landcover", color: Palette.landcover))
+        out.append(fill("landuse", src: "streets", layer: "landuse", color: Palette.landuse))
+        out.append(fill("water", src: "streets", layer: "water", color: Palette.water))
+
+        // Above every fill, below every road. Subtle on purpose: this is a
+        // road-touring map, so relief is context for why a road bends, not
+        // the subject.
+        out.append([
+            "id": "hillshade",
+            "type": "hillshade",
+            "source": "terrain",
+            "paint": [
+                "hillshade-exaggeration": 0.35,
+                "hillshade-shadow-color": "#5a5048",
+                "hillshade-highlight-color": "#ffffff",
+            ],
+        ])
+
+        out.append(line("roads-casing", src: "streets", layer: "roads", color: Palette.roadCasing,
                         widths: [[4, 0.6], [8, 2.0], [12, 5.0], [16, 14.0]]))
 
         // Motorways and trunk roads read warmer than everything else —
         // these are the roads a touring route actually follows.
-        out.append(line("roads-major", source: "roads", color: Palette.roadMajor,
+        out.append(line("roads-major", src: "streets", layer: "roads", color: Palette.roadMajor,
                         widths: [[4, 0.4], [8, 1.4], [12, 3.6], [16, 10.0]],
                         filter: ["match", ["get", "kind"], ["highway", "major_road"], true, false]))
 
-        out.append(line("roads-minor", source: "roads", color: Palette.roadMinor,
+        out.append(line("roads-minor", src: "streets", layer: "roads", color: Palette.roadMinor,
                         widths: [[8, 0.4], [12, 1.6], [16, 6.0]],
                         filter: ["match", ["get", "kind"], ["minor_road", "other", "path"], true, false]))
 
-        out.append(line("boundaries", source: "boundaries", color: Palette.boundary,
+        out.append(line("boundaries", src: "streets", layer: "boundaries", color: Palette.boundary,
                         widths: [[2, 0.4], [6, 0.8], [10, 1.4]],
                         dashed: true))
 
@@ -111,12 +162,12 @@ enum MapStyle {
 
     // MARK: - Layer helpers
 
-    private static func fill(_ id: String, source: String, color: String) -> [String: Any] {
+    private static func fill(_ id: String, src: String, layer: String, color: String) -> [String: Any] {
         [
             "id": id,
             "type": "fill",
-            "source": "protomaps",
-            "source-layer": source,
+            "source": src,
+            "source-layer": layer,
             "paint": ["fill-color": color],
         ]
     }
@@ -125,7 +176,8 @@ enum MapStyle {
     /// interpolate expression. Line widths have to grow with zoom or roads
     /// vanish when zoomed out and turn into slabs when zoomed in.
     private static func line(_ id: String,
-                             source: String,
+                             src: String,
+                             layer: String,
                              color: String,
                              widths: [[Double]],
                              filter: [Any]? = nil,
@@ -142,15 +194,15 @@ enum MapStyle {
         ]
         if dashed { paint["line-dasharray"] = [2.0, 2.0] }
 
-        var layer: [String: Any] = [
+        var out: [String: Any] = [
             "id": id,
             "type": "line",
-            "source": "protomaps",
-            "source-layer": source,
+            "source": src,
+            "source-layer": layer,
             "layout": ["line-cap": "round", "line-join": "round"],
             "paint": paint,
         ]
-        if let filter { layer["filter"] = filter }
-        return layer
+        if let filter { out["filter"] = filter }
+        return out
     }
 }

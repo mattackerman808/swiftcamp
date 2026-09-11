@@ -16,8 +16,43 @@ import Foundation
 /// the same kind of source and differ only by URL. There is no tile server
 /// anywhere in this design.
 enum BasemapSource {
+    /// Our own R2 bucket, fronted by a Cloudflare custom domain.
+    ///
+    /// Never point this at an upstream provider. Protomaps retains only
+    /// about a week of daily builds, so a shipping app aimed at their
+    /// bucket breaks when one rotates, and it is their bandwidth.
+    static let cdnBase = "https://cdn.swiftcamp.app"
+
+    /// Archive filenames carry their build date on purpose.
+    ///
+    /// PMTiles is read as a long sequence of byte-range requests against
+    /// one file — header, then directory pages, then tiles. Overwriting an
+    /// archive in place while a client has it open means their next range
+    /// lands at the same offset in a *different* file, and the reads come
+    /// back corrupt. Publishing under a new name and switching the
+    /// reference makes a refresh atomic from the client's point of view.
+    ///
+    /// `manifest.json` in the same bucket already carries these names,
+    /// along with bounds and attribution, and is the eventual source of
+    /// truth. Reading it at launch is deferred until the region picker
+    /// needs it, so for now these must be kept in step with it by hand.
+    static let streetArchive  = "street-20260910.pmtiles"
+    static let terrainArchive = "terrain-20260910.pmtiles"
+
+    /// Full-detail street tiles, zoom 0-14, continental US.
+    static var streetURL: String { "pmtiles://\(cdnBase)/\(streetArchive)" }
+
+    /// Terrarium-encoded elevation, zoom 0-12, continental US, feeding the
+    /// hillshade layer. MapLibre Native decodes terrarium natively, so this
+    /// works identically on both platforms.
+    static var terrainURL: String { "pmtiles://\(cdnBase)/\(terrainArchive)" }
+
     /// ODbL obligation, not decoration. Must stay visible on the map.
     static let attribution = "© OpenStreetMap"
+
+    /// Copernicus requires this exact notice wherever its DEM is shown,
+    /// not a generic credit. Belongs on screen whenever terrain is visible.
+    static let terrainAttribution = "© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA"
 
     /// Name of the bundled archive, without extension.
     static let bundledName = "world-z6"
