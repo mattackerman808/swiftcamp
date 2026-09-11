@@ -44,6 +44,9 @@ final class BundleSchemeHandler: NSObject, WKURLSchemeHandler {
         "\(scheme)://\(host)/glyphs/{fontstack}/{range}.pbf"
     }
 
+    /// Sprite sheet base URL (no extension) for the style.
+    static var spriteURL: String { "\(scheme)://\(host)/sprites/sprite" }
+
     private let root: URL
 
     override init() {

@@ -39,8 +39,8 @@ enum MapStyle {
     /// macOS needs the string (it is injected into the web view before the
     /// page loads); iOS needs a file URL. Both come from here so there is
     /// exactly one definition of the cartography.
-    static func json(bundledURL: String, glyphsURL: String) throws -> String {
-        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL, glyphsURL: glyphsURL),
+    static func json(bundledURL: String, glyphsURL: String, spriteURL: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL, glyphsURL: glyphsURL, spriteURL: spriteURL),
                                               options: [.prettyPrinted])
         guard let text = String(data: data, encoding: .utf8) else {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
@@ -50,8 +50,8 @@ enum MapStyle {
 
     /// Writes the style to a temp file and returns its URL, because
     /// MapLibre Native takes a style *URL* rather than a string.
-    static func write(bundledURL: String, glyphsURL: String) throws -> URL {
-        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL, glyphsURL: glyphsURL),
+    static func write(bundledURL: String, glyphsURL: String, spriteURL: String) throws -> URL {
+        let data = try JSONSerialization.data(withJSONObject: dictionary(bundledURL: bundledURL, glyphsURL: glyphsURL, spriteURL: spriteURL),
                                               options: [.prettyPrinted])
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("swiftcamp-style.json")
@@ -59,11 +59,12 @@ enum MapStyle {
         return url
     }
 
-    private static func dictionary(bundledURL: String, glyphsURL: String) -> [String: Any] {
+    private static func dictionary(bundledURL: String, glyphsURL: String, spriteURL: String) -> [String: Any] {
         [
             "version": 8,
             "name": "Swiftcamp Base",
             "glyphs": glyphsURL,
+            "sprite": spriteURL,
             "sources": [
                 "world": [
                     "type": "vector",
@@ -301,11 +302,20 @@ enum MapStyle {
             ],
         ])
 
-        // Highway markers. The tileset carries `shield_text` (the bare
-        // number) and `network` (e.g. US:I) alongside the full `ref`.
-        // Real shields would need a sprite sheet keyed by network; the
-        // number in bold with a heavy halo reads well enough without one
-        // and costs no extra assets.
+        // Highway markers, drawn as real shields.
+        //
+        // The shield is one stretchable sprite per network type, sized to
+        // its text by `icon-text-fit` — so a single image serves "6" and
+        // "285" without the curved shoulders deforming. Artwork and the
+        // stretch zones come from `scripts/make_shields.py`.
+        //
+        // `network` distinguishes the three US patterns: `US:I` is an
+        // Interstate, `US:US` a US route, and `US:<state>` a state route
+        // (including variants like `US:CO:E470`), which falls through to
+        // the generic plate.
+        let isInterstate: [Any] = ["==", ["get", "network"], "US:I"]
+        let isUSRoute: [Any] = ["==", ["get", "network"], "US:US"]
+
         out.append([
             "id": "highway-shields",
             "type": "symbol",
@@ -314,21 +324,31 @@ enum MapStyle {
             "minzoom": 7,
             "filter": ["all",
                        ["has", "shield_text"],
-                       ["match", ["get", "kind"], ["highway"], true, false]],
+                       ["match", ["get", "kind"], ["highway", "major_road"], true, false]],
             "layout": [
                 "symbol-placement": "line",
+                "icon-image": ["case",
+                               isInterstate, "shield-interstate",
+                               isUSRoute, "shield-us",
+                               "shield-state"],
+                "icon-text-fit": "both",
+                "icon-text-fit-padding": [1, 4, 1, 4],
                 "text-field": ["get", "shield_text"],
                 "text-font": ["Noto Sans Bold"],
-                "text-size": ["interpolate", ["linear"], ["zoom"], 7, 10.0, 14, 13.0],
-                "symbol-spacing": 200,
-                "text-padding": 6,
+                "text-size": ["interpolate", ["linear"], ["zoom"], 7, 9.0, 13, 11.0],
+                "symbol-spacing": 220,
+                // Shields stay upright when the map rotates; a rotated
+                // route marker is unreadable in a way a street name is not.
                 "text-rotation-alignment": "viewport",
+                "icon-rotation-alignment": "viewport",
                 "text-pitch-alignment": "viewport",
+                "icon-pitch-alignment": "viewport",
+                "symbol-sort-key": ["case", isInterstate, 0.0, isUSRoute, 1.0, 2.0],
             ],
             "paint": [
-                "text-color": Palette.shieldText,
-                "text-halo-color": "#ffffff",
-                "text-halo-width": 2.6,
+                // White reads on the Interstate's blue field; the other two
+                // are white plates, so their numerals go dark.
+                "text-color": ["case", isInterstate, "#ffffff", "#1d1d1d"],
             ],
         ])
 

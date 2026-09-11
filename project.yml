@@ -46,6 +46,8 @@ targets:
         type: folder
       - path: Swiftcamp/Resources/glyphs
         type: folder
+      - path: Swiftcamp/Resources/sprites
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app
@@ -73,6 +75,8 @@ targets:
       - path: Swiftcamp/Resources/web
         type: folder
       - path: Swiftcamp/Resources/glyphs
+        type: folder
+      - path: Swiftcamp/Resources/sprites
         type: folder
     settings:
       base:

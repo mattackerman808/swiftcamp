@@ -90,6 +90,16 @@ enum BasemapSource {
             .absoluteString + "{fontstack}/{range}.pbf"
     }
 
+    /// Bundled sprite sheet base URL, without extension.
+    ///
+    /// MapLibre appends `.json`/`.png` and the `@2x` variant itself, so the
+    /// style gets the stem only. Sprites carry the highway shields; see
+    /// `scripts/make_shields.py`.
+    static var bundledSpriteURL: String? {
+        guard let root = Bundle.main.resourceURL else { return nil }
+        return root.appendingPathComponent("sprites/sprite").absoluteString
+    }
+
     /// Name of the bundled archive, without extension.
     static let bundledName = "world-z6"
 

@@ -1,0 +1,77 @@
+{
+ "shield-interstate": {
+  "x": 4,
+  "y": 4,
+  "width": 52,
+  "height": 48,
+  "pixelRatio": 2,
+  "stretchX": [
+   [
+    17,
+    34
+   ]
+  ],
+  "stretchY": [
+   [
+    19,
+    29
+   ]
+  ],
+  "content": [
+   7,
+   10,
+   44,
+   38
+  ]
+ },
+ "shield-us": {
+  "x": 60,
+  "y": 4,
+  "width": 52,
+  "height": 48,
+  "pixelRatio": 2,
+  "stretchX": [
+   [
+    17,
+    34
+   ]
+  ],
+  "stretchY": [
+   [
+    19,
+    29
+   ]
+  ],
+  "content": [
+   7,
+   10,
+   44,
+   38
+  ]
+ },
+ "shield-state": {
+  "x": 116,
+  "y": 4,
+  "width": 52,
+  "height": 48,
+  "pixelRatio": 2,
+  "stretchX": [
+   [
+    17,
+    34
+   ]
+  ],
+  "stretchY": [
+   [
+    19,
+    29
+   ]
+  ],
+  "content": [
+   7,
+   10,
+   44,
+   38
+  ]
+ }
+}
