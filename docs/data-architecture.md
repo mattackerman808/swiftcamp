@@ -287,6 +287,42 @@ Neither survives contact with "download a region and keep it." The open alternat
 
 BaseCamp's own precedent is instructive: Garmin sold aerial imagery as BirdsEye, a paid subscription add-on, rather than bundling it. **Recommendation: ship street and terrain first, defer satellite**, and if it happens later, build it from NAIP for the US.
 
+## Two tracks, and only one has a vendor in it
+
+**Track 1 — self-hosted (street, terrain, routing).** Batch jobs pull from upstream planet archives, cut regions, and write to our R2. The app then talks only to our bucket. No third party is in the serving path, so there is nothing to throttle us and nothing metered per request. Our cost is R2 storage, and egress is free.
+
+| Source | Licence | Commercial? | Attribution required |
+| --- | --- | --- | --- |
+| Protomaps (street) | ODbL | Yes | `© OpenStreetMap contributors` |
+| Geofabrik (routing input) | ODbL | Yes | same |
+| Mapterhorn / Copernicus DEM (terrain) | Copernicus | Yes, free of charge | specific notice, below |
+
+Copernicus requires a particular string when distributing, not a generic credit:
+
+> © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.
+
+ODbL also carries share-alike on derivative databases, which is why the routing packs must stay redistributable. Neither licence meters us or can cut us off.
+
+**Track 2 — streamed from a vendor (satellite).** The app requests tiles directly from an imagery provider. This is metered, and every free tier bars commercial use.
+
+MapTiler, as a representative example:
+
+| Plan | Price | Included | Over quota |
+| --- | --- | --- | --- |
+| Free | $0 | 5k sessions / 100k requests | **service pauses until next month** |
+| Flex | $30/mo | 25k sessions / 500k requests | $0.15 per 1k requests |
+| Custom | contract | negotiated | soft limit, account manager calls |
+
+The Free plan is "suitable for testing, personal or non-commercial use", so a paid plan is mandatory the moment Swiftcamp is sold. Note MapTiler meters **both** sessions and requests; which one binds first is not obvious and should be measured against real usage before committing.
+
+**The obvious cost optimisation is prohibited.** Proxying vendor satellite tiles through our own R2 to cut request counts is redistribution, which every imagery vendor forbids. Their tiles must be fetched by the client, from them, every time. Budget accordingly rather than planning to cache our way out of it.
+
+This is why satellite streams and everything else ships: streaming is the only lawful way to use imagery we are not allowed to redistribute, and it happens to also be what Garmin users expect, since BirdsEye was a separate paid add-on.
+
+### Attribution is layer-dependent
+
+The credit line must change with the visible layers: OSM for street and routing, the Copernicus notice when terrain is on, the vendor's mark when satellite is on. A single hardcoded string is not sufficient once terrain ships.
+
 ## The offline model
 
 One file per region per layer, not chunked archives.
