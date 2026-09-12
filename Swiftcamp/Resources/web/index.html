@@ -44,11 +44,15 @@
   var style = window.__SWIFTCAMP_STYLE__;
   if (!style) { console.error('style was not injected'); return; }
 
+  // Debug camera override from -SwiftcampCenter / -SwiftcampZoom. Null in
+  // every normal launch, so the defaults below are what ships.
+  var camera = window.__SWIFTCAMP_CAMERA__ || {};
+
   var map = new maplibregl.Map({
     container: 'map',
     style: style,
-    center: [-104.99, 39.74],
-    zoom: 13,
+    center: camera.center || [-104.99, 39.74],
+    zoom: camera.zoom !== undefined ? camera.zoom : 13,
     maxZoom: window.__SWIFTCAMP_MAX_ZOOM__,
     attributionControl: false
   });

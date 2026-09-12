@@ -29,6 +29,7 @@ struct MapWebView: NSViewRepresentable {
             let script = WKUserScript(source: """
                 window.__SWIFTCAMP_STYLE__ = \(json);
                 window.__SWIFTCAMP_MAX_ZOOM__ = \(BasemapSource.maxZoom);
+                window.__SWIFTCAMP_CAMERA__ = \(cameraOverrideJSON());
                 """,
                                       injectionTime: .atDocumentStart,
                                       forMainFrameOnly: true)
@@ -45,6 +46,44 @@ struct MapWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {}
+
+    /// Camera override from `-SwiftcampCenter <lon,lat> -SwiftcampZoom <z>`.
+    ///
+    /// Companion to `-SwiftcampSnapshot`, and only useful with it. The page
+    /// opens on a fixed downtown view, which is the wrong place to judge a
+    /// cartography change that only shows up in mountains. Without this,
+    /// checking the terrain palette meant editing `index.html`, rebuilding,
+    /// and remembering to put it back.
+    ///
+    /// Returns `null` when unset, so the page keeps its own defaults.
+    ///
+    /// Read straight from `CommandLine.arguments` rather than through
+    /// `UserDefaults`, unlike `-SwiftcampSnapshot`. The argument domain
+    /// treats any token starting with `-` as a key, so every western
+    /// longitude looks like a flag and the value is dropped: passing
+    /// `-SwiftcampCenter -105.6,40.3` leaves the default nil and the map
+    /// silently opens on Denver instead. Snapshot paths never start with a
+    /// dash, which is why that one can stay on `UserDefaults`.
+    private func cameraOverrideJSON() -> String {
+        let args = CommandLine.arguments
+
+        func value(after flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+
+        var parts: [String] = []
+
+        if let center = value(after: "-SwiftcampCenter") {
+            let pair = center.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            if pair.count == 2 { parts.append("center: [\(pair[0]), \(pair[1])]") }
+        }
+        if let zoom = value(after: "-SwiftcampZoom").flatMap(Double.init) {
+            parts.append("zoom: \(zoom)")
+        }
+
+        return parts.isEmpty ? "null" : "{" + parts.joined(separator: ", ") + "}"
+    }
 
     /// Surfaces JavaScript console output in the Xcode log. A silent web
     /// view is close to undebuggable otherwise.
