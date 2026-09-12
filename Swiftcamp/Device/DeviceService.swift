@@ -75,6 +75,17 @@ actor DeviceService {
                         canIdentifyCheaply: browser.supportsPartialReads)
     }
 
+    /// Whether the unit we are connected to is still on the bus.
+    ///
+    /// Asked after a failure, not before every operation. A device that has
+    /// been unplugged fails everything anyway; the point is to tell the
+    /// difference between "that did not work" and "it is gone", because only
+    /// one of those is worth showing a device's files after.
+    func connectedUnitIsGone() -> Bool {
+        guard let connected else { return false }
+        return !GarminUnit.attached().contains { $0.locationID == connected.locationID }
+    }
+
     func disconnect() {
         browser?.session.close()
         browser = nil

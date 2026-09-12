@@ -85,8 +85,22 @@ final class DeviceModel {
     }
 
     func disconnect() {
-        snapshot = nil
+        forgetDevice()
         Task { await service.disconnect() }
+    }
+
+    /// Drops everything that described a device that is no longer there.
+    ///
+    /// Including the background scan: it holds a list of files on a unit that
+    /// has gone, and every one of them will fail.
+    private func forgetDevice() {
+        yieldScan()
+        snapshot = nil
+        browseStorage = nil
+        browsePath = []
+        browseFiles = []
+        summaries = [:]
+        units = []
     }
 
     /// Writes one or more GPX files into the device's GPX folder.
@@ -166,7 +180,16 @@ final class DeviceModel {
                 let result = try? await service.identify(file)
                 if Task.isCancelled { break }
 
-                if let result { summaries[file.handle] = result }
+                if let result {
+                    summaries[file.handle] = result
+                } else if await service.connectedUnitIsGone() {
+                    // Unplugged mid-scan. Without this the loop grinds
+                    // through every remaining file against dead handles,
+                    // failing each one, while the pane still shows them.
+                    forgetDevice()
+                    failure = "The device was disconnected."
+                    return
+                }
                 scanRemaining = (scanRemaining ?? 1) - 1
             }
             scanRemaining = nil
@@ -275,7 +298,17 @@ final class DeviceModel {
                 isWorking = false
                 apply()
             } catch {
-                failure = error.localizedDescription
+                // A device that has been unplugged fails everything, and
+                // going on to show its files and offer to write to them is
+                // worse than saying it is gone. Checked only on failure:
+                // asking before every operation is a bus enumeration per
+                // file for an answer that is almost always yes.
+                if await service.connectedUnitIsGone() {
+                    forgetDevice()
+                    failure = "The device was disconnected."
+                } else {
+                    failure = error.localizedDescription
+                }
                 status = nil
                 isWorking = false
             }
