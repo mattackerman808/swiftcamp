@@ -485,10 +485,13 @@ struct DevicePanel: View {
                             EmptyView()
                         case .ends:
                             // The cheap answer gave dates. Counts and distance
-                            // need the file, and that is the user's call.
+                            // need every point, so the whole file has to come
+                            // across, and that is the user's call.
                             Button("Measure") { model.identifyFully(file) }
                                 .controlSize(.small)
                                 .disabled(model.isWorking)
+                                .help("Read the whole file (\(size(file.size))) to count its "
+                                      + "tracks and measure how far they go.")
                         case .whole:
                             EmptyView()
                         }
