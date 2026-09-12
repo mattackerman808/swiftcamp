@@ -15,10 +15,11 @@ final class MTPSession {
 
     /// How long a single bulk transfer may take.
     ///
-    /// Generous. A device that has just been plugged in can spend seconds
-    /// building its object database before it answers anything, and a short
-    /// timeout there reads as a device that does not work.
-    private let timeout: Int32 = 10_000
+    /// Generous, and then some. Garmin's MTP stack is Android-derived, and
+    /// `libmtp` marks every Garmin with its long-timeout flag for exactly
+    /// this reason: the first write to a storage can stall while the device
+    /// updates its own object database.
+    private let timeout: Int32 = 60_000
 
     // MARK: - Lifecycle
 
@@ -170,6 +171,18 @@ final class MTPSession {
         var parameters: [UInt32] = []
     }
 
+    /// Puts the pipes back in a usable state after a failed exchange.
+    ///
+    /// A timeout leaves the device believing it is still mid-transaction, so
+    /// the *next* command reads the tail of the last one and fails in a way
+    /// that has nothing to do with what it asked. Clearing both halts costs
+    /// nothing and stops one failure becoming a run of them.
+    private func recover() {
+        guard let handle else { return }
+        _ = sc_usb_clear_halt_in(handle)
+        _ = sc_usb_clear_halt_out(handle)
+    }
+
     /// Sends one operation and runs the phases it implies.
     ///
     /// Command, then an optional data phase in one direction or the other,
@@ -183,6 +196,18 @@ final class MTPSession {
         transaction &+= 1
         let id = transaction
 
+        do {
+            return try exchange(operation, id, parameters, sending: payload)
+        } catch {
+            recover()
+            throw error
+        }
+    }
+
+    private func exchange(_ operation: MTP.Operation,
+                          _ id: UInt32,
+                          _ parameters: [UInt32],
+                          sending payload: Data?) throws -> Reply {
         try write(container: .init(kind: .command, code: operation.rawValue,
                                    transaction: id, payload: packed(parameters)))
 

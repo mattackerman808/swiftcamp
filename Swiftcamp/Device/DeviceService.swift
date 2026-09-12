@@ -96,6 +96,16 @@ actor DeviceService {
         return try browser.read(file)
     }
 
+    /// One folder's contents, for the browser.
+    ///
+    /// A device that will not take a file is usually a device whose layout is
+    /// not what we assumed, and no amount of reasoning about the spec settles
+    /// that as fast as looking.
+    func list(storage: UInt32, parent: UInt32) throws -> [DeviceFile] {
+        guard let browser else { throw MTP.Failure.noDevice }
+        return try browser.contents(of: parent, storage: storage)
+    }
+
     /// Re-reads one storage's GPX folder after a transfer.
     func refresh(storage: UInt32) throws -> [DeviceFile] {
         guard let browser else { throw MTP.Failure.noDevice }

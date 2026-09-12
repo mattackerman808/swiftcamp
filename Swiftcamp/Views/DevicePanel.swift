@@ -13,6 +13,17 @@ final class DeviceModel {
     private(set) var status: String?
     var failure: String?
 
+    /// Where the browser is looking.
+    struct Crumb: Identifiable, Hashable {
+        var name: String
+        var handle: UInt32
+        var id: UInt32 { handle }
+    }
+
+    private(set) var browsePath: [Crumb] = []
+    private(set) var browseFiles: [DeviceFile] = []
+    private(set) var browseStorage: UInt32?
+
     @ObservationIgnored private let service = DeviceService()
 
     func scan() {
@@ -54,6 +65,45 @@ final class DeviceModel {
         run("Reading \(file.name)…") { [service] in
             let data = try await service.read(file)
             return { handle(data); self.status = "Read \(file.name)." }
+        }
+    }
+
+    // MARK: - Browsing
+
+    func browseRoot(_ storage: UInt32) {
+        browseStorage = storage
+        browsePath = []
+        list(storage: storage, parent: MTP.rootParent)
+    }
+
+    func descend(into folder: DeviceFile) {
+        guard let storage = browseStorage else { return }
+        browsePath.append(Crumb(name: folder.name, handle: folder.handle))
+        list(storage: storage, parent: folder.handle)
+    }
+
+    /// Back to a crumb, or to the root when `index` is nil.
+    func ascend(to index: Int?) {
+        guard let storage = browseStorage else { return }
+        if let index {
+            browsePath = Array(browsePath.prefix(index + 1))
+            list(storage: storage, parent: browsePath[index].handle)
+        } else {
+            browsePath = []
+            list(storage: storage, parent: MTP.rootParent)
+        }
+    }
+
+    func closeBrowser() {
+        browseStorage = nil
+        browsePath = []
+        browseFiles = []
+    }
+
+    private func list(storage: UInt32, parent: UInt32) {
+        run("Reading folder…") { [service] in
+            let files = try await service.list(storage: storage, parent: parent)
+            return { self.browseFiles = files; self.status = nil }
         }
     }
 
@@ -229,21 +279,78 @@ struct DevicePanel: View {
                             }
                         }
 
-                        Button {
-                            sendLibrary(to: storage.id)
-                        } label: {
-                            Label(sendLabel, systemImage: "arrow.up.circle")
+                        HStack {
+                            Button {
+                                sendLibrary(to: storage.id)
+                            } label: {
+                                Label(sendLabel, systemImage: "arrow.up.circle")
+                            }
+                            .disabled(model.isWorking || library.routes.isEmpty
+                                      && library.tracks.isEmpty && library.waypoints.isEmpty)
+
+                            Button {
+                                model.browseRoot(storage.id)
+                            } label: {
+                                Label("Browse", systemImage: "folder")
+                            }
+                            .disabled(model.isWorking)
                         }
                         .controlSize(.small)
-                        .disabled(model.isWorking || library.routes.isEmpty
-                                  && library.tracks.isEmpty && library.waypoints.isEmpty)
                     }
                     .padding(12)
                     .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                 }
+
+                if model.browseStorage != nil { browser }
             }
             .padding(14)
         }
+    }
+
+    /// The device's own folder tree.
+    ///
+    /// Here because a device that refuses a file is usually a device whose
+    /// layout is not what we assumed, and looking settles that faster than
+    /// reasoning about the specification does.
+    private var browser: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                Button("Device") { model.ascend(to: nil) }
+                    .buttonStyle(.link)
+                ForEach(Array(model.browsePath.enumerated()), id: \.element.id) { index, crumb in
+                    Text("/").foregroundStyle(.tertiary)
+                    Button(crumb.name) { model.ascend(to: index) }
+                        .buttonStyle(.link)
+                }
+                Spacer()
+                Button("Close") { model.closeBrowser() }.buttonStyle(.link)
+            }
+            .font(.caption)
+
+            if model.browseFiles.isEmpty {
+                Text("Empty.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(model.browseFiles) { file in
+                    HStack(spacing: 8) {
+                        Image(systemName: file.isFolder ? "folder.fill" : "doc")
+                            .foregroundStyle(file.isFolder ? Color.accentColor : .secondary)
+                        if file.isFolder {
+                            Button(file.name) { model.descend(into: file) }
+                                .buttonStyle(.plain)
+                        } else {
+                            Text(file.name)
+                        }
+                        Spacer()
+                        if !file.isFolder {
+                            Text(size(file.size)).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.callout)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var footer: some View {

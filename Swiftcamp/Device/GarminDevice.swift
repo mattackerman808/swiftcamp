@@ -95,12 +95,37 @@ struct GarminBrowser {
     }
 
     /// Everything directly inside a folder, or the root of a storage.
+    ///
+    /// The root is the awkward case. The spec says handle `0xFFFFFFFF` means
+    /// "objects with no parent", and `0` means "every object on the storage,
+    /// at any depth" — but implementations disagree, and a device that
+    /// returns nothing for the first is indistinguishable from an empty
+    /// storage. A zūmo with 26 GB of maps on it is not empty, so when the
+    /// root comes back bare we ask for everything and keep what has no
+    /// parent. Slower, and only ever needed once per connection.
     func contents(of parent: UInt32 = MTP.rootParent, storage: UInt32) throws -> [DeviceFile] {
-        try session.objectHandles(storage: storage, parent: parent).compactMap { handle in
-            guard let info = try? session.objectInfo(handle) else { return nil }
-            return DeviceFile(handle: handle, storage: info.storageID, name: info.filename,
-                              size: info.size, isFolder: info.isFolder)
+        let handles = try session.objectHandles(storage: storage, parent: parent)
+
+        if handles.isEmpty && parent == MTP.rootParent {
+            return try rootByScan(storage: storage)
         }
+        return handles.compactMap { describe($0) }
+    }
+
+    private func rootByScan(storage: UInt32) throws -> [DeviceFile] {
+        try session.objectHandles(storage: storage, parent: 0)
+            .compactMap { handle -> DeviceFile? in
+                guard let info = try? session.objectInfo(handle) else { return nil }
+                guard info.parent == 0 || info.parent == MTP.rootParent else { return nil }
+                return DeviceFile(handle: handle, storage: info.storageID, name: info.filename,
+                                  size: info.size, isFolder: info.isFolder)
+            }
+    }
+
+    private func describe(_ handle: UInt32) -> DeviceFile? {
+        guard let info = try? session.objectInfo(handle) else { return nil }
+        return DeviceFile(handle: handle, storage: info.storageID, name: info.filename,
+                          size: info.size, isFolder: info.isFolder)
     }
 
     /// Walks a path of folder names from the root of a storage.
