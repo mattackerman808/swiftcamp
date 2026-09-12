@@ -214,11 +214,18 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
-- **A zūmo answers a partial read at offset zero and refuses one deep in the
-  file.** Treating the pair of reads as all-or-nothing threw away a good head
-  and fell back to pulling the whole 22 MB file, which is the exact cost the
-  partial read exists to avoid. The tail is best-effort; losing it costs the
-  end date and nothing else.
+- **A zero-length USB read is a packet marker, not a failure.** A transfer
+  whose length is an exact multiple of the endpoint packet size is terminated
+  by an empty packet, and it sits in the pipe until read. The next command
+  then reads the marker instead of its own reply and sees nothing. This looked
+  exactly like "the device refuses partial reads of large files" for an
+  afternoon; it was whatever ran *before* happening to land on a boundary.
+  Diagnosing it took one log line reporting bytes asked for against bytes
+  returned, after two wrong theories reasoned from the specification.
+- **A Garmin's `<metadata><time>` is when the file was written, not when the
+  ride happened.** On an active track log that is today, while the riding was
+  last week — so taking the first timestamp in the file reported a log as
+  starting after it ended. Use the first timestamp *inside a point*.
 - **A Garmin's MTP root is its `Garmin` folder.** A zūmo XT3 exposes `GPX`
   at the root of internal storage, beside `Voice`, `Text` and `Vehicle`. The
   familiar `Garmin/GPX` is the mass-storage spelling of the same place, so

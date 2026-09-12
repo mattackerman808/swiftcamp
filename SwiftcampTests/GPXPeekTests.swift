@@ -24,11 +24,44 @@ final class GPXPeekTests: XCTestCase {
         </gpx>
         """.utf8)
 
-    func testFindsTheFirstAndLastTimestamp() {
+    /// The start is the first timestamp *inside a point*, not the first in
+    /// the file. A Garmin stamps metadata with when the file was written,
+    /// which on an active log is today while the riding was last week.
+    func testStartComesFromTheFirstPointNotTheMetadata() {
         let result = GPXPeek.scan(head: head, tail: tail)
 
-        XCTAssertEqual(result.start, GPXDate.parse("2026-08-12T08:14:00Z"))
+        XCTAssertEqual(result.start, GPXDate.parse("2026-08-12T08:14:02Z"),
+                       "the trkpt time, not the metadata time two seconds earlier")
         XCTAssertEqual(result.end, GPXDate.parse("2026-08-14T17:42:10Z"))
+    }
+
+    /// A file whose metadata is stamped later than its contents reported a
+    /// range running backwards — "Sep 12–7" on screen.
+    func testARangeNeverRunsBackwards() {
+        let stamped = Data("""
+            <?xml version="1.0"?>
+            <gpx version="1.1"><metadata><time>2026-09-12T10:00:00Z</time></metadata>
+            <trk><trkseg>
+            """.utf8)
+        let earlier = Data("<time>2026-09-07T14:00:00Z</time></trkpt></trkseg></trk></gpx>".utf8)
+
+        let result = GPXPeek.scan(head: stamped, tail: earlier)
+        let start = try? XCTUnwrap(result.start)
+        let end = try? XCTUnwrap(result.end)
+        XCTAssertLessThanOrEqual(start ?? .distantPast, end ?? .distantFuture)
+    }
+
+    /// With no point timestamps at all, the metadata time is better than
+    /// nothing.
+    func testFallsBackToMetadataWhenNoPointHasATime() {
+        let noPointTimes = Data("""
+            <?xml version="1.0"?>
+            <gpx version="1.1"><metadata><time>2026-09-12T10:00:00Z</time></metadata>
+            <trk><trkseg><trkpt lat="40" lon="-105"><ele>1600</ele></trkpt>
+            """.utf8)
+
+        let result = GPXPeek.scan(head: noPointTimes, tail: Data())
+        XCTAssertEqual(result.start, GPXDate.parse("2026-09-12T10:00:00Z"))
     }
 
     func testSeesThatTheFileIsATrackLog() {
@@ -91,7 +124,7 @@ final class GPXPeekTests: XCTestCase {
         let result = GPXPeek.scan(head: head, tail: Data())
 
         XCTAssertTrue(result.sawTrack)
-        XCTAssertEqual(result.start, GPXDate.parse("2026-08-12T08:14:00Z"))
+        XCTAssertEqual(result.start, GPXDate.parse("2026-08-12T08:14:02Z"))
         XCTAssertFalse(result.isEmpty, "a head-only read is not an empty result")
     }
 }

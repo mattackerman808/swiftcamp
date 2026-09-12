@@ -337,12 +337,29 @@ final class MTPSession {
         let bufferSize = 512 * 1024
         var buffer = [UInt8](repeating: 0, count: bufferSize)
 
-        let first = sc_usb_bulk_read(handle, &buffer, Int32(bufferSize), timeout)
+        // Step over zero-length packets.
+        //
+        // A transfer whose length is an exact multiple of the endpoint packet
+        // size is terminated by an empty packet, and that marker sits in the
+        // pipe until something reads it. The next command then reads the
+        // marker instead of its own reply and sees nothing at all.
+        //
+        // This is what made a partial read of a 22 MB file fail while the
+        // same read of a 2 KB file worked: it was never about the size, it
+        // was about whatever came before happening to land on a boundary.
+        // We send our own terminator for exactly this reason and then did not
+        // expect one back.
+        var first = 0
+        for _ in 0..<4 {
+            first = Int(sc_usb_bulk_read(handle, &buffer, Int32(bufferSize), timeout))
+            if first != 0 { break }
+        }
+
         guard first >= MTP.Container.headerSize else {
             throw MTP.Failure.transferFailed("read returned \(first)")
         }
 
-        var received = Data(buffer[0..<Int(first)])
+        var received = Data(buffer[0..<first])
         var header = MTP.Reader(received)
         let total = Int(try header.uint32())
         let rawKind = try header.uint16()

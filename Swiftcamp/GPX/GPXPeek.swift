@@ -44,11 +44,17 @@ enum GPXPeek {
         result.sawRoute = headText.contains("<rte>") || headText.contains("<rte ")
         result.sawWaypoint = headText.contains("<wpt ")
 
-        // The first timestamp is usually the metadata time, which for a
-        // Garmin log is when the recording began. Falling back to the first
-        // point's time covers files with no metadata block.
-        result.start = firstTime(in: headText)
+        result.start = startTime(in: headText)
         result.end = lastTime(in: tailText) ?? result.start
+
+        // Never let a range read backwards. The two ends come from different
+        // reads and, on a file whose metadata is stamped later than its
+        // contents, the "start" can legitimately be the later of the two —
+        // which a reader sees as "Sep 12–7" and reasonably calls a bug.
+        if let start = result.start, let end = result.end, start > end {
+            result.start = end
+            result.end = start
+        }
         return result
     }
 
@@ -64,8 +70,25 @@ enum GPXPeek {
         String(decoding: data, as: UTF8.self)
     }
 
-    private static func firstTime(in text: String) -> Date? {
-        times(in: text).first
+    /// When the recording began, which is not the same as the first
+    /// timestamp in the file.
+    ///
+    /// A Garmin stamps `<metadata><time>` with when the file was written,
+    /// not when the ride happened — on an active log that is today, while
+    /// the riding was last week. Taking the first timestamp blindly reported
+    /// a track log as starting after it ended. The first timestamp *inside a
+    /// point* is the one that means something.
+    private static func startTime(in text: String) -> Date? {
+        guard let firstPoint = pointStart(in: text) else { return times(in: text).first }
+        let afterPoint = times(in: String(text[firstPoint...])).first
+        return afterPoint ?? times(in: text).first
+    }
+
+    /// Where the first `trkpt`, `rtept` or `wpt` begins.
+    private static func pointStart(in text: String) -> String.Index? {
+        ["<trkpt", "<rtept", "<wpt"]
+            .compactMap { text.range(of: $0)?.lowerBound }
+            .min()
     }
 
     private static func lastTime(in text: String) -> Date? {
