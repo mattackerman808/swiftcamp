@@ -291,6 +291,31 @@ final class LibraryModel {
         }
     }
 
+    /// One item as its own document, for sending a named file to a device.
+    func document(for id: String) -> GPXDocument? {
+        if routes.contains(where: { $0.route.id == id }) {
+            return try? store.exportGPX(routeIDs: [id])
+        }
+        if tracks.contains(where: { $0.track.id == id }) {
+            return try? store.exportGPX(trackIDs: [id])
+        }
+        return try? store.exportGPX(waypointIDs: [id])
+    }
+
+    /// Several items in one document.
+    func document(for ids: Set<String>) -> GPXDocument? {
+        try? store.exportGPX(waypointIDs: waypoints.map(\.id).filter(ids.contains),
+                             routeIDs: routes.map(\.route.id).filter(ids.contains),
+                             trackIDs: tracks.map(\.track.id).filter(ids.contains))
+    }
+
+    /// What something is called, for a filename and a checkbox.
+    func name(for id: String) -> String? {
+        routes.first { $0.route.id == id }?.route.name
+            ?? tracks.first { $0.track.id == id }?.track.name
+            ?? waypoints.first { $0.id == id }?.name
+    }
+
     /// The document the current selection would export as, or the whole
     /// library when nothing is selected. Built for the device panel, which
     /// needs the bytes rather than a file on disk.

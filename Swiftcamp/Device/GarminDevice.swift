@@ -70,6 +70,35 @@ struct DeviceFile: Identifiable, Hashable, Sendable {
     var id: UInt32 { handle }
 }
 
+/// Turns a route or track name into something a device will accept.
+///
+/// Garmin storage is FAT underneath, so the characters it forbids are FAT's.
+/// A device that rejects a filename does not say which character it objected
+/// to, and a rider who named a route "Sat 12/9 — Rockies" would get an error
+/// about the file rather than about the name.
+enum DeviceFilename {
+    private static let forbidden = CharacterSet(charactersIn: #"/\:*?"<>|"#)
+        .union(.controlCharacters)
+
+    static func make(from name: String, fallback: String = "Route") -> String {
+        // Each run of forbidden characters becomes one dash, rather than one
+        // dash apiece: a name that is nothing but slashes would otherwise
+        // come out as "---.gpx", which is a filename in the same sense that
+        // a dial tone is a conversation.
+        let dashed = name.components(separatedBy: forbidden)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+
+        // FAT also refuses a trailing dot, and the extension is about to add
+        // one of its own.
+        let trimmed = dashed.trimmingCharacters(
+            in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".-")))
+
+        let base = trimmed.isEmpty ? fallback : String(trimmed.prefix(58))
+        return base + ".gpx"
+    }
+}
+
 /// PTP timestamps, which are their own format and not ISO 8601.
 ///
 /// `YYYYMMDDThhmmss`, optionally with fractional seconds and a `Z`. Close

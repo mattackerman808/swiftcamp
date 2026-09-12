@@ -76,20 +76,33 @@ final class DeviceModel {
         Task { await service.disconnect() }
     }
 
-    /// Writes one GPX file into the device's GPX folder and shows it.
-    func send(_ data: Data, named name: String, to storage: UInt32) {
-        run("Sending \(name)…") { [service] in
-            try await service.send(data, named: name, to: storage)
+    /// Writes one or more GPX files into the device's GPX folder.
+    ///
+    /// Serially, because the device takes one transaction at a time.
+    func send(_ files: [(name: String, data: Data)], to storage: UInt32) {
+        guard !files.isEmpty else { return }
+        let label = files.count == 1 ? "Sending \(files[0].name)…"
+                                     : "Sending \(files.count) files…"
+
+        run(label) { [service] in
+            for file in files {
+                try await service.send(file.data, named: file.name, to: storage)
+            }
             // The send may have created the folder, so the handle is only
             // knowable afterwards.
             let folder = try await service.gpxFolder(storage: storage)
-            let files = try await service.list(storage: storage,
-                                               parent: folder ?? MTP.rootParent)
+            let listing = try await service.list(storage: storage,
+                                                 parent: folder ?? MTP.rootParent)
+            // Named `listing`, not `files`: the outer `files` is what was
+            // sent, and shadowing it here would report the folder's contents
+            // as though it were the result of the send.
+            let sent = files.count == 1 ? "Sent \(files[0].name)."
+                                        : "Sent \(files.count) files."
             return {
                 self.browseStorage = storage
                 self.browsePath = folder.map { [Crumb(name: "GPX", handle: $0)] } ?? []
-                self.browseFiles = files
-                self.status = "Sent \(name)."
+                self.browseFiles = listing
+                self.status = sent
             }
         }
     }
@@ -238,7 +251,12 @@ final class DeviceModel {
 struct DevicePanel: View {
     @Bindable var library: LibraryModel
     @State private var model = DeviceModel()
+    @State private var sendingTo: UInt32?
     @Environment(\.dismiss) private var dismiss
+
+    private var libraryIsEmpty: Bool {
+        library.routes.isEmpty && library.tracks.isEmpty && library.waypoints.isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -378,13 +396,19 @@ struct DevicePanel: View {
             }
             Spacer()
             Button {
-                sendLibrary(to: storage.id)
+                sendingTo = storage.id
             } label: {
-                Label(sendLabel, systemImage: "arrow.up.circle")
+                Label("Send…", systemImage: "arrow.up.circle")
             }
             .controlSize(.small)
-            .disabled(model.isWorking || library.routes.isEmpty
-                      && library.tracks.isEmpty && library.waypoints.isEmpty)
+            .disabled(model.isWorking || libraryIsEmpty)
+            .popover(isPresented: Binding(get: { sendingTo == storage.id },
+                                          set: { if !$0 { sendingTo = nil } })) {
+                SendPicker(library: library, storage: storage) { files in
+                    sendingTo = nil
+                    model.send(files, to: storage.id)
+                }
+            }
         }
         .font(.callout)
         .padding(10)
@@ -499,15 +523,6 @@ struct DevicePanel: View {
     }
 
     // MARK: - Actions
-
-    private var sendLabel: String {
-        library.selection.isEmpty ? "Send Whole Library" : "Send Selection"
-    }
-
-    private func sendLibrary(to storage: UInt32) {
-        guard let document = library.exportDocument() else { return }
-        model.send(GPXWriter.data(document), named: "Swiftcamp.gpx", to: storage)
-    }
 
     private func importFromDevice(_ file: DeviceFile) {
         model.read(file) { data in library.importGPX(data: data, named: file.name) }
