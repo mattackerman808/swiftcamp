@@ -214,6 +214,11 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
+- **A zūmo answers a partial read at offset zero and refuses one deep in the
+  file.** Treating the pair of reads as all-or-nothing threw away a good head
+  and fell back to pulling the whole 22 MB file, which is the exact cost the
+  partial read exists to avoid. The tail is best-effort; losing it costs the
+  end date and nothing else.
 - **A Garmin's MTP root is its `Garmin` folder.** A zūmo XT3 exposes `GPX`
   at the root of internal storage, beside `Voice`, `Text` and `Vehicle`. The
   familiar `Garmin/GPX` is the mass-storage spelling of the same place, so

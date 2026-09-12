@@ -82,4 +82,16 @@ final class GPXPeekTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(GPXPeek.headBytes, 8 * 1024)
         XCTAssertGreaterThanOrEqual(GPXPeek.tailBytes, 4 * 1024)
     }
+
+    /// The case that cost a 22 MB download. A zūmo XT3 answers a read at
+    /// offset zero and refuses one a long way in, so the head arrives and the
+    /// tail does not. Scanning must still report everything the head knows
+    /// rather than treating the pair as all-or-nothing.
+    func testAMissingTailStillReportsWhatTheHeadKnows() {
+        let result = GPXPeek.scan(head: head, tail: Data())
+
+        XCTAssertTrue(result.sawTrack)
+        XCTAssertEqual(result.start, GPXDate.parse("2026-08-12T08:14:00Z"))
+        XCTAssertFalse(result.isEmpty, "a head-only read is not an empty result")
+    }
 }

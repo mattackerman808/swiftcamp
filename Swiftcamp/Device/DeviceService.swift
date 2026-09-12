@@ -129,7 +129,10 @@ actor DeviceService {
         if let peek = try? browser.peek(file), !peek.isEmpty {
             var summary = GPXSummary()
             summary.start = peek.start
-            summary.end = peek.end
+            // When the tail could not be read, the device's own modification
+            // time is the next best answer for when the recording stopped —
+            // and for a log the unit is still writing to, it is the right one.
+            summary.end = peek.end ?? file.modified
             // Seen, not counted. A fragment can show that a track is present
             // and can never show how many there are.
             summary.tracks = peek.sawTrack ? 1 : 0

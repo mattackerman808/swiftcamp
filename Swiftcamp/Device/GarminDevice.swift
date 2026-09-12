@@ -261,8 +261,15 @@ struct GarminBrowser {
 
     /// Reads the two ends of a file and reports what they say.
     ///
-    /// Returns nil when the device cannot do partial reads, so the caller can
-    /// decide whether the whole file is worth pulling.
+    /// Returns nil when the device cannot do partial reads at all, so the
+    /// caller can decide whether the whole file is worth pulling.
+    ///
+    /// The tail is best-effort, and that is not tidiness. A zūmo XT3 answers
+    /// a read at offset zero and refuses one at an offset 22 MB in, so
+    /// treating the second read as required threw away a perfectly good first
+    /// one and fell back to pulling the entire file — the exact cost this
+    /// exists to avoid. Losing the tail costs the end date and nothing else,
+    /// and the device's own modification time usually covers that.
     func peek(_ file: DeviceFile) throws -> GPXPeek.Result? {
         guard supportsPartialReads else { return nil }
 
@@ -272,15 +279,13 @@ struct GarminBrowser {
         // A file smaller than the two windows is entirely covered by the
         // first read, and asking for a range past its end is how a device
         // gets asked for something that does not exist.
-        var tail = Data()
-        if file.size > GPXPeek.headBytes + GPXPeek.tailBytes {
-            tail = try session.partialObject(file.handle,
-                                             offset: file.size - GPXPeek.tailBytes,
-                                             length: GPXPeek.tailBytes)
-        } else {
-            tail = head
+        guard file.size > GPXPeek.headBytes + GPXPeek.tailBytes else {
+            return GPXPeek.scan(head: head, tail: head)
         }
 
+        let tail = (try? session.partialObject(file.handle,
+                                               offset: file.size - GPXPeek.tailBytes,
+                                               length: GPXPeek.tailBytes)) ?? Data()
         return GPXPeek.scan(head: head, tail: tail)
     }
 
