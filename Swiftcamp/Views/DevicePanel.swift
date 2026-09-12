@@ -27,7 +27,12 @@ final class DeviceModel {
     /// What each identified file turned out to hold, keyed by object handle.
     private(set) var summaries: [UInt32: DeviceService.Identification] = [:]
 
+    /// How many files the background scan still has to look at, or nil when
+    /// it is not running. Distinct from `isWorking`, which gates the buttons.
+    private(set) var scanRemaining: Int?
+
     @ObservationIgnored private let service = DeviceService()
+    @ObservationIgnored private var scanTask: Task<Void, Never>?
 
     func scan() {
         units = service.garmins()
@@ -105,30 +110,51 @@ final class DeviceModel {
         }
     }
 
-    /// Identifies every GPX in the folder, one after another.
+    /// Fills in what each file holds, in the background.
     ///
-    /// Serially, not in parallel. One USB pipe pair carries one transaction,
-    /// so concurrency here would not be faster and would interleave replies.
+    /// Deliberately not routed through `run`. Identification is something the
+    /// panel does for the user's benefit, not something the user asked for,
+    /// so it must never be the reason a button is greyed out or an import has
+    /// to wait. It publishes each result as it arrives rather than at the
+    /// end, so a long folder fills in from the top while it is being read.
+    ///
+    /// Serially, because one USB pipe pair carries one transaction —
+    /// concurrency here would not be faster and would interleave the replies.
     func identifyAll() {
+        scanTask?.cancel()
+
         let pending = browseFiles.filter {
             !$0.isFolder && $0.name.lowercased().hasSuffix(".gpx") && summaries[$0.handle] == nil
         }
-        guard !pending.isEmpty else { return }
+        guard !pending.isEmpty else {
+            scanRemaining = nil
+            return
+        }
 
-        run("Reading \(pending.count) files…") { [service] in
-            var found: [UInt32: DeviceService.Identification] = [:]
+        scanRemaining = pending.count
+        scanTask = Task { [service] in
             for file in pending {
+                if Task.isCancelled { break }
                 // One unreadable file must not stop the rest. A device folder
                 // can hold a log the unit was part-way through writing.
-                if let result = try? await service.identify(file) {
-                    found[file.handle] = result
-                }
+                let result = try? await service.identify(file)
+                if Task.isCancelled { break }
+
+                if let result { summaries[file.handle] = result }
+                scanRemaining = (scanRemaining ?? 1) - 1
             }
-            return {
-                self.summaries.merge(found) { _, new in new }
-                self.status = nil
-            }
+            scanRemaining = nil
         }
+    }
+
+    /// Stops the background scan so a user action goes next.
+    ///
+    /// The device answers one request at a time, so a scan half-way through
+    /// twenty files would otherwise put an import behind all of them.
+    private func yieldScan() {
+        scanTask?.cancel()
+        scanTask = nil
+        scanRemaining = nil
     }
 
     func read(_ file: DeviceFile, then handle: @escaping (Data) -> Void) {
@@ -167,14 +193,7 @@ final class DeviceModel {
     private func list(storage: UInt32, parent: UInt32) {
         run("Reading folder…") { [service] in
             let files = try await service.list(storage: storage, parent: parent)
-            return {
-                self.browseFiles = files
-                self.status = nil
-                // Identifying a file costs twenty-odd kilobytes when the
-                // device reads byte ranges, so there is nothing to ask about
-                // — a list of names with no dates is worse for free.
-                if self.snapshot?.canIdentifyCheaply == true { self.identifyAll() }
-            }
+            return { self.browseFiles = files; self.status = nil }
         }
     }
 
@@ -184,6 +203,8 @@ final class DeviceModel {
     /// window lives — the same mistake that froze the app on import.
     private func run(_ label: String, _ work: @escaping () async throws -> () -> Void) {
         guard !isWorking else { return }
+        // Whatever the user asked for goes ahead of the background scan.
+        yieldScan()
         isWorking = true
         status = label
         failure = nil
@@ -204,6 +225,11 @@ final class DeviceModel {
                 status = nil
                 isWorking = false
             }
+
+            // Pick the scan back up, for this folder and whatever is left of
+            // it. Identifying only ever touches files it has no answer for,
+            // so resuming costs nothing when there is nothing to do.
+            if snapshot?.canIdentifyCheaply == true { identifyAll() }
         }
     }
 }
@@ -382,7 +408,11 @@ struct DevicePanel: View {
                         .buttonStyle(.link)
                 }
                 Spacer()
-                if model.browseFiles.count > 8 {
+                if let remaining = model.scanRemaining {
+                    // Quiet on purpose. Nothing is blocked while this counts
+                    // down, so it should not look like something is.
+                    Text("reading \(remaining)…").foregroundStyle(.tertiary)
+                } else if model.browseFiles.count > 8 {
                     Text("\(model.browseFiles.count) items").foregroundStyle(.secondary)
                 }
                 // Only offered when the device cannot read byte ranges, in
