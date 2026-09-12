@@ -49,7 +49,11 @@ actor DeviceService {
         self.browser = browser
         self.connected = unit
 
-        let info = try browser.identify()
+        // A failure to identify must not stop the connection. The model name
+        // is decoration — the USB product string already names the unit — and
+        // refusing to list a device's files because its self-description
+        // parsed oddly would be the wrong trade every time.
+        let info = (try? browser.identify()) ?? MTP.DeviceInfo()
         var storages: [StorageSummary] = []
 
         for storage in try browser.storages() {

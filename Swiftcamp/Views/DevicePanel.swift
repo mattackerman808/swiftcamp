@@ -26,7 +26,10 @@ final class DeviceModel {
     func connect(to unit: GarminUnit) {
         run("Connecting…") { [service] in
             let snapshot = try await service.connect(to: unit)
-            return { self.snapshot = snapshot }
+            // Clearing the status matters: leaving "Connecting…" up after it
+            // has connected reads as a job still running, which is the one
+            // thing a progress message must never say when it is finished.
+            return { self.snapshot = snapshot; self.status = nil }
         }
     }
 

@@ -66,11 +66,17 @@ final class MTPSession {
         try reader.skip(2 + 4 + 2)                   // standard version, vendor extension, version
         _ = try reader.string()                      // vendor extension description
         try reader.skip(2)                           // functional mode
-        _ = try reader.uint32Array()                 // operations supported
-        _ = try reader.uint32Array()                 // events supported
-        _ = try reader.uint32Array()                 // device properties
-        _ = try reader.uint32Array()                 // capture formats
-        _ = try reader.uint32Array()                 // playback formats
+
+        // These five are arrays of UInt16, not UInt32. Operation, event,
+        // property and format codes are all 16-bit, and reading them at 32
+        // bits walks twice as far as it should — which does not fail here.
+        // It fails four fields later, as a request to allocate an array of
+        // 150,994,944 elements, with nothing pointing back to the cause.
+        _ = try reader.uint16Array()                 // operations supported
+        _ = try reader.uint16Array()                 // events supported
+        _ = try reader.uint16Array()                 // device properties
+        _ = try reader.uint16Array()                 // capture formats
+        _ = try reader.uint16Array()                 // playback formats
 
         info.manufacturer = try reader.string()
         info.model = try reader.string()

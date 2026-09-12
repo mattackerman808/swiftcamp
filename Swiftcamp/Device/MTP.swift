@@ -138,12 +138,31 @@ enum MTP {
             return String(decoding: units, as: UTF16.self)
         }
 
+        /// A PTP array is a `uint32` count followed by that many elements —
+        /// but the element width varies by field, and getting it wrong does
+        /// not fail where it happens. Reading a `uint16` array as `uint32`
+        /// consumes twice the bytes, and the damage only surfaces several
+        /// fields later as an absurd count for something else.
         mutating func uint32Array() throws -> [UInt32] {
+            let count = try arrayCount()
+            return try (0..<count).map { _ in try uint32() }
+        }
+
+        mutating func uint16Array() throws -> [UInt16] {
+            let count = try arrayCount()
+            return try (0..<count).map { _ in try uint16() }
+        }
+
+        private mutating func arrayCount() throws -> UInt32 {
             let count = try uint32()
             // A device reporting an implausible count is malformed rather
-            // than a reason to allocate a gigabyte.
-            guard count < 1_000_000 else { throw Failure.malformedResponse("array of \(count)") }
-            return try (0..<count).map { _ in try uint32() }
+            // than a reason to allocate a gigabyte. It also means the parse
+            // has drifted, which is the more useful thing to be told.
+            guard count < 1_000_000 else {
+                throw Failure.malformedResponse("an array of \(count) elements, which means the "
+                                                + "reply is being read at the wrong offset")
+            }
+            return count
         }
 
         mutating func skip(_ bytes: Int) throws {
