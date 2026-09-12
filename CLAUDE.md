@@ -214,6 +214,12 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
+- **Never reset a device that is merely busy.** A zūmo answers `Device_Busy`
+  while it is downloading maps over Wi-Fi, and resetting it there aborts the
+  download: the unit puts up "Outdoor Maps+ download failed" and the rider
+  loses it because a route planner was impatient. Busy means come back later.
+  A reset is only for a device stuck part-way through a transfer *we*
+  abandoned, which nothing else clears.
 - **A zero-length USB read is a packet marker, not a failure.** A transfer
   whose length is an exact multiple of the endpoint packet size is terminated
   by an empty packet, and it sits in the pipe until read. The next command

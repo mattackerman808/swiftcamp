@@ -49,11 +49,30 @@ final class MTPSession {
         do {
             try openSession()
         } catch MTP.Failure.deviceRefused(let code)
-            where code == MTP.Response.generalError.rawValue
-               || code == MTP.Response.deviceBusy.rawValue {
-            log.info("device is wedged; resetting and retrying")
+            where code == MTP.Response.deviceBusy.rawValue {
+            // Busy means "come back later", and it is not ours to override.
+            // A zūmo says this while it is downloading maps over Wi-Fi, and
+            // resetting it there aborts the download — the unit puts up
+            // "Outdoor Maps+ download failed" and the user loses the
+            // transfer, because a route planner was impatient.
+            log.info("device is busy; waiting rather than resetting")
+            for _ in 0..<3 {
+                Thread.sleep(forTimeInterval: 1.5)
+                if (try? openSession()) != nil {
+                    isOpen = true
+                    return
+                }
+            }
+            throw MTP.Failure.deviceRefused(MTP.Response.deviceBusy.rawValue)
+        } catch MTP.Failure.deviceRefused(let code)
+            where code == MTP.Response.generalError.rawValue {
+            // A general error here means the device is stuck part-way through
+            // a transfer *we* abandoned, which nothing but a reset clears.
+            // Reserved for that: a reset interrupts whatever else the unit is
+            // doing, so it must never be the answer to a device that is
+            // merely busy.
+            log.info("device is stuck mid-transaction; resetting")
             if let handle { _ = sc_usb_reset(handle) }
-            // The device drops off the bus briefly while it resets.
             Thread.sleep(forTimeInterval: 1.0)
             transaction = 0
             try openSession()
