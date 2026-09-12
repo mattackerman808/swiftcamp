@@ -98,6 +98,17 @@ actor DeviceService {
         return try browser.contents(of: parent, storage: storage)
     }
 
+    /// Reads a GPX and reports what is in it, without importing anything.
+    ///
+    /// The whole file has to come across to answer the question, so this is
+    /// deliberately something the user asks for rather than something that
+    /// happens when a folder opens. An archive of twenty logs is sixty
+    /// megabytes, and opening a folder should not cost that.
+    func inspect(_ file: DeviceFile) throws -> GPXSummary {
+        guard let browser else { throw MTP.Failure.noDevice }
+        return try GPXReader.read(data: browser.read(file)).summary
+    }
+
     /// The GPX folder's handle, which a send may have just created.
     func gpxFolder(storage: UInt32) throws -> UInt32? {
         guard let browser else { throw MTP.Failure.noDevice }

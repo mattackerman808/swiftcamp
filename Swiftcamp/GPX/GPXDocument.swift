@@ -65,6 +65,39 @@ enum GPXError: LocalizedError, Equatable {
     }
 }
 
+/// A one-line description of what is in a GPX file.
+///
+/// Exists for the device browser. A folder of archived track logs named
+/// `4.gpx` and `18.gpx` tells the rider nothing at all; when each one covers
+/// a specific few days and a specific distance, it becomes their history.
+struct GPXSummary: Equatable, Sendable {
+    var tracks = 0
+    var routes = 0
+    var waypoints = 0
+    var start: Date?
+    var end: Date?
+    /// Metres, along tracks and the shaped path of routes.
+    var distance: Double = 0
+
+    var isEmpty: Bool { tracks == 0 && routes == 0 && waypoints == 0 }
+}
+
+extension GPXDocument {
+    var summary: GPXSummary {
+        var out = GPXSummary(tracks: tracks.count,
+                             routes: routes.count,
+                             waypoints: waypoints.count)
+
+        let times = tracks.flatMap { $0.points.compactMap(\.time) }
+        out.start = times.min() ?? time
+        out.end = times.max() ?? time
+
+        out.distance = tracks.reduce(0) { $0 + $1.length }
+                     + routes.reduce(0) { $0 + $1.length }
+        return out
+    }
+}
+
 /// What an import added, and what it is called.
 ///
 /// The ids are here so the window can frame what just arrived. Importing a

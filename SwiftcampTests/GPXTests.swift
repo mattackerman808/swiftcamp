@@ -416,4 +416,42 @@ final class GPXTests: XCTestCase {
         let back = try GPXReader.read(data: Data(text.utf8))
         XCTAssertEqual(back.routes.first?.route.color, "DarkCyan")
     }
+
+    // MARK: - Summary
+
+    /// What the device browser puts under a file called `18.gpx`.
+    func testSummaryCountsWhatIsInTheFile() throws {
+        let summary = try read("basecamp-route").summary
+
+        XCTAssertEqual(summary.tracks, 1)
+        XCTAssertEqual(summary.routes, 1)
+        XCTAssertEqual(summary.waypoints, 2)
+        XCTAssertFalse(summary.isEmpty)
+    }
+
+    /// The dates come from the track points, which is the only place a
+    /// recorded log says when it happened.
+    func testSummarySpansTheRecordedTimes() throws {
+        let summary = try read("basecamp-route").summary
+
+        XCTAssertEqual(summary.start, GPXDate.parse("2026-09-11T15:00:00Z"))
+        XCTAssertEqual(summary.end, GPXDate.parse("2026-09-11T16:30:00Z"))
+    }
+
+    /// A file with no timestamps anywhere falls back to the metadata time,
+    /// and then to nothing, rather than inventing one.
+    func testSummaryHasNoDatesWhenTheFileCarriesNone() throws {
+        let summary = try read("gpx10-track").summary
+        XCTAssertNil(summary.start)
+        XCTAssertNil(summary.end)
+    }
+
+    func testSummaryMeasuresTracksAndRoutes() throws {
+        let summary = try read("basecamp-route").summary
+        XCTAssertGreaterThan(summary.distance, 0)
+    }
+
+    func testAnEmptyDocumentSummarisesAsEmpty() {
+        XCTAssertTrue(GPXDocument().summary.isEmpty)
+    }
 }

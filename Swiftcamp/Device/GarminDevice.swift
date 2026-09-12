@@ -63,8 +63,35 @@ struct DeviceFile: Identifiable, Hashable, Sendable {
     var name: String
     var size: UInt32
     var isFolder: Bool
+    /// What the device says, which is often nothing. Plenty of units leave
+    /// the field empty, so this is a bonus rather than something to rely on.
+    var modified: Date?
 
     var id: UInt32 { handle }
+}
+
+/// PTP timestamps, which are their own format and not ISO 8601.
+///
+/// `YYYYMMDDThhmmss`, optionally with fractional seconds and a `Z`. Close
+/// enough to ISO to be mistaken for it, and different enough that an ISO
+/// parser returns nil for every one of them.
+enum PTPDate {
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd'T'HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    static func parse(_ text: String) -> Date? {
+        guard !text.isEmpty else { return nil }
+        // Trim a trailing Z and any fractional seconds before the format
+        // string, which describes neither.
+        var trimmed = text.hasSuffix("Z") ? String(text.dropLast()) : text
+        if let dot = trimmed.firstIndex(of: ".") { trimmed = String(trimmed[..<dot]) }
+        return formatter.date(from: trimmed)
+    }
 }
 
 /// Reading and writing the GPX a Garmin navigates from.
@@ -134,7 +161,8 @@ struct GarminBrowser {
     private func describe(_ handle: UInt32) -> DeviceFile? {
         guard let info = try? session.objectInfo(handle) else { return nil }
         return DeviceFile(handle: handle, storage: info.storageID, name: info.filename,
-                          size: info.size, isFolder: info.isFolder)
+                          size: info.size, isFolder: info.isFolder,
+                          modified: PTPDate.parse(info.modified))
     }
 
     /// Walks a path of folder names from the root of a storage.

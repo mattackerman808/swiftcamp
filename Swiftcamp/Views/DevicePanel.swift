@@ -24,6 +24,9 @@ final class DeviceModel {
     private(set) var browseFiles: [DeviceFile] = []
     private(set) var browseStorage: UInt32?
 
+    /// What each inspected file turned out to hold, keyed by object handle.
+    private(set) var summaries: [UInt32: GPXSummary] = [:]
+
     @ObservationIgnored private let service = DeviceService()
 
     func scan() {
@@ -82,6 +85,40 @@ final class DeviceModel {
                 self.browsePath = folder.map { [Crumb(name: "GPX", handle: $0)] } ?? []
                 self.browseFiles = files
                 self.status = "Sent \(name)."
+            }
+        }
+    }
+
+    /// Reads one file and records what is in it.
+    func inspect(_ file: DeviceFile) {
+        run("Reading \(file.name)…") { [service] in
+            let summary = try await service.inspect(file)
+            return { self.summaries[file.handle] = summary; self.status = nil }
+        }
+    }
+
+    /// Inspects every GPX in the folder, one after another.
+    ///
+    /// Serially, not in parallel. One USB pipe pair carries one transaction,
+    /// so concurrency here would not be faster and would interleave replies.
+    func inspectAll() {
+        let pending = browseFiles.filter {
+            !$0.isFolder && $0.name.lowercased().hasSuffix(".gpx") && summaries[$0.handle] == nil
+        }
+        guard !pending.isEmpty else { return }
+
+        run("Reading \(pending.count) files…") { [service] in
+            var found: [UInt32: GPXSummary] = [:]
+            for file in pending {
+                // One unreadable file must not stop the rest. A device folder
+                // can hold a log the unit was part-way through writing.
+                if let summary = try? await service.inspect(file) {
+                    found[file.handle] = summary
+                }
+            }
+            return {
+                self.summaries.merge(found) { _, new in new }
+                self.status = nil
             }
         }
     }
@@ -333,6 +370,11 @@ struct DevicePanel: View {
                 if model.browseFiles.count > 8 {
                     Text("\(model.browseFiles.count) items").foregroundStyle(.secondary)
                 }
+                if gpxCount > 1 {
+                    Button("Identify All") { model.inspectAll() }
+                        .buttonStyle(.link)
+                        .disabled(model.isWorking)
+                }
             }
             .font(.caption)
 
@@ -344,26 +386,35 @@ struct DevicePanel: View {
             }
 
             ForEach(model.browseFiles) { file in
-                HStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: file.isFolder ? "folder.fill" : "doc")
                         .foregroundStyle(file.isFolder ? Color.accentColor : .secondary)
-                    if file.isFolder {
-                        Button(file.name) { model.descend(into: file) }
-                            .buttonStyle(.plain)
-                    } else {
-                        Text(file.name)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        if file.isFolder {
+                            Button(file.name) { model.descend(into: file) }
+                                .buttonStyle(.plain)
+                        } else {
+                            Text(file.name)
+                            Text(subtitle(for: file))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
+
                     Spacer()
-                    if !file.isFolder {
-                        Text(size(file.size)).font(.caption).foregroundStyle(.secondary)
-                        // Anywhere on the device, not only in the folder we
-                        // opened at. The archived track logs are the rider's
-                        // own history and they sit a level down.
-                        if file.name.lowercased().hasSuffix(".gpx") {
-                            Button("Import") { importFromDevice(file) }
+
+                    if !file.isFolder, file.name.lowercased().hasSuffix(".gpx") {
+                        if model.summaries[file.handle] == nil {
+                            Button("Identify") { model.inspect(file) }
                                 .controlSize(.small)
                                 .disabled(model.isWorking)
                         }
+                        // Anywhere on the device, not only in the folder we
+                        // opened at. The archived track logs are the rider's
+                        // own history and they sit a level down.
+                        Button("Import") { importFromDevice(file) }
+                            .controlSize(.small)
+                            .disabled(model.isWorking)
                     }
                 }
                 .font(.callout)
@@ -410,6 +461,70 @@ struct DevicePanel: View {
         return "\(formatter.string(fromByteCount: Int64(storage.freeBytes))) free "
              + "of \(formatter.string(fromByteCount: Int64(storage.capacityBytes)))"
     }
+
+    private var gpxCount: Int {
+        model.browseFiles.filter { !$0.isFolder && $0.name.lowercased().hasSuffix(".gpx") }.count
+    }
+
+    /// What is known about a file, best first.
+    ///
+    /// Contents beat a timestamp, and a timestamp beats a byte count. A name
+    /// like `18.gpx` says nothing; "3 tracks · 12–14 Aug · 340 mi" is the
+    /// thing the rider is actually looking for.
+    private func subtitle(for file: DeviceFile) -> String {
+        var parts: [String] = []
+
+        if let summary = model.summaries[file.handle] {
+            parts.append(contentsOf: contents(of: summary))
+            if let span = dateSpan(summary) { parts.append(span) }
+            if summary.distance > 0 { parts.append(distance(summary.distance)) }
+        } else if let modified = file.modified {
+            parts.append(Self.dayFormatter.string(from: modified))
+        }
+
+        parts.append(size(file.size))
+        return parts.joined(separator: " · ")
+    }
+
+    private func contents(of summary: GPXSummary) -> [String] {
+        var parts: [String] = []
+        if summary.tracks > 0 { parts.append(count(summary.tracks, "track")) }
+        if summary.routes > 0 { parts.append(count(summary.routes, "route")) }
+        if summary.waypoints > 0 { parts.append(count(summary.waypoints, "waypoint")) }
+        if parts.isEmpty { parts.append("empty") }
+        return parts
+    }
+
+    private func count(_ n: Int, _ noun: String) -> String {
+        "\(n) \(noun)\(n == 1 ? "" : "s")"
+    }
+
+    /// "12–14 Aug 2026", or one date when it is all one day.
+    private func dateSpan(_ summary: GPXSummary) -> String? {
+        guard let start = summary.start else { return nil }
+        guard let end = summary.end,
+              !Calendar.current.isDate(start, inSameDayAs: end) else {
+            return Self.dayFormatter.string(from: start)
+        }
+        return Self.rangeFormatter.string(from: start, to: end)
+    }
+
+    private func distance(_ metres: Double) -> String {
+        String(format: "%.0f mi", metres / 1609.344)
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "d MMM yyyy"
+        return f
+    }()
+
+    private static let rangeFormatter: DateIntervalFormatter = {
+        let f = DateIntervalFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
 
     private func size(_ bytes: UInt32) -> String {
         let formatter = ByteCountFormatter()
