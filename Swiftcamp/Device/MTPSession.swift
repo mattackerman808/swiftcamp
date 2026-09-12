@@ -34,17 +34,41 @@ final class MTPSession {
     deinit { close() }
 
     /// Opens session 1. Every operation except `GetDeviceInfo` needs one.
+    ///
+    /// Three attempts, because the interesting failure is a device left
+    /// mid-transaction by a run that crashed or timed out. It answers the
+    /// next `OpenSession` with a general error and stays that way until
+    /// something clears it, which previously meant unplugging the cable.
     func open() throws {
         guard !isOpen else { return }
+
+        // A session the last run left behind. Closing one that is not open is
+        // harmless and the device says so, which is why the result is ignored.
+        _ = try? command(.closeSession, [])
+
+        do {
+            try openSession()
+        } catch MTP.Failure.deviceRefused(let code)
+            where code == MTP.Response.generalError.rawValue
+               || code == MTP.Response.deviceBusy.rawValue {
+            log.info("device is wedged; resetting and retrying")
+            if let handle { _ = sc_usb_reset(handle) }
+            // The device drops off the bus briefly while it resets.
+            Thread.sleep(forTimeInterval: 1.0)
+            transaction = 0
+            try openSession()
+        }
+        isOpen = true
+    }
+
+    private func openSession() throws {
         do {
             _ = try command(.openSession, [1])
         } catch MTP.Failure.deviceRefused(let code)
             where code == MTP.Response.sessionAlreadyOpen.rawValue {
-            // A session left open by a previous run, or by another program
-            // that did not close cleanly. Ours to use either way.
+            // Already ours to use.
             log.info("session was already open")
         }
-        isOpen = true
     }
 
     func close() {

@@ -47,7 +47,55 @@ enum MTP {
 
     enum Response: UInt16 {
         case ok = 0x2001
+        case generalError = 0x2002
+        case sessionNotOpen = 0x2003
+        case invalidTransactionID = 0x2004
+        case operationNotSupported = 0x2005
+        case parameterNotSupported = 0x2006
+        case incompleteTransfer = 0x2007
+        case invalidStorageID = 0x2008
+        case invalidObjectHandle = 0x2009
+        case invalidObjectFormatCode = 0x200B
+        case storeFull = 0x200C
+        case objectWriteProtected = 0x200D
+        case storeReadOnly = 0x200E
+        case accessDenied = 0x200F
+        case noValidObjectInfo = 0x2015
+        case deviceBusy = 0x2019
+        case invalidParentObject = 0x201A
+        case invalidParameter = 0x201D
         case sessionAlreadyOpen = 0x201E
+        case transactionCancelled = 0x201F
+
+        /// What to tell the user, in words.
+        ///
+        /// A bare `0x2002` says nothing to anyone. Several of these have an
+        /// obvious remedy and the message should carry it: a device that is
+        /// busy wants a moment, one left mid-transaction wants a reset.
+        var explanation: String {
+            switch self {
+            case .ok: return "succeeded"
+            case .generalError: return "the device reported a general error, which usually means it was left part-way through an earlier transfer"
+            case .sessionNotOpen: return "no session is open"
+            case .invalidTransactionID: return "the device lost track of the conversation"
+            case .operationNotSupported: return "the device does not support that operation"
+            case .parameterNotSupported: return "the device did not accept one of the values"
+            case .incompleteTransfer: return "the transfer did not finish"
+            case .invalidStorageID: return "that storage is not on the device"
+            case .invalidObjectHandle: return "that file is no longer on the device"
+            case .invalidObjectFormatCode: return "the device rejected the file type"
+            case .storeFull: return "the device is full"
+            case .objectWriteProtected: return "that file is write-protected"
+            case .storeReadOnly: return "that storage is read-only"
+            case .accessDenied: return "the device refused access"
+            case .noValidObjectInfo: return "the device was not told what was coming"
+            case .deviceBusy: return "the device is busy"
+            case .invalidParentObject: return "that folder is not somewhere the device will accept a file"
+            case .invalidParameter: return "the device did not accept one of the values"
+            case .sessionAlreadyOpen: return "a session is already open"
+            case .transactionCancelled: return "the device cancelled the transfer"
+            }
+        }
     }
 
     /// Object format codes. Only the two that matter here.
@@ -81,7 +129,11 @@ enum MTP {
             case .malformedResponse(let detail):
                 return "The device sent something unexpected: \(detail)"
             case .deviceRefused(let code):
-                return "The device refused the request (0x\(String(code, radix: 16)))."
+                let hex = String(format: "0x%04X", code)
+                guard let known = Response(rawValue: code) else {
+                    return "The device refused the request (\(hex))."
+                }
+                return "The device refused the request: \(known.explanation) (\(hex))."
             case .notFound(let what):
                 return "\(what) is not on the device."
             }

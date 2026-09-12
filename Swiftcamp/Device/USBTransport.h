@@ -75,6 +75,10 @@ uint16_t sc_usb_max_packet_out(sc_usb_handle *h);
 sc_usb_error sc_usb_clear_halt_in(sc_usb_handle *h);
 sc_usb_error sc_usb_clear_halt_out(sc_usb_handle *h);
 
+/// Resets the device, which is what clears one left mid-transaction by a
+/// failed transfer. The same thing unplugging it does, without the walk.
+sc_usb_error sc_usb_reset(sc_usb_handle *h);
+
 void sc_usb_close(sc_usb_handle *h);
 
 #ifdef __cplusplus

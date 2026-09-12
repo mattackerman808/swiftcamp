@@ -311,6 +311,11 @@ sc_usb_error sc_usb_clear_halt_out(sc_usb_handle *h) {
         ? SC_USB_OK : SC_USB_PIPE;
 }
 
+sc_usb_error sc_usb_reset(sc_usb_handle *h) {
+    if (!h || !h->device) return SC_USB_PARAM;
+    return (*h->device)->ResetDevice(h->device) == kIOReturnSuccess ? SC_USB_OK : SC_USB_IO;
+}
+
 void sc_usb_close(sc_usb_handle *h) {
     if (!h) return;
     if (h->interface) {
@@ -335,6 +340,7 @@ int sc_usb_bulk_read(sc_usb_handle *h, uint8_t *d, int n, int t) { (void)h;(void
 uint16_t sc_usb_max_packet_out(sc_usb_handle *h) { (void)h; return 512; }
 sc_usb_error sc_usb_clear_halt_in(sc_usb_handle *h) { (void)h; return SC_USB_NOT_FOUND; }
 sc_usb_error sc_usb_clear_halt_out(sc_usb_handle *h) { (void)h; return SC_USB_NOT_FOUND; }
+sc_usb_error sc_usb_reset(sc_usb_handle *h) { (void)h; return SC_USB_NOT_FOUND; }
 void sc_usb_close(sc_usb_handle *h) { (void)h; }
 
 #endif
