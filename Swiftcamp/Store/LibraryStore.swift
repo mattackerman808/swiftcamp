@@ -162,6 +162,85 @@ struct LibraryStore {
         }
     }
 
+    // MARK: - GPX
+
+    /// Adds everything in a GPX file to the library, in one transaction.
+    ///
+    /// Import adds; it never replaces. Opening the same file twice really
+    /// does produce two copies, because GPX carries no stable identifier for
+    /// anything in it and there is nothing to match an existing route
+    /// against. Guessing by name would silently overwrite a route the user
+    /// had edited, which is worse than a duplicate they can see and delete.
+    @discardableResult
+    func importGPX(_ document: GPXDocument, into listID: String? = nil) throws -> GPXImportCount {
+        try database.writer.write { db in
+            for var waypoint in document.waypoints {
+                waypoint.listID = listID
+                try waypoint.insert(db)
+            }
+
+            for detail in document.routes {
+                var route = detail.route
+                route.listID = listID
+                try route.insert(db)
+                for (index, point) in detail.points.enumerated() {
+                    var point = point
+                    point.id = nil
+                    point.routeID = route.id
+                    point.seq = index
+                    try point.insert(db)
+                }
+            }
+
+            for detail in document.tracks {
+                var track = detail.track
+                track.listID = listID
+                try track.insert(db)
+                for (index, point) in detail.points.enumerated() {
+                    var point = point
+                    point.id = nil
+                    point.trackID = track.id
+                    point.seq = index
+                    try point.insert(db)
+                }
+            }
+
+            return GPXImportCount(waypoints: document.waypoints.count,
+                                  routes: document.routes.count,
+                                  tracks: document.tracks.count)
+        }
+    }
+
+    /// Gathers named items into a document ready to write out.
+    ///
+    /// Takes explicit id lists rather than a list id, because what the user
+    /// selects in the sidebar and what they want in the file are the same
+    /// thing, and a folder is only one of the ways to select it.
+    func exportGPX(waypointIDs: [String] = [],
+                   routeIDs: [String] = [],
+                   trackIDs: [String] = []) throws -> GPXDocument {
+        try database.writer.read { db in
+            var document = GPXDocument(time: .now)
+
+            document.waypoints = try Waypoint.filter(keys: waypointIDs).fetchAll(db)
+
+            for id in routeIDs {
+                if let detail = try Self.routeDetail(db, id: id) { document.routes.append(detail) }
+            }
+
+            for id in trackIDs {
+                guard let track = try Track.fetchOne(db, key: id) else { continue }
+                let points = try TrackPoint
+                    .filter(Column("track_id") == id)
+                    .order(Column("seq"))
+                    .fetchAll(db)
+                document.tracks.append(TrackDetail(track: track, points: points))
+            }
+
+            return document
+        }
+    }
+
     // MARK: - Deleting
 
     func deleteRoute(id: String) throws {

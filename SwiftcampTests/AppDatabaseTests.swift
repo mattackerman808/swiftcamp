@@ -9,15 +9,21 @@ import XCTest
 /// silently collapsed 4,400. Every assertion here is cheap, and it is the
 /// gap in that precedent worth not repeating.
 final class AppDatabaseTests: XCTestCase {
+    /// Grows by one with every migration added. Asserting the exact number
+    /// rather than "at least one" is what catches a migration accidentally
+    /// deleted or renamed, which the append-only rule forbids and which
+    /// nothing else would notice.
+    private let migrationCount = 2
+
     private func makeLibrary() throws -> AppDatabase {
         try AppDatabase.inMemory()
     }
 
     // MARK: - Migrations
 
-    func testFreshLibraryMigratesToV1() throws {
+    func testFreshLibraryMigratesToTheCurrentSchema() throws {
         let db = try makeLibrary()
-        XCTAssertEqual(try db.appliedMigrationCount(), 1)
+        XCTAssertEqual(try db.appliedMigrationCount(), migrationCount)
 
         let tables = ["lists", "waypoints", "tracks", "track_points", "routes", "route_points"]
         try db.writer.read { d in
@@ -38,10 +44,11 @@ final class AppDatabaseTests: XCTestCase {
 
         let first = try AppDatabase(url: url)
         try first.writer.write { d in try insertRoute(d, id: "r1", name: "Trail Ridge") }
-        XCTAssertEqual(try first.appliedMigrationCount(), 1)
+        XCTAssertEqual(try first.appliedMigrationCount(), migrationCount)
 
         let second = try AppDatabase(url: url)
-        XCTAssertEqual(try second.appliedMigrationCount(), 1, "migrations must not re-apply")
+        XCTAssertEqual(try second.appliedMigrationCount(), migrationCount,
+                       "migrations must not re-apply")
 
         let names = try second.writer.read { d in
             try String.fetchAll(d, sql: "SELECT name FROM routes")

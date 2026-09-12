@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Carries a vendor extension we know nothing about, plus Garmin's
+     TrackPointExtension. Both must be skipped whole, children included,
+     without disturbing the elements around them. -->
+<gpx xmlns="http://www.topografix.com/GPX/1/1"
+     xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+     xmlns:acme="http://example.com/acme/v9"
+     creator="Some Recorder" version="1.1">
+  <trk>
+    <name>Sensor-laden</name>
+    <extensions>
+      <acme:Nonsense>
+        <acme:name>this name must not become the track name</acme:name>
+        <acme:depth><acme:deeper>ignored</acme:deeper></acme:depth>
+      </acme:Nonsense>
+    </extensions>
+    <trkseg>
+      <trkpt lat="40.0" lon="-105.0">
+        <ele>1500.0</ele>
+        <extensions>
+          <gpxtpx:TrackPointExtension>
+            <gpxtpx:hr>142</gpxtpx:hr>
+            <gpxtpx:cad>78</gpxtpx:cad>
+          </gpxtpx:TrackPointExtension>
+        </extensions>
+      </trkpt>
+      <trkpt lat="40.1" lon="-105.1"><ele>1520.0</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

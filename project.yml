@@ -111,6 +111,14 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: SwiftcampTests
+        excludes:
+          - "Fixtures"
+      # GPX fixtures. Declared as a resources build phase because XcodeGen
+      # does not know what a .gpx is and leaves unrecognised files out of the
+      # bundle, so `Bundle.url(forResource:)` finds nothing and every test
+      # that reads one fails as "fixture not in the test bundle".
+      - path: SwiftcampTests/Fixtures
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app.mac.tests

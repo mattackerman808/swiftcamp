@@ -161,6 +161,10 @@ struct TrackPoint: LibraryRecord, Identifiable, Hashable {
     var id: Int64?
     var trackID: String
     var seq: Int
+    /// Which `<trkseg>` this point came from. Points are numbered across the
+    /// whole track, so `seq` stays a single ordering and this only says
+    /// where the line breaks.
+    var segment: Int = 0
     var lat: Double
     var lon: Double
     var elevation: Double?
@@ -222,6 +226,24 @@ struct RoutePoint: LibraryRecord, Identifiable, Hashable {
     mutating func didInsert(_ inserted: InsertionSuccess) {
         id = inserted.rowID
     }
+}
+
+/// A track and its points.
+struct TrackDetail: Identifiable, Hashable {
+    var track: Track
+    var points: [TrackPoint]
+
+    var id: String { track.id }
+
+    /// One polyline per segment, so the renderer never joins across a gap
+    /// where the recording stopped.
+    var segments: [[Coordinate]] {
+        Dictionary(grouping: points.sorted { $0.seq < $1.seq }, by: \.segment)
+            .sorted { $0.key < $1.key }
+            .map { $0.value.map(\.coordinate) }
+    }
+
+    var length: Double { segments.reduce(0) { $0 + GeoMath.length($1) } }
 }
 
 /// A route and its points, which is the only useful unit above the store.

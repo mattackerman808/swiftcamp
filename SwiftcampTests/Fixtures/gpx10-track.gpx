@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/0" creator="MapSource 6.16.3" version="1.0">
+  <name>Old export</name>
+  <wpt lat="39.7392" lon="-104.9903">
+    <ele>1609.0</ele>
+    <name>Denver</name>
+    <sym>City (Large)</sym>
+  </wpt>
+  <trk>
+    <name>Legacy track</name>
+    <trkseg>
+      <trkpt lat="39.7392" lon="-104.9903"><ele>1609.0</ele></trkpt>
+      <trkpt lat="39.7400" lon="-104.9910"><ele>1611.0</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

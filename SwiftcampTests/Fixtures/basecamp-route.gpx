@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxx="http://www.garmin.com/xmlschemas/GpxExtensions/v3" creator="Garmin BaseCamp 4.8.11" version="1.1">
+  <metadata>
+    <name>Colorado 2026</name>
+    <time>2026-09-11T14:30:00Z</time>
+  </metadata>
+  <wpt lat="40.3772" lon="-105.5217">
+    <ele>2293.0</ele>
+    <name>Estes Park</name>
+    <cmt>fuel &amp; coffee</cmt>
+    <desc>East entrance to the park</desc>
+    <sym>Flag, Blue</sym>
+  </wpt>
+  <wpt lat="40.2503" lon="-105.8181">
+    <ele>3713.0</ele>
+    <name>Alpine Visitor Center</name>
+    <sym>Summit</sym>
+  </wpt>
+  <rte>
+    <name>Trail Ridge Road</name>
+    <cmt>Highest continuous paved road in the US</cmt>
+    <extensions>
+      <gpxx:RouteExtension>
+        <gpxx:IsAutoNamed>false</gpxx:IsAutoNamed>
+        <gpxx:DisplayColor>Magenta</gpxx:DisplayColor>
+      </gpxx:RouteExtension>
+    </extensions>
+    <rtept lat="40.3772" lon="-105.5217">
+      <name>Estes Park</name>
+      <sym>Flag, Blue</sym>
+      <extensions>
+        <gpxx:RoutePointExtension>
+          <gpxx:rpt lat="40.3781" lon="-105.5289"/>
+          <gpxx:rpt lat="40.3812" lon="-105.5401"/>
+          <gpxx:rpt lat="40.3744" lon="-105.5688"/>
+          <gpxx:rpt lat="40.3699" lon="-105.5912"/>
+        </gpxx:RoutePointExtension>
+      </extensions>
+    </rtept>
+    <rtept lat="40.2503" lon="-105.8181">
+      <name>Alpine Visitor Center</name>
+      <sym>Summit</sym>
+      <extensions>
+        <gpxx:RoutePointExtension>
+          <gpxx:rpt lat="40.2477" lon="-105.8402"/>
+          <gpxx:rpt lat="40.2395" lon="-105.8611"/>
+        </gpxx:RoutePointExtension>
+      </extensions>
+    </rtept>
+    <rtept lat="40.2503" lon="-105.8712">
+      <name>Grand Lake</name>
+    </rtept>
+  </rte>
+  <trk>
+    <name>Recorded ride</name>
+    <extensions>
+      <gpxx:TrackExtension>
+        <gpxx:DisplayColor>DarkGreen</gpxx:DisplayColor>
+      </gpxx:TrackExtension>
+    </extensions>
+    <trkseg>
+      <trkpt lat="40.3772" lon="-105.5217">
+        <ele>2293.0</ele>
+        <time>2026-09-11T15:00:00Z</time>
+      </trkpt>
+      <trkpt lat="40.3781" lon="-105.5289">
+        <ele>2310.0</ele>
+        <time>2026-09-11T15:01:00Z</time>
+      </trkpt>
+    </trkseg>
+    <trkseg>
+      <trkpt lat="40.2503" lon="-105.8181">
+        <ele>3713.0</ele>
+        <time>2026-09-11T16:30:00Z</time>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

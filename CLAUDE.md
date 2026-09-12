@@ -183,6 +183,16 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
+- **A Garmin route's shape lives in `gpxx:rpt`, not in its via points.** Each
+  `<rtept>` carries the road geometry leading away from it inside its
+  extension. Drop it and the device re-routes from scratch on import, which is
+  precisely "looks right on screen, imports wrong". `RoutePoint.geometry` is
+  that list, and it is also where Valhalla's output will go.
+- **Match GPX elements on namespace, never on prefix.** `gpxx:` is a
+  convention. A file is free to bind Garmin's extensions to any prefix and
+  still be valid, so string-matching `gpxx:rpt` silently drops the route shape
+  from a perfectly good file. `SwiftcampTests/Fixtures/odd-prefix.gpx` is that
+  file.
 - **GRDB's snake_case strategies are not inverse over a trailing acronym.**
   `routeID` encodes to `route_id`, and `route_id` decodes back to `routeId`.
   A non-optional property throws and you find it at once; an optional one

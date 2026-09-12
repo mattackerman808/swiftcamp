@@ -197,6 +197,20 @@ final class AppDatabase {
                           columns: ["route_id", "seq"], unique: true)
         }
 
+        // A GPX track is a list of *segments*, and the break between them is
+        // real: the recorder lost signal, or the rider stopped and started
+        // again. Flattening them into one list of points draws a straight
+        // line across the gap, which on a touring map is a road that does
+        // not exist.
+        //
+        // A new migration rather than an edit to v1, even though v1 has not
+        // shipped to anyone. The rule earns its keep by being unconditional.
+        m.registerMigration("v2_track_segments") { db in
+            try db.alter(table: "track_points") { t in
+                t.add(column: "segment", .integer).notNull().defaults(to: 0)
+            }
+        }
+
         return m
     }
 

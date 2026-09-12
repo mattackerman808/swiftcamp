@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Same content as a BaseCamp route, but Garmin's extensions are bound to a
+     prefix of "g" rather than "gpxx". Both files are valid and mean exactly
+     the same thing: a reader that matches on the literal text "gpxx:rpt"
+     silently drops this route's shape. -->
+<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:g="http://www.garmin.com/xmlschemas/GpxExtensions/v3" creator="Some Other Tool" version="1.1">
+  <rte>
+    <name>Peak to Peak</name>
+    <extensions>
+      <g:RouteExtension>
+        <g:DisplayColor>Blue</g:DisplayColor>
+      </g:RouteExtension>
+    </extensions>
+    <rtept lat="39.9553" lon="-105.5061">
+      <name>Nederland</name>
+      <extensions>
+        <g:RoutePointExtension>
+          <g:rpt lat="39.9601" lon="-105.5088"/>
+          <g:rpt lat="39.9702" lon="-105.5123"/>
+        </g:RoutePointExtension>
+      </extensions>
+    </rtept>
+    <rtept lat="40.0180" lon="-105.5192">
+      <name>Ward</name>
+    </rtept>
+  </rte>
+</gpx>
