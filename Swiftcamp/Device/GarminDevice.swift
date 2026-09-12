@@ -113,6 +113,15 @@ enum PTPDate {
         return f
     }()
 
+    /// A date the way MTP wants it, `20260912T141200`.
+    ///
+    /// Not optional in practice. A responder is entitled to reject an
+    /// `ObjectInfo` whose dates are empty, and a zūmo answers one with a
+    /// general error after several seconds of apparently trying.
+    static func format(_ date: Date) -> String {
+        formatter.string(from: date)
+    }
+
     static func parse(_ text: String) -> Date? {
         guard !text.isEmpty else { return nil }
         // Trim a trailing Z and any fractional seconds before the format

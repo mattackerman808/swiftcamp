@@ -18,6 +18,17 @@ final class LibraryModel {
     private(set) var tracks: [TrackDetail] = []
     private(set) var waypoints: [Waypoint] = []
 
+    /// Whether there is anything to export.
+    ///
+    /// Stored, not computed, and that is the whole point. The File menu is
+    /// declared in the `App`, so reading `routes`, `tracks` or `waypoints`
+    /// from a command ties the scene graph to every library change — and a
+    /// scene graph invalidated while it is being rebuilt recurses between
+    /// `graphDidChange` and `scenesDidChange` until the stack runs out. That
+    /// is a crash with no frame of ours anywhere in it. This flips twice in a
+    /// session rather than on every edit.
+    private(set) var hasContent = false
+
     var selection: Set<String> = [] {
         // Guarded against a no-op write. `List(selection:)` assigns through
         // this binding during layout, and `Set` assignment fires `didSet`
@@ -97,22 +108,32 @@ final class LibraryModel {
         // describe the same edit.
         track(ValueObservation.tracking { db in try Self.allRoutes(db) }) { [weak self] in
             self?.routes = $0
+            self?.refreshHasContent()
             self?.rebuildSummaries()
             self?.rebuildOverlay()
             self?.applyPendingFocus()
         }
         track(ValueObservation.tracking { db in try Self.allTracks(db) }) { [weak self] in
             self?.tracks = $0
+            self?.refreshHasContent()
             self?.rebuildSummaries()
             self?.rebuildOverlay()
             self?.applyPendingFocus()
         }
         track(store.observeWaypoints()) { [weak self] in
             self?.waypoints = $0
+            self?.refreshHasContent()
             self?.rebuildOverlay()
             self?.applyPendingFocus()
         }
         track(store.observeLists()) { [weak self] in self?.lists = $0 }
+    }
+
+    /// Only ever writes when the answer changes, so a menu bound to it is not
+    /// invalidated by an edit that leaves the library non-empty.
+    private func refreshHasContent() {
+        let any = !routes.isEmpty || !tracks.isEmpty || !waypoints.isEmpty
+        if any != hasContent { hasContent = any }
     }
 
     private func track<R: ValueReducer>(_ observation: ValueObservation<R>,

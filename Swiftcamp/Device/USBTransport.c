@@ -21,6 +21,8 @@ struct sc_usb_handle {
     IOUSBInterfaceInterface300 **interface;
     UInt8 pipe_in;
     UInt8 pipe_out;
+    UInt8 pipe_event;
+    UInt8 interface_number;
     UInt16 max_packet_out;
 };
 
@@ -53,11 +55,13 @@ static uint32_t number_property(io_service_t service, CFStringRef key) {
 /// descriptor, and confusing the two reads from the wrong endpoint rather
 /// than failing, which is a slow thing to notice.
 static bool classify_pipes(IOUSBInterfaceInterface300 **intf,
-                           UInt8 *pipe_in, UInt8 *pipe_out, UInt16 *max_packet_out) {
+                           UInt8 *pipe_in, UInt8 *pipe_out, UInt8 *pipe_event,
+                           UInt16 *max_packet_out) {
     UInt8 count = 0;
     if ((*intf)->GetNumEndpoints(intf, &count) != kIOReturnSuccess) return false;
 
     bool found_in = false, found_out = false;
+    *pipe_event = 0;
     for (UInt8 i = 1; i <= count; i++) {
         UInt8 direction, number, transfer_type, interval;
         UInt16 packet_size;
@@ -65,7 +69,17 @@ static bool classify_pipes(IOUSBInterfaceInterface300 **intf,
                                        &packet_size, &interval) != kIOReturnSuccess) {
             continue;
         }
-        if (transfer_type != kUSBBulk) continue;   // the interrupt pipe carries events we ignore
+
+        // The interrupt pipe is not optional, whatever the reading side of
+        // this needs. MTP announces events on it — ObjectAdded when something
+        // is written — and a responder that cannot deliver one will not send
+        // the response that follows it. Reads raise no events, which is why
+        // ignoring this pipe looked harmless right up until the first write.
+        if (transfer_type == kUSBInterrupt && direction == kUSBIn && !*pipe_event) {
+            *pipe_event = i;
+            continue;
+        }
+        if (transfer_type != kUSBBulk) continue;
 
         if (direction == kUSBIn && !found_in) {
             *pipe_in = i;
@@ -139,6 +153,7 @@ int sc_usb_enumerate(sc_usb_device_info *out, int capacity) {
 static IOUSBInterfaceInterface300 **claim_interface(IOUSBDeviceInterface300 **device,
                                                     bool require_still_image,
                                                     UInt8 *pipe_in, UInt8 *pipe_out,
+                                                    UInt8 *pipe_event,
                                                     UInt16 *max_packet_out) {
     IOUSBFindInterfaceRequest request;
     request.bInterfaceClass    = require_still_image ? USB_CLASS_STILL_IMAGE
@@ -173,7 +188,10 @@ static IOUSBInterfaceInterface300 **claim_interface(IOUSBDeviceInterface300 **de
             continue;
         }
 
-        if (classify_pipes(candidate, pipe_in, pipe_out, max_packet_out)) {
+        if (classify_pipes(candidate, pipe_in, pipe_out, pipe_event, max_packet_out)) {
+            fprintf(stderr, "[Swiftcamp/usb] claimed interface: pipe in %u, out %u, "
+                            "event %u, max packet out %u\n",
+                    *pipe_in, *pipe_out, *pipe_event, *max_packet_out);
             claimed = candidate;
         } else {
             (*candidate)->USBInterfaceClose(candidate);
@@ -262,12 +280,13 @@ sc_usb_handle *sc_usb_open(uint32_t location_id, sc_usb_error *error) {
         (*device)->SetConfiguration(device, configuration->bConfigurationValue);
     }
 
-    UInt8 pipe_in = 0, pipe_out = 0;
+    UInt8 pipe_in = 0, pipe_out = 0, pipe_event = 0;
     UInt16 max_packet_out = 512;
     IOUSBInterfaceInterface300 **interface =
-        claim_interface(device, true, &pipe_in, &pipe_out, &max_packet_out);
+        claim_interface(device, true, &pipe_in, &pipe_out, &pipe_event, &max_packet_out);
     if (!interface) {
-        interface = claim_interface(device, false, &pipe_in, &pipe_out, &max_packet_out);
+        interface = claim_interface(device, false, &pipe_in, &pipe_out,
+                                    &pipe_event, &max_packet_out);
     }
     if (!interface) {
         (*device)->USBDeviceClose(device);
@@ -281,6 +300,8 @@ sc_usb_handle *sc_usb_open(uint32_t location_id, sc_usb_error *error) {
     handle->interface = interface;
     handle->pipe_in = pipe_in;
     handle->pipe_out = pipe_out;
+    handle->pipe_event = pipe_event;
+    (*interface)->GetInterfaceNumber(interface, &handle->interface_number);
     handle->max_packet_out = max_packet_out ? max_packet_out : 512;
     return handle;
 }
@@ -309,20 +330,142 @@ int sc_usb_bulk_read(sc_usb_handle *h, uint8_t *data, int length, int timeout_ms
     return (int)size;
 }
 
+// MARK: - Still-image class requests
+//
+// These travel on the control pipe, which is the point of them: when the bulk
+// pipes are wedged there is no other way to ask the device what it thinks is
+// happening, and a reply read off the bulk pipe cannot distinguish "the device
+// never answered" from "the answer could not be delivered".
+
+int sc_usb_mtp_device_status(sc_usb_handle *h, uint8_t *out, int capacity) {
+    if (!h || !h->interface || !out || capacity < 4) return SC_USB_PARAM;
+    memset(out, 0, (size_t)capacity);
+
+    IOUSBDevRequestTO request;
+    request.bmRequestType = USBmakebmRequestType(kUSBIn, kUSBClass, kUSBInterface);
+    request.bRequest = 0x67;                 // GetDeviceStatus
+    request.wValue = 0;
+    request.wIndex = h->interface_number;
+    request.wLength = (UInt16)capacity;
+    request.pData = out;
+    request.wLenDone = 0;
+    request.noDataTimeout = 1000;
+    request.completionTimeout = 1000;
+
+    if ((*h->interface)->ControlRequestTO(h->interface, 0, &request) != kIOReturnSuccess) {
+        return SC_USB_IO;
+    }
+    return (int)request.wLenDone;
+}
+
+sc_usb_error sc_usb_mtp_reset(sc_usb_handle *h) {
+    if (!h || !h->interface) return SC_USB_PARAM;
+
+    // Reset Device Request, and note what this is *not*: it is a class request
+    // that clears the responder's own state — any open session, any
+    // transaction it is still holding — and leaves the USB connection and
+    // whatever else the unit is doing completely alone. The device-level
+    // ResetDevice this replaces was a port reset, which the unit experiences
+    // as being unplugged, and which is what kept killing its map downloads.
+    IOUSBDevRequestTO request;
+    request.bmRequestType = USBmakebmRequestType(kUSBOut, kUSBClass, kUSBInterface);
+    request.bRequest = 0x66;                 // Reset Device
+    request.wValue = 0;
+    request.wIndex = h->interface_number;
+    request.wLength = 0;
+    request.pData = NULL;
+    request.wLenDone = 0;
+    request.noDataTimeout = 1000;
+    request.completionTimeout = 1000;
+
+    return (*h->interface)->ControlRequestTO(h->interface, 0, &request) == kIOReturnSuccess
+        ? SC_USB_OK : SC_USB_IO;
+}
+
+sc_usb_error sc_usb_mtp_cancel(sc_usb_handle *h, uint32_t transaction) {
+    if (!h || !h->interface) return SC_USB_PARAM;
+
+    // Cancellation code 0x4001, then the transaction being abandoned. This is
+    // how a host withdraws a request the device is still holding, and without
+    // it the device keeps the reply and hands it to whoever reads next.
+    uint8_t payload[6];
+    payload[0] = 0x01; payload[1] = 0x40;
+    payload[2] = (uint8_t)(transaction & 0xFF);
+    payload[3] = (uint8_t)((transaction >> 8) & 0xFF);
+    payload[4] = (uint8_t)((transaction >> 16) & 0xFF);
+    payload[5] = (uint8_t)((transaction >> 24) & 0xFF);
+
+    IOUSBDevRequestTO request;
+    request.bmRequestType = USBmakebmRequestType(kUSBOut, kUSBClass, kUSBInterface);
+    request.bRequest = 0x64;                 // Cancel Request
+    request.wValue = 0;
+    request.wIndex = h->interface_number;
+    request.wLength = sizeof(payload);
+    request.pData = payload;
+    request.wLenDone = 0;
+    request.noDataTimeout = 1000;
+    request.completionTimeout = 1000;
+
+    return (*h->interface)->ControlRequestTO(h->interface, 0, &request) == kIOReturnSuccess
+        ? SC_USB_OK : SC_USB_IO;
+}
+
+int sc_usb_event_read(sc_usb_handle *h, uint8_t *data, int length, int timeout_ms) {
+    if (!h || !h->interface) return SC_USB_PARAM;
+    if (!h->pipe_event) return SC_USB_NOT_FOUND;
+
+    UInt32 size = (UInt32)length;
+    IOReturn kr = (*h->interface)->ReadPipeTO(h->interface, h->pipe_event,
+                                              data, &size, timeout_ms, timeout_ms);
+    if (kr == kIOUSBTransactionTimeout) return SC_USB_TIMEOUT;
+    if (kr != kIOReturnSuccess) return SC_USB_IO;
+    return (int)size;
+}
+
 uint16_t sc_usb_max_packet_out(sc_usb_handle *h) {
     return h ? h->max_packet_out : 512;
 }
 
-sc_usb_error sc_usb_clear_halt_in(sc_usb_handle *h) {
+// Clearing a halt is not free, and it is not idempotent.
+//
+// ClearPipeStallBothEnds resets the host's data toggle to DATA0 and asks the
+// device to do the same. On an endpoint that was never halted the device has
+// no reason to comply, so the two toggles part company and every packet after
+// that is taken for a retransmission and dropped — silently, by hardware. The
+// symptom is a device that accepts writes, never answers, and reports itself
+// idle, because it genuinely never saw the command.
+//
+// This was called unconditionally on every error, which is how one hiccup
+// poisoned a whole session and why only relaunching the app ever recovered:
+// claiming the interface afresh is what put the toggles back in step.
+int sc_usb_pipe_status(sc_usb_handle *h, int which) {
     if (!h || !h->interface) return SC_USB_PARAM;
-    return (*h->interface)->ClearPipeStallBothEnds(h->interface, h->pipe_in) == kIOReturnSuccess
+    UInt8 pipe = which == 0 ? h->pipe_in : (which == 1 ? h->pipe_out : h->pipe_event);
+    if (!pipe) return SC_USB_NOT_FOUND;
+
+    IOReturn kr = (*h->interface)->GetPipeStatus(h->interface, pipe);
+    if (kr == kIOReturnSuccess) return 0;
+    if (kr == kIOUSBPipeStalled) return 1;
+    return 2;
+}
+
+static sc_usb_error clear_if_stalled(sc_usb_handle *h, UInt8 pipe) {
+    if (!h || !h->interface) return SC_USB_PARAM;
+
+    IOReturn kr = (*h->interface)->GetPipeStatus(h->interface, pipe);
+    if (kr == kIOReturnSuccess) return SC_USB_OK;      // nothing to clear
+    if (kr != kIOUSBPipeStalled) return SC_USB_PIPE;
+
+    return (*h->interface)->ClearPipeStallBothEnds(h->interface, pipe) == kIOReturnSuccess
         ? SC_USB_OK : SC_USB_PIPE;
 }
 
+sc_usb_error sc_usb_clear_halt_in(sc_usb_handle *h) {
+    return h ? clear_if_stalled(h, h->pipe_in) : SC_USB_PARAM;
+}
+
 sc_usb_error sc_usb_clear_halt_out(sc_usb_handle *h) {
-    if (!h || !h->interface) return SC_USB_PARAM;
-    return (*h->interface)->ClearPipeStallBothEnds(h->interface, h->pipe_out) == kIOReturnSuccess
-        ? SC_USB_OK : SC_USB_PIPE;
+    return h ? clear_if_stalled(h, h->pipe_out) : SC_USB_PARAM;
 }
 
 sc_usb_error sc_usb_reset(sc_usb_handle *h) {
@@ -352,6 +495,11 @@ sc_usb_handle *sc_usb_open(uint32_t l, sc_usb_error *e) { (void)l; if (e) *e = S
 int sc_usb_bulk_write(sc_usb_handle *h, const uint8_t *d, int n, int t) { (void)h;(void)d;(void)n;(void)t; return SC_USB_NOT_FOUND; }
 int sc_usb_bulk_read(sc_usb_handle *h, uint8_t *d, int n, int t) { (void)h;(void)d;(void)n;(void)t; return SC_USB_NOT_FOUND; }
 uint16_t sc_usb_max_packet_out(sc_usb_handle *h) { (void)h; return 512; }
+int sc_usb_event_read(sc_usb_handle *h, uint8_t *d, int n, int t) { (void)h;(void)d;(void)n;(void)t; return SC_USB_NOT_FOUND; }
+int sc_usb_pipe_status(sc_usb_handle *h, int w) { (void)h;(void)w; return SC_USB_NOT_FOUND; }
+int sc_usb_mtp_device_status(sc_usb_handle *h, uint8_t *o, int n) { (void)h;(void)o;(void)n; return SC_USB_NOT_FOUND; }
+sc_usb_error sc_usb_mtp_cancel(sc_usb_handle *h, uint32_t t) { (void)h;(void)t; return SC_USB_NOT_FOUND; }
+sc_usb_error sc_usb_mtp_reset(sc_usb_handle *h) { (void)h; return SC_USB_NOT_FOUND; }
 sc_usb_error sc_usb_clear_halt_in(sc_usb_handle *h) { (void)h; return SC_USB_NOT_FOUND; }
 sc_usb_error sc_usb_clear_halt_out(sc_usb_handle *h) { (void)h; return SC_USB_NOT_FOUND; }
 sc_usb_error sc_usb_reset(sc_usb_handle *h) { (void)h; return SC_USB_NOT_FOUND; }

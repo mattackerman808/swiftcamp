@@ -46,6 +46,12 @@ enum MTP {
         case deleteObject = 0x100B
         case sendObjectInfo = 0x100C
         case sendObject = 0x100D
+        case getDevicePropValue = 0x1015
+        case setDevicePropValue = 0x1016
+        /// The in-protocol reset. Advertised by this device, and nothing like
+        /// the USB port reset or the class reset: it clears the responder's
+        /// own state over the bulk pipes like any other operation.
+        case resetDevice = 0x1010
     }
 
     enum Response: UInt16 {
@@ -127,11 +133,22 @@ enum MTP {
                 return "No device is connected."
             case .openFailed(let code):
                 return "Could not open the device (\(code)). Another program may be using it."
-            case .transferFailed(let detail):
-                return "The transfer failed: \(detail)"
+            case .transferFailed:
+                // The detail is a USB error number. It belongs in the log,
+                // where it has been useful, and not in front of someone who
+                // wants to know whether their ride reached the device.
+                return "The device stopped responding part-way through."
             case .malformedResponse(let detail):
                 return "The device sent something unexpected: \(detail)"
             case .deviceRefused(let code):
+                // Busy is the common one and it is not an error the user did
+                // anything to cause. A zūmo says it while it is writing its
+                // own storage — a map download or an update — and the only
+                // thing to do is let it finish.
+                if code == Response.deviceBusy.rawValue {
+                    return "The device is busy. It may be downloading maps or "
+                        + "finishing an update; try again once it has settled."
+                }
                 let hex = String(format: "0x%04X", code)
                 guard let known = Response(rawValue: code) else {
                     return "The device refused the request (\(hex))."
@@ -253,6 +270,7 @@ enum MTP {
         var size: UInt32 = 0
         var parent: UInt32 = 0
         var filename: String = ""
+        var created: String = ""
         var modified: String = ""
 
         var isFolder: Bool { format == Format.association.rawValue }
@@ -270,7 +288,7 @@ enum MTP {
             parent = try reader.uint32()
             try reader.skip(2 + 4 + 4)               // association type, description, sequence
             filename = try reader.string()
-            _ = try reader.string()                  // capture date
+            created = try reader.string()
             modified = try reader.string()
         }
 
@@ -299,8 +317,8 @@ enum MTP {
             w.uint32(0)                              // association description
             w.uint32(0)                              // sequence number
             w.string(filename)
-            w.string("")                             // capture date
-            w.string("")                             // modification date
+            w.string(created)
+            w.string(modified)
             w.string("")                             // keywords
             return w.data
         }

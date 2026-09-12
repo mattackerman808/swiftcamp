@@ -72,6 +72,40 @@ int sc_usb_bulk_read(sc_usb_handle *h, uint8_t *data, int length, int timeout_ms
 /// waits for more and the read times out.
 uint16_t sc_usb_max_packet_out(sc_usb_handle *h);
 
+/// Reads one event off the interrupt pipe.
+///
+/// MTP announces things on it — `ObjectAdded` when a write lands — and a
+/// responder that cannot deliver an event will not send the response after it.
+/// Reads raise no events, so a host that ignores this pipe works perfectly
+/// until the first time it writes something.
+int sc_usb_event_read(sc_usb_handle *h, uint8_t *data, int length, int timeout_ms);
+
+/// Asks the device, over the control pipe, what it thinks is happening.
+///
+/// The only question that still gets an answer when the bulk pipes are stuck.
+/// Fills `out` with a little-endian length, then a response code: `0x2001`
+/// means the device considers itself idle, and anything else names what it is
+/// still holding. Returns the byte count, or a negative `sc_usb_error`.
+int sc_usb_mtp_device_status(sc_usb_handle *h, uint8_t *out, int capacity);
+
+/// Withdraws a request the device is still holding.
+///
+/// Without this an abandoned transaction's reply stays queued and is handed to
+/// whoever reads next — including the next launch of the app, which then reads
+/// it as the answer to its own first question.
+sc_usb_error sc_usb_mtp_cancel(sc_usb_handle *h, uint32_t transaction);
+
+/// Clears the responder's own state: any open session, any transaction it is
+/// still holding. A class request, not the port reset `sc_usb_reset` performs
+/// — the device keeps its connection and carries on with whatever else it is
+/// doing.
+sc_usb_error sc_usb_mtp_reset(sc_usb_handle *h);
+
+/// Whether a pipe is running, stalled, or something else: 0, 1, 2. `which` is
+/// 0 for bulk in, 1 for bulk out, 2 for the event pipe. Read-only — it asks
+/// the host controller and sends nothing to the device.
+int sc_usb_pipe_status(sc_usb_handle *h, int which);
+
 sc_usb_error sc_usb_clear_halt_in(sc_usb_handle *h);
 sc_usb_error sc_usb_clear_halt_out(sc_usb_handle *h);
 

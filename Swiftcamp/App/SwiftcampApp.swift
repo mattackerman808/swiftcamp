@@ -35,9 +35,10 @@ struct SwiftcampApp: App {
                     .keyboardShortcut("o")
                 Button("Export GPX…") { model.isExporting = true }
                     .keyboardShortcut("e")
-                    .disabled(model.routes.isEmpty
-                              && model.waypoints.isEmpty
-                              && model.tracks.isEmpty)
+                    // One flag, not three collections. See `hasContent`:
+                    // reading the collections here re-evaluates the whole
+                    // scene graph on every library change.
+                    .disabled(!model.hasContent)
             }
         }
         #endif

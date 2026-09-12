@@ -278,6 +278,44 @@ implements them; this is the index.
   reads back `nil`, so a waypoint saved into a folder comes out unfiled with
   nothing reported. `ColumnNaming` replaces both strategies and
   `ColumnNamingTests` pins the round trip.
+- **An MTP data phase needs its header in its own USB transfer.** On a zūmo
+  XT3, writing the twelve-byte data container header and its payload as one
+  bulk write means the command is accepted, the data phase is silently
+  refused, and the general error saying so is withheld until the *next*
+  command arrives — so it lands against the following request and one bug
+  reads as a different failure every time. Splitting the write fixes it.
+  Reads were never affected because a read has no outbound data phase, which
+  is why everything except sending worked for a day. This contradicts libmtp
+  and libgphoto2, which join them deliberately; the device was measured, not
+  argued with. `MTPSession.write(container:)`.
+- **Reach for the reference implementation before the specification.** The
+  protocol is PIMA 15740 plus the USB Still Image class, and libmtp and
+  libgphoto2 are working hosts with a published device-quirks table. Reasoning
+  from the spec produced five wrong theories; the two facts that actually
+  moved things were a harmless write failing exactly like a file transfer, and
+  a bench harness that could try a variant per second.
+- **Never let a device's recovery mechanism be a guess.** `ResetDevice` at the
+  USB level is a port reset the unit experiences as being unplugged, and it
+  aborted the rider's map downloads on every connect. The class-level reset
+  and the Cancel Request each wedged the unit so hard it needed its power
+  cycling. None of the three was reached from evidence. A device that reports
+  itself busy is telling you to wait.
+- **Clearing a halt on a pipe that is not halted breaks the pipe.** It resets
+  the host's data toggle while the device keeps its own, after which the
+  hardware silently discards everything sent. It ran on every error, so one
+  hiccup poisoned a whole session and only relaunching the app recovered,
+  because claiming the interface afresh puts the toggles back in step. Ask
+  `GetPipeStatus` first.
+- **A reply carries the transaction it answers; check it.** A request that
+  times out does not stop the device replying later, and that late reply
+  becomes the wrong answer to the next question. This is why one bug presented
+  as three.
+- **A `Scene` that reads observable state rebuilds the whole app graph.** The
+  File menu's Export item read the library's collections to decide whether to
+  disable itself, which tied every scene rebuild to every library change and
+  recursed between `graphDidChange` and `scenesDidChange` until the stack blew.
+  The crash has no frame of ours in it. `LibraryModel.hasContent` is one flag
+  that flips twice a session instead.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map
