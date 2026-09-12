@@ -184,6 +184,15 @@ private struct DevicePane: View {
                 }
                 breadcrumb
                 files
+            } else if device.isWorking {
+                // Connecting happens on its own when there is one device, so
+                // the first thing the pane shows is usually this rather than
+                // a list to click through.
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Connecting…").font(.callout).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 chooser
             }
@@ -259,7 +268,9 @@ private struct DevicePane: View {
                     Button("Scan Again") { device.scan() }
                 }
             } else {
-                Text("Garmin devices").font(.subheadline).bold()
+                // Only ever reached with more than one attached, since a
+                // single device connects itself.
+                Text("Choose a device").font(.subheadline).bold()
                 ForEach(device.units) { unit in
                     Button { device.connect(to: unit) } label: {
                         HStack {

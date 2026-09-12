@@ -3,6 +3,9 @@ import Observation
 import SwiftUI
 
 /// What is on the device, and what to put on it.
+///
+/// Named for the model because the panel it was written for is gone: the
+/// device lives in a window with two panes now, not a sheet.
 @Observable
 @MainActor
 final class DeviceModel {
@@ -34,12 +37,22 @@ final class DeviceModel {
     @ObservationIgnored private let service = DeviceService()
     @ObservationIgnored private var scanTask: Task<Void, Never>?
 
+    /// Looks for devices, and connects when the answer is obvious.
+    ///
+    /// One Garmin attached and nothing connected is not a choice worth
+    /// putting to anyone — it is a list of one with a button beside it. The
+    /// chooser earns its place only when there is genuinely something to
+    /// choose between.
     func scan() {
         units = service.garmins()
         // Everything else, so a unit reporting an unexpected vendor id shows
         // up as a device we can see rather than as nothing at all.
         otherDevices = service.allDevices().filter { $0.vendorID != GarminUnit.vendorID }
         status = units.isEmpty ? "No Garmin found." : nil
+
+        if snapshot == nil, units.count == 1, let only = units.first {
+            connect(to: only)
+        }
     }
 
     func connect(to unit: GarminUnit) {
