@@ -32,6 +32,18 @@ on.
 Not started: any data model, waypoints, tracks, routes, GPX import or
 export, or route editing. There is a map and nothing to put on it.
 
+## Where this is going
+
+`docs/basecamp-parity.md` is the feature inventory and the staged plan to
+replace BaseCamp. Read it before deciding what to build next.
+
+The short version: Garmin has discontinued BaseCamp, its Mac build is
+Intel-only, and Rosetta 2 is withdrawn in macOS 28 — so it stops working
+around autumn 2027 and its users have nowhere good to go. Three things are
+hard rather than merely unbuilt: device transfer over MTP, which macOS does
+not speak; GDB import, without which nobody can bring their library across;
+and routing.
+
 ## Project Overview
 
 Swiftcamp is a native macOS reimagining of Garmin BaseCamp — plan, share, and manage GPS routes, tracks, waypoints, and related data. Garmin's app is old, unmaintained, and never made the jump to Apple Silicon natively.
