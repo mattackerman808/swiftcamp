@@ -139,12 +139,19 @@ final class DeviceModel {
         Task {
             do {
                 let apply = try await work()
+                // Cleared *before* applying, and the order is the whole bug
+                // this once had. An apply block may start the next piece of
+                // work — connecting opens the GPX folder — and that call went
+                // through `run`, which saw the flag still set and dropped it
+                // on the floor. The panel then showed an empty folder until
+                // something else made it ask again.
+                isWorking = false
                 apply()
             } catch {
                 failure = error.localizedDescription
                 status = nil
+                isWorking = false
             }
-            isWorking = false
         }
     }
 }
