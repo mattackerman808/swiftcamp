@@ -2,9 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status: greenfield
+## Getting started on a fresh machine
 
-**This repository is empty.** No source, no `git init`, no build system yet. Everything below the "Project Overview" section is *intent and prior art*, not description of existing code. As real code lands, replace the speculative sections with what was actually built and delete this notice.
+```bash
+git clone https://github.com/mattackerman808/swiftcamp.git && cd swiftcamp
+brew install xcodegen pmtiles librsvg rclone
+./scripts/fetch-basemap.sh      # ~43 MB, not in git, ~1 second
+xcodegen generate               # .xcodeproj is gitignored
+open Swiftcamp.xcodeproj
+```
+
+Without the basemap fetch the app builds but asserts at launch with no map.
+
+Only `rclone` needs configuring, and only to publish tiles. Set up a remote
+named `r2` against Cloudflare R2 with `no_check_bucket = true`; a
+bucket-scoped token cannot list buckets, so without that flag rclone tries
+`CreateBucket` and gets a 403.
+
+## Current state
+
+**The macOS basemap is done. The product is not started.**
+
+Working: street detail to z15 and terrain streamed from our own CDN,
+hillshade, buildings, place and street labels, and authentic route shields
+for all 50 states. Both platforms render, though only macOS is being
+actively worked on.
+
+Not started: any data model, waypoints, tracks, routes, GPX import or
+export, or route editing. There is a map and nothing to put on it.
 
 ## Project Overview
 
@@ -61,15 +86,14 @@ Resolved:
 - **Routing runs on-device** via Valhalla, shipped as per-region packs. A hosted API was rejected because BaseCamp-style planning re-routes on every waypoint drag, which makes metered per-request billing hostile and puts a network round trip in the middle of a drag gesture.
 - **Data hosting is Cloudflare R2**, chosen for zero egress fees and Range support on `GetObject`.
 
-Leaning, not final:
-
-- **Map renderer is a split backend.** MapLibre Native ships iOS-only slices, confirmed by reading `Info.plist` in the 6.29.0 XCFramework: `ios-arm64` and `ios-arm64_x86_64-simulator`, no macOS and no Mac Catalyst. Upstream considers the AppKit port bit-rotted. Plan is one `MapSurface` protocol with MapLibre Native on iOS and MapLibre GL JS in a `WKWebView` on macOS, sharing one style JSON and one `.pmtiles` so cartography never diverges.
+- **Map renderer is a split backend**, now built and working. MapLibre Native ships iOS-only slices, confirmed by reading `Info.plist` in the 6.29.0 XCFramework: `ios-arm64` and `ios-arm64_x86_64-simulator`, no macOS and no Mac Catalyst. Upstream considers the AppKit port bit-rotted. So iOS uses MapLibre Native and macOS uses MapLibre GL JS in a `WKWebView`. The divergence is confined to `MapContainer.swift`; both consume the same `MapStyle` and the same archives, so cartography cannot drift.
+- **XcodeGen**, with `project.yml` committed and `.xcodeproj` gitignored. Regenerate after pulling.
 
 Still open:
 
 - **Persistence.** GRDB is the tachbase precedent. SwiftData fits a document-shaped Mac app more naturally.
 - **App shape.** `NSDocument`-based, versus a single-library app with an internal database the way BaseCamp works.
-- **Project generation.** XcodeGen with a committed `project.yml` and gitignored `.xcodeproj`, as in tachbase-ios, versus a checked-in Xcode project.
+- **Contours.** The usual generator, `maplibre-contour`, is JavaScript, so it would work on macOS and not on iOS. Either pre-generate contour vector tiles for both or accept contours as macOS-only. Hillshade already works on both.
 
 
 ## Conventions carried from tachbase
@@ -82,20 +106,75 @@ These are the author's established habits; follow them unless told otherwise.
 - Commit subjects are imperative and scoped, e.g. `Map: chart-stack chip replaces the hidden "bring chart to front" tap`.
 - Never add Co-Authored-By or Claude attribution to commits or PRs.
 
-## Build commands
+## Map layer reference
 
-The bundled basemap (`Swiftcamp/Resources/basemap/world-z6.pmtiles`, ~43 MB) is
-**not in git**. Run `./scripts/fetch-basemap.sh` after cloning, or the app builds
-but asserts at launch with no map. It is excluded because PMTiles is read by byte
-range, so regenerating it costs about five HTTP requests and a second against the
-Protomaps planet build — cheap enough that carrying every refreshed copy in git
-history forever is the worse trade.
+Source lives under `Swiftcamp/Map/`. The style is built in Swift and handed
+to whichever renderer the platform uses.
 
+| File | Role |
+| --- | --- |
+| `MapContainer.swift` | The one place the two backends diverge |
+| `MapStyle.swift` | All cartography: sources, layers, filters, colours |
+| `BasemapSource.swift` | CDN URLs, bundled asset paths, attribution, max zoom |
+| `ShieldCatalog.swift` | **Generated.** Do not edit; see below |
+| `macOS/MapWebView.swift` | macOS host, MapLibre GL JS in a web view |
+| `macOS/BundleSchemeHandler.swift` | Serves bundle assets with HTTP range support |
+| `MapLibreMapView.swift` | iOS host, MapLibre Native |
 
-None yet. If XcodeGen is adopted, tachbase-ios's `Makefile` is the model:
+### Hosting
+
+Tiles are on Cloudflare R2 at `cdn.swiftcamp.app`, bucket `swiftcamp-tiles`,
+about 26 GB for roughly $0.24/month with free egress. `manifest.json` in the
+bucket records archive names, bounds and attribution.
+
+Archive filenames carry a build date on purpose. PMTiles is read as a long
+sequence of range requests against one file, so overwriting in place while a
+client has it open lands their next range at the same offset in a *different*
+file and the reads corrupt. Publish under a new name and switch the reference.
+
+**CORS is required, and its absence looks like a macOS bug.** Without
+`Access-Control-Allow-Origin` *and* `ExposeHeaders` including `content-range`,
+WebKit blocks every range request and MapLibre GL JS reports only "Load
+failed". MapLibre Native ignores same-origin entirely, so iOS works fine and
+the misconfiguration presents as a macOS rendering fault.
+
+### Scripts
 
 ```bash
-xcodegen generate     # regenerate the .xcodeproj from project.yml
+./scripts/fetch-basemap.sh        # bundled z0-6 world archive
+python3 scripts/make_shields.py   # sprite sheet + ShieldCatalog.swift
+python3 scripts/audit_shields.py  # contrast/legibility check over all 108
 ```
 
-Regenerate after pulling new files or adding sources, since the `.xcodeproj` is gitignored.
+`make_shields.py` pulls artwork *and* its metadata from
+[openstreetmap-americana](https://github.com/osm-americana/openstreetmap-americana)
+(CC0), parsing their `shield_defs.js` for each network's artwork, numeral
+colour and text padding. It regenerates `ShieldCatalog.swift` in the same run
+so colours cannot drift from the sheet they describe.
+
+## Hard-won lessons
+
+Each of these cost real time. They are documented at the code that
+implements them; this is the index.
+
+- **Query the renderer, do not reason about it.** Three cartography bugs
+  (phantom water, doubled roads, missing numerals) were each diagnosed in
+  minutes by calling `queryRenderedFeatures` at the offending pixel, after
+  longer spent reasoning wrongly. Do that first.
+- **Synthetic checks lie.** A hand-drawn contact sheet twice passed a shield
+  bug that the live map showed immediately, because it placed text slightly
+  differently from MapLibre. Verify on the real map, or make the check
+  measure the property rather than the picture.
+- **A layer can mix geometry types.** Protomaps' `water` holds lake polygons
+  *and* stream centrelines; filling the linestrings turned creeks into huge
+  blobs. Filter on `geometry-type`.
+- **`path` is not a road class.** It covers sidewalks, footways, crossings
+  and tracks. Drawing it at street width makes every US suburban road look
+  doubled.
+- **Declaring a depth the data does not have produces confident nonsense.**
+  Past a source's maxzoom MapLibre overzooms rather than stopping, so the
+  bundled z0-6 archive smeared coastline across the detailed map until its
+  layers were capped.
+- **A missing sprite image is a per-frame log, not a one-time failure.** Match
+  names against a known list rather than concatenating them blind.
+

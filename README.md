@@ -4,8 +4,10 @@ A native macOS and iOS reimagining of Garmin BaseCamp, for planning, sharing and
 managing GPS routes, tracks and waypoints. Focused on motorcycle and auto
 touring: plan a road route, export GPX, load it on a navigator.
 
-Early. The map renders on both platforms; the data model and GPX support do not
-exist yet.
+Early. The basemap is complete — street detail to z15, terrain and hillshade,
+buildings, labels, and authentic route shields for all 50 states, streamed from
+our own CDN with an offline tier underneath. The data model, route editing and
+GPX support do not exist yet.
 
 ## Architecture
 
@@ -38,7 +40,7 @@ The bundled basemap is not in git. Fetch it once after cloning; it is a ~43 MB
 extract cut from the Protomaps planet in about a second.
 
 ```bash
-brew install pmtiles xcodegen
+brew install xcodegen pmtiles librsvg rclone
 ./scripts/fetch-basemap.sh
 xcodegen generate
 
@@ -54,7 +56,21 @@ it settles, which works without Screen Recording permission.
 
 ## Data
 
-Map data is from [Protomaps](https://protomaps.com) daily planet builds; routing
-input is [Geofabrik](https://download.geofabrik.de) extracts. Both derive from
-OpenStreetMap and are ODbL, so attribution is required and it must stay visible
-in the app.
+Map data is from [Protomaps](https://protomaps.com) daily planet builds, terrain
+from [Mapterhorn](https://mapterhorn.com) (Copernicus DEM), routing input from
+[Geofabrik](https://download.geofabrik.de) extracts, and route shield artwork
+from [openstreetmap-americana](https://github.com/osm-americana/openstreetmap-americana)
+(CC0). Everything but the shields derives from OpenStreetMap or Copernicus and
+carries an attribution obligation that must stay visible in the app.
+
+Tiles are self-hosted on Cloudflare R2 behind `cdn.swiftcamp.app`. Nothing in
+the serving path belongs to a vendor, so there is nothing to be metered or
+throttled by.
+
+## Scripts
+
+```bash
+./scripts/fetch-basemap.sh        # bundled low-zoom world archive
+python3 scripts/make_shields.py   # regenerate shield sprites + catalog
+python3 scripts/audit_shields.py  # check every shield stays legible
+```
