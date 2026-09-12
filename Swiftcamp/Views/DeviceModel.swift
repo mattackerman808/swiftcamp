@@ -36,23 +36,62 @@ final class DeviceModel {
 
     @ObservationIgnored private let service = DeviceService()
     @ObservationIgnored private var scanTask: Task<Void, Never>?
+    @ObservationIgnored private var watchTask: Task<Void, Never>?
+    /// Units already tried, so a device that will not open is not retried on
+    /// every pass. Cleared when it leaves the bus.
+    @ObservationIgnored private var attempted: Set<UInt32> = []
 
-    /// Looks for devices, and connects when the answer is obvious.
+    /// Watches the bus for as long as the window is open.
     ///
-    /// One Garmin attached and nothing connected is not a choice worth
-    /// putting to anyone — it is a list of one with a button beside it. The
-    /// chooser earns its place only when there is genuinely something to
-    /// choose between.
-    func scan() {
-        units = service.garmins()
+    /// A button labelled Scan Again was the wrong shape twice over: it did
+    /// blocking work on the main thread with no sign it was doing anything,
+    /// and it asked the user to do the noticing. Plugging a cable in is the
+    /// signal; nobody should have to tell the app about it afterwards.
+    func startWatching() {
+        guard watchTask == nil else { return }
+        watchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.survey()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    func stopWatching() {
+        watchTask?.cancel()
+        watchTask = nil
+    }
+
+    /// One pass: what is on the bus, and what that means for what we have.
+    private func survey() async {
+        // Enumerating blocks, and it was being done twice — once for Garmins
+        // and again for everything else — on the thread drawing the window.
+        // That is what made the button feel broken before it felt slow.
+        let all = await Task.detached { GarminUnit.attached() }.value
+        guard !Task.isCancelled else { return }
+
+        units = all.filter { $0.vendorID == GarminUnit.vendorID }
         // Everything else, so a unit reporting an unexpected vendor id shows
         // up as a device we can see rather than as nothing at all.
-        otherDevices = service.allDevices().filter { $0.vendorID != GarminUnit.vendorID }
-        status = units.isEmpty ? "No Garmin found." : nil
+        otherDevices = all.filter { $0.vendorID != GarminUnit.vendorID }
 
-        if snapshot == nil, units.count == 1, let only = units.first {
+        if let connected = snapshot?.unit,
+           !units.contains(where: { $0.locationID == connected.locationID }) {
+            forgetDevice()
+            failure = "The device was disconnected."
+            return
+        }
+
+        // One Garmin attached and nothing connected is not a choice worth
+        // putting to anyone. Attempted once per unit: a device that refuses
+        // to open should not be retried every two seconds forever.
+        if snapshot == nil, !isWorking, units.count == 1, let only = units.first,
+           !attempted.contains(only.locationID) {
+            attempted.insert(only.locationID)
             connect(to: only)
         }
+
+        attempted.formIntersection(Set(units.map(\.locationID)))
     }
 
     func connect(to unit: GarminUnit) {

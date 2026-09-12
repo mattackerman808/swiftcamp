@@ -25,7 +25,8 @@ struct TransferWindow: View {
                 .frame(minWidth: 320, idealWidth: 420)
         }
         .frame(minWidth: 700, minHeight: 420)
-        .onAppear { device.scan() }
+        .onAppear { device.startWatching() }
+        .onDisappear { device.stopWatching() }
         .safeAreaInset(edge: .bottom) { statusBar }
     }
 
@@ -259,13 +260,15 @@ private struct DevicePane: View {
     private var chooser: some View {
         VStack(spacing: 14) {
             if device.units.isEmpty {
+                // No button. The app is already watching, and asking
+                // someone to press Scan Again after plugging in a cable is
+                // asking them to do the noticing.
                 ContentUnavailableView {
-                    Label("No Garmin connected", systemImage: "cable.connector.slash")
+                    Label("Looking for a device…", systemImage: "cable.connector.slash")
                 } description: {
-                    Text("Connect the device with a USB cable and switch it on. "
-                         + "It does not need to appear in Finder.")
-                } actions: {
-                    Button("Scan Again") { device.scan() }
+                    Text("Connect a Garmin with a USB cable and switch it on. "
+                         + "It will appear here on its own, and does not need "
+                         + "to show up in Finder.")
                 }
             } else {
                 // Only ever reached with more than one attached, since a
