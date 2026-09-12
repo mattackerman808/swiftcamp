@@ -54,6 +54,25 @@ struct MapOverlay: Equatable, Sendable {
     }
 }
 
+/// Somewhere to move the map to.
+///
+/// Carries an `id` because this is a one-shot instruction, not a state the
+/// map settles into. Selecting the same route twice should frame it twice,
+/// and a plain `Equatable` value would compare equal the second time and do
+/// nothing — which reads as the feature working intermittently.
+struct MapCameraRequest: Equatable, Sendable {
+    enum Target: Equatable, Sendable {
+        case bounds(BoundingBox)
+        /// A single point has no rectangle to fit, and fitting a degenerate
+        /// one zooms to the renderer's maximum, which drops the user into a
+        /// parking lot with no context.
+        case point(Coordinate, zoom: Double)
+    }
+
+    var id: Int
+    var target: Target
+}
+
 /// Something the user clicked on the map.
 ///
 /// `routeID` and `seq` together identify a via point. The database row id is

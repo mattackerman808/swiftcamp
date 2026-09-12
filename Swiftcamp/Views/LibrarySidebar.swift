@@ -11,7 +11,11 @@ struct LibrarySidebar: View {
     @Bindable var model: LibraryModel
 
     var body: some View {
-        List(selection: $model.selection) {
+        // Routed through the model rather than bound straight at
+        // `selection`, so the sidebar can frame what it selects while a map
+        // click, which goes through `select(_:)`, leaves the camera alone.
+        List(selection: Binding(get: { model.selection },
+                                set: { model.selectFromSidebar($0) })) {
             if !model.routes.isEmpty {
                 Section("Routes") {
                     ForEach(model.routes) { detail in

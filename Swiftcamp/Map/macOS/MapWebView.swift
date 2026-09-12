@@ -24,6 +24,7 @@ import WebKit
 /// tachbase carries the scar comment for the identical trap on iOS.
 struct MapWebView: NSViewRepresentable {
     var overlay: MapOverlay
+    var camera: MapCameraRequest?
     var onClick: ((MapClick) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -57,12 +58,14 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.webView = view
         context.coordinator.onClick = onClick
         context.coordinator.push(overlay)
+        context.coordinator.move(camera)
         return view
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
         context.coordinator.onClick = onClick
         context.coordinator.push(overlay)
+        context.coordinator.move(camera)
     }
 
     /// Camera override from `-SwiftcampCenter <lon,lat> -SwiftcampZoom <z>`.
@@ -122,6 +125,11 @@ struct MapWebView: NSViewRepresentable {
         private var pending: MapOverlay?
         private var applied = MapOverlay.empty
 
+        /// The last camera request carried out. Compared by id rather than by
+        /// value so selecting the same route twice frames it twice.
+        private var appliedCameraID = 0
+        private var pendingCamera: MapCameraRequest?
+
         // MARK: - Pushing
 
         func push(_ overlay: MapOverlay) {
@@ -153,6 +161,39 @@ struct MapWebView: NSViewRepresentable {
             }
         }
 
+        // MARK: - Moving
+
+        func move(_ request: MapCameraRequest?) {
+            guard let request, request.id != appliedCameraID else { return }
+            guard isReady else {
+                pendingCamera = request
+                return
+            }
+            appliedCameraID = request.id
+
+            switch request.target {
+            case .bounds(let box):
+                webView?.callAsyncJavaScript(
+                    "window.swiftcamp.fitBounds(west, south, east, north);",
+                    arguments: ["west": box.west, "south": box.south,
+                                "east": box.east, "north": box.north],
+                    in: nil, in: .page, completionHandler: Self.report)
+
+            case .point(let coordinate, let zoom):
+                webView?.callAsyncJavaScript(
+                    "window.swiftcamp.flyTo(lon, lat, zoom);",
+                    arguments: ["lon": coordinate.lon, "lat": coordinate.lat, "zoom": zoom],
+                    in: nil, in: .page, completionHandler: Self.report)
+            }
+        }
+
+        @MainActor @Sendable
+        private static func report(_ result: Result<Any, any Error>) {
+            if case .failure(let error) = result {
+                NSLog("[Swiftcamp] camera move failed: %@", String(describing: error))
+            }
+        }
+
         // MARK: - Receiving
 
         func userContentController(_ controller: WKUserContentController,
@@ -172,6 +213,10 @@ struct MapWebView: NSViewRepresentable {
                 if let overlay = pending {
                     pending = nil
                     push(overlay)
+                }
+                if let request = pendingCamera {
+                    pendingCamera = nil
+                    move(request)
                 }
 
             case "idle":

@@ -289,7 +289,8 @@ final class GPXTests: XCTestCase {
         let original = try read("basecamp-route")
 
         let added = try store.importGPX(original)
-        XCTAssertEqual(added, GPXImportCount(waypoints: 2, routes: 1, tracks: 1))
+        XCTAssertEqual(added.count, GPXImportCount(waypoints: 2, routes: 1, tracks: 1))
+        XCTAssertEqual(added.ids.count, 4, "every imported item is identified so it can be framed")
 
         let exported = try store.exportGPX(
             waypointIDs: try store.waypoints().map(\.id),

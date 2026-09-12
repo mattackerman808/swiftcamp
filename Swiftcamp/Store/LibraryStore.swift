@@ -172,17 +172,21 @@ struct LibraryStore: Sendable {
     /// against. Guessing by name would silently overwrite a route the user
     /// had edited, which is worse than a duplicate they can see and delete.
     @discardableResult
-    func importGPX(_ document: GPXDocument, into listID: String? = nil) throws -> GPXImportCount {
+    func importGPX(_ document: GPXDocument, into listID: String? = nil) throws -> GPXImportResult {
         try database.writer.write { db in
+            var ids: [String] = []
+
             for var waypoint in document.waypoints {
                 waypoint.listID = listID
                 try waypoint.insert(db)
+                ids.append(waypoint.id)
             }
 
             for detail in document.routes {
                 var route = detail.route
                 route.listID = listID
                 try route.insert(db)
+                ids.append(route.id)
                 for (index, point) in detail.points.enumerated() {
                     var point = point
                     point.id = nil
@@ -196,6 +200,7 @@ struct LibraryStore: Sendable {
                 var track = detail.track
                 track.listID = listID
                 try track.insert(db)
+                ids.append(track.id)
                 for (index, point) in detail.points.enumerated() {
                     var point = point
                     point.id = nil
@@ -205,9 +210,10 @@ struct LibraryStore: Sendable {
                 }
             }
 
-            return GPXImportCount(waypoints: document.waypoints.count,
-                                  routes: document.routes.count,
-                                  tracks: document.tracks.count)
+            return GPXImportResult(count: GPXImportCount(waypoints: document.waypoints.count,
+                                                         routes: document.routes.count,
+                                                         tracks: document.tracks.count),
+                                   ids: ids)
         }
     }
 

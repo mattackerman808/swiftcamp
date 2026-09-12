@@ -65,6 +65,16 @@ enum GPXError: LocalizedError, Equatable {
     }
 }
 
+/// What an import added, and what it is called.
+///
+/// The ids are here so the window can frame what just arrived. Importing a
+/// route and being left looking at wherever the map already was is the
+/// version of this feature that makes a user think nothing happened.
+struct GPXImportResult: Sendable {
+    var count: GPXImportCount
+    var ids: [String]
+}
+
 /// What an import added, for the message shown afterwards.
 struct GPXImportCount: Equatable, Sendable {
     var waypoints = 0

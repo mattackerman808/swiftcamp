@@ -39,6 +39,40 @@ extension Coordinate: Codable {
     }
 }
 
+/// The rectangle enclosing a set of points.
+///
+/// No antimeridian handling. A box spanning 180 degrees would need to be two
+/// boxes, and a touring app whose data is North American will not meet one —
+/// but a route from Anadyr to Nome would frame the entire planet, so this is
+/// a limitation rather than a definition.
+struct BoundingBox: Equatable, Sendable {
+    var west: Double
+    var south: Double
+    var east: Double
+    var north: Double
+
+    init?(_ coordinates: some Collection<Coordinate>) {
+        guard let first = coordinates.first else { return nil }
+        west = first.lon; east = first.lon
+        south = first.lat; north = first.lat
+
+        for c in coordinates.dropFirst() {
+            west = min(west, c.lon); east = max(east, c.lon)
+            south = min(south, c.lat); north = max(north, c.lat)
+        }
+    }
+
+    /// True when everything landed on one spot, so there is no rectangle to
+    /// fit and fitting one anyway zooms to the renderer's maximum.
+    var isDegenerate: Bool {
+        east - west < 1e-9 && north - south < 1e-9
+    }
+
+    var center: Coordinate {
+        Coordinate(lat: (south + north) / 2, lon: (west + east) / 2)
+    }
+}
+
 /// Great-circle math.
 ///
 /// One copy, on purpose. tachbase ended up with four implementations of

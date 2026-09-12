@@ -35,7 +35,7 @@ struct ContentView: View {
     }
 
     private var map: some View {
-        MapContainer(overlay: model.overlay, onClick: model.select)
+        MapContainer(overlay: model.overlay, camera: model.camera, onClick: model.select)
             #if os(iOS)
             // Edge to edge under the status bar and home indicator.
             //

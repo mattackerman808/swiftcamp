@@ -244,6 +244,8 @@ struct TrackDetail: Identifiable, Hashable, Sendable {
     }
 
     var length: Double { segments.reduce(0) { $0 + GeoMath.length($1) } }
+
+    var bounds: BoundingBox? { BoundingBox(points.map(\.coordinate)) }
 }
 
 /// A route and its points, which is the only useful unit above the store.
@@ -275,4 +277,8 @@ struct RouteDetail: Identifiable, Hashable, Sendable {
 
     /// Length in metres along the shaped path, not via point to via point.
     var length: Double { GeoMath.length(path) }
+
+    /// Over the shaped path, not the via points: a route that loops well off
+    /// the straight line between two stops must still fit on screen whole.
+    var bounds: BoundingBox? { BoundingBox(path) }
 }

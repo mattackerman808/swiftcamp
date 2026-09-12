@@ -17,6 +17,7 @@ import SwiftUI
 /// when an `@Observable` it holds a reference to does — see `MapWebView`.
 struct MapContainer: View {
     var overlay: MapOverlay = .empty
+    var camera: MapCameraRequest?
     var onClick: ((MapClick) -> Void)?
 
     var body: some View {
@@ -26,7 +27,7 @@ struct MapContainer: View {
         // here is the host, not the model.
         MapLibreMapView()
         #else
-        MapWebView(overlay: overlay, onClick: onClick)
+        MapWebView(overlay: overlay, camera: camera, onClick: onClick)
         #endif
     }
 }

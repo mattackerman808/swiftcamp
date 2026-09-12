@@ -52,6 +52,10 @@ final class LibraryModel {
     var isImporting = false
     var isExporting = false
 
+    /// Where to move the map next, or nil if it should stay put.
+    private(set) var camera: MapCameraRequest?
+    @ObservationIgnored private var nextCameraID = 0
+
     /// The last thing that went wrong, for the banner. Import failures are
     /// the common case and the user chose the file, so they are owed a
     /// reason rather than a silent no-op.
@@ -60,6 +64,11 @@ final class LibraryModel {
     private let store: LibraryStore
     @ObservationIgnored private var cancellables: [AnyDatabaseCancellable] = []
     @ObservationIgnored private var overlayTask: Task<Void, Never>?
+
+    /// Items an import just created, waiting for their rows to arrive so
+    /// they can be framed. The write and the observation that reports it are
+    /// separate events, so the ids are known before the geometry is.
+    @ObservationIgnored private var pendingFocus: Set<String> = []
 
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
@@ -90,15 +99,18 @@ final class LibraryModel {
             self?.routes = $0
             self?.rebuildSummaries()
             self?.rebuildOverlay()
+            self?.applyPendingFocus()
         }
         track(ValueObservation.tracking { db in try Self.allTracks(db) }) { [weak self] in
             self?.tracks = $0
             self?.rebuildSummaries()
             self?.rebuildOverlay()
+            self?.applyPendingFocus()
         }
         track(store.observeWaypoints()) { [weak self] in
             self?.waypoints = $0
             self?.rebuildOverlay()
+            self?.applyPendingFocus()
         }
         track(store.observeLists()) { [weak self] in self?.lists = $0 }
     }
@@ -201,17 +213,37 @@ final class LibraryModel {
             isBusy = false
 
             switch outcome {
-            case .success(let count) where count.isEmpty:
+            case .success(let result) where result.count.isEmpty:
                 failure = "\(url.lastPathComponent) has no waypoints, routes or tracks in it."
-            case .success:
+            case .success(let result):
                 failure = nil
+                // Framed once the rows arrive. Importing a route and being
+                // left looking at wherever the map already was is the version
+                // of this that makes a user think nothing happened.
+                pendingFocus = Set(result.ids)
+                applyPendingFocus()
             case .failure(let error):
                 failure = error.localizedDescription
             }
         }
     }
 
-    private static func read(_ url: URL, into store: LibraryStore) async -> Result<GPXImportCount, Error> {
+    /// Frames the newest import as soon as its geometry is loaded.
+    ///
+    /// Called from both sides of the race: the import finishing, and the
+    /// observation delivering the rows. Whichever lands second does the work.
+    private func applyPendingFocus() {
+        guard !pendingFocus.isEmpty else { return }
+        let known = Set(routes.map(\.route.id))
+            .union(tracks.map(\.track.id))
+            .union(waypoints.map(\.id))
+        guard !pendingFocus.isDisjoint(with: known) else { return }
+
+        focus(on: pendingFocus)
+        pendingFocus = []
+    }
+
+    private static func read(_ url: URL, into store: LibraryStore) async -> Result<GPXImportResult, Error> {
         await Task.detached(priority: .userInitiated) {
             do {
                 // A file the user picked from outside the app needs its
@@ -222,7 +254,9 @@ final class LibraryModel {
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
                 let document = try GPXReader.read(contentsOf: url)
-                guard !document.isEmpty else { return .success(GPXImportCount()) }
+                guard !document.isEmpty else {
+                    return .success(GPXImportResult(count: GPXImportCount(), ids: []))
+                }
                 return .success(try store.importGPX(document))
             } catch {
                 return .failure(error)
@@ -265,6 +299,45 @@ final class LibraryModel {
     }
 
     // MARK: - Selection
+
+    /// Selecting in the sidebar also frames what was selected.
+    ///
+    /// Deliberately not what a click on the map does. Something the user
+    /// just clicked is by definition already on screen, and recentring it
+    /// would pull the view out from under the hand that aimed at it. In the
+    /// sidebar the item may be a thousand miles away, and a selection that
+    /// changes nothing visible reads as a broken list.
+    func selectFromSidebar(_ ids: Set<String>) {
+        guard ids != selection else { return }
+        selection = ids
+        if ids.count == 1 { focus(on: ids) }
+    }
+
+    /// Frames one item, or several together.
+    func focus(on ids: Set<String>) {
+        var corners: [Coordinate] = []
+
+        for detail in routes where ids.contains(detail.route.id) {
+            corners.append(contentsOf: detail.path
+        )
+        }
+        for detail in tracks where ids.contains(detail.track.id) {
+            corners.append(contentsOf: detail.points.map(\.coordinate))
+        }
+        for waypoint in waypoints where ids.contains(waypoint.id) {
+            corners.append(waypoint.coordinate)
+        }
+
+        guard let box = BoundingBox(corners) else { return }
+        nextCameraID += 1
+        // A single waypoint, or a route whose points all landed on one spot,
+        // has no rectangle to fit. Zoom 14 puts a town and the roads into it
+        // on screen, which is the context that makes a pin mean anything.
+        camera = MapCameraRequest(id: nextCameraID,
+                                  target: box.isDegenerate
+                                      ? .point(box.center, zoom: 14)
+                                      : .bounds(box))
+    }
 
     func select(_ click: MapClick) {
         switch click.target {
