@@ -167,7 +167,14 @@ final class DeviceModel {
     private func list(storage: UInt32, parent: UInt32) {
         run("Reading folder…") { [service] in
             let files = try await service.list(storage: storage, parent: parent)
-            return { self.browseFiles = files; self.status = nil }
+            return {
+                self.browseFiles = files
+                self.status = nil
+                // Identifying a file costs twenty-odd kilobytes when the
+                // device reads byte ranges, so there is nothing to ask about
+                // — a list of names with no dates is worse for free.
+                if self.snapshot?.canIdentifyCheaply == true { self.identifyAll() }
+            }
         }
     }
 
@@ -378,7 +385,10 @@ struct DevicePanel: View {
                 if model.browseFiles.count > 8 {
                     Text("\(model.browseFiles.count) items").foregroundStyle(.secondary)
                 }
-                if gpxCount > 1 {
+                // Only offered when the device cannot read byte ranges, in
+                // which case answering means pulling whole files and is the
+                // user's call.
+                if model.snapshot?.canIdentifyCheaply == false && gpxCount > 1 {
                     Button("Identify All") { model.identifyAll() }
                         .buttonStyle(.link)
                         .disabled(model.isWorking)
@@ -413,10 +423,12 @@ struct DevicePanel: View {
 
                     if !file.isFolder, file.name.lowercased().hasSuffix(".gpx") {
                         switch model.summaries[file.handle]?.depth {
-                        case nil:
+                        case nil where model.snapshot?.canIdentifyCheaply == false:
                             Button("Identify") { model.identify(file) }
                                 .controlSize(.small)
                                 .disabled(model.isWorking)
+                        case nil:
+                            EmptyView()
                         case .ends:
                             // The cheap answer gave dates. Counts and distance
                             // need the file, and that is the user's call.

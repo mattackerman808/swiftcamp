@@ -18,6 +18,10 @@ actor DeviceService {
         var model: String
         var serialNumber: String
         var storages: [StorageSummary]
+        /// Whether the device will read a byte range. It decides whether
+        /// identifying a folder is something we can just do, or something
+        /// worth asking about first.
+        var canIdentifyCheaply: Bool
     }
 
     struct StorageSummary: Identifiable, Sendable {
@@ -67,7 +71,8 @@ actor DeviceService {
         return Snapshot(unit: unit,
                         model: info.model.isEmpty ? unit.name : info.model,
                         serialNumber: info.serialNumber,
-                        storages: storages)
+                        storages: storages,
+                        canIdentifyCheaply: browser.supportsPartialReads)
     }
 
     func disconnect() {
