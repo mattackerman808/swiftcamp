@@ -92,6 +92,11 @@ targets:
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
+        # The C USB transport. Only macOS gets the bridging header: IOKit's
+        # USB interfaces do not exist on iOS, where the same .c compiles to
+        # stubs.
+        SWIFT_OBJC_BRIDGING_HEADER: Swiftcamp/Device/Swiftcamp-Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Swiftcamp/Device
     # Deliberately NO MapLibre dependency. The distributed XCFramework has
     # only ios-arm64 and ios-arm64_x86_64-simulator slices, so linking it
     # here would not build. macOS renders through MapLibre GL JS instead —
@@ -99,6 +104,8 @@ targets:
     dependencies:
       - package: GRDB
         product: GRDB
+      - sdk: IOKit.framework
+      - sdk: CoreFoundation.framework
 
   # The library store and the GPX reader/writer are the first code here that
   # is testable without a renderer, and GPX is the one place a silent bug

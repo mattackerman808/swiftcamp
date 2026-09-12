@@ -291,6 +291,33 @@ final class LibraryModel {
         }
     }
 
+    /// The document the current selection would export as, or the whole
+    /// library when nothing is selected. Built for the device panel, which
+    /// needs the bytes rather than a file on disk.
+    func exportDocument() -> GPXDocument? {
+        try? store.exportGPX(waypointIDs: waypoints.map(\.id).filter(isSelectedOrNothingIs),
+                             routeIDs: routes.map(\.route.id).filter(isSelectedOrNothingIs),
+                             trackIDs: tracks.map(\.track.id).filter(isSelectedOrNothingIs))
+    }
+
+    /// Imports GPX that came from somewhere other than a file, such as a
+    /// device.
+    func importGPX(data: Data, named name: String) {
+        do {
+            let document = try GPXReader.read(data: data)
+            guard !document.isEmpty else {
+                failure = "\(name) has no waypoints, routes or tracks in it."
+                return
+            }
+            let result = try store.importGPX(document)
+            pendingFocus = Set(result.ids)
+            applyPendingFocus()
+            failure = nil
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+
     /// With nothing selected, export means the whole library. Writing an
     /// empty file because the user had not clicked anything first would be
     /// obedient and useless.
