@@ -93,9 +93,37 @@ enum MapStyle {
                     "tileSize": 512,
                     "attribution": BasemapSource.terrainAttribution,
                 ],
-            ],
+            ].merging(overlaySources()) { a, _ in a },
             "layers": layers(),
         ]
+    }
+
+    // MARK: - Overlay
+
+    /// Names of the GeoJSON sources the library's contents are pushed into.
+    ///
+    /// Declared in the style with no features rather than added at runtime.
+    /// Layer order in this file is load-bearing, and an empty source costs
+    /// nothing, so declaring them here fixes where the route sits relative to
+    /// the roads and the labels once, instead of leaving it to whatever order
+    /// the host happens to add layers in.
+    ///
+    /// At runtime the only operation is replacing the data, which is one call
+    /// rather than a layer-management problem.
+    enum Overlay {
+        static let trackLines = "sc-track-lines"
+        static let routeLines = "sc-route-lines"
+        static let viaPoints  = "sc-via-points"
+        static let waypoints  = "sc-waypoints"
+
+        static let all = [trackLines, routeLines, viaPoints, waypoints]
+    }
+
+    private static func overlaySources() -> [String: Any] {
+        let empty: [String: Any] = ["type": "FeatureCollection", "features": []]
+        return Dictionary(uniqueKeysWithValues: Overlay.all.map {
+            ($0, ["type": "geojson", "data": empty] as [String: Any])
+        })
     }
 
     // MARK: - Palette
@@ -132,6 +160,15 @@ enum MapStyle {
         // ground. At z13 a downtown block is mostly building, so too little
         // contrast here and the city looks like an empty field.
         static let building        = "#dcd5c8"
+        // The overlay. Everything above is context; these are the subject,
+        // and the basemap was kept muted so they can be.
+        static let routeLine       = "#e0218a"
+        static let routeCasing     = "#ffffff"
+        static let trackLine       = "#1f7a8c"
+        static let viaFill         = "#ffffff"
+        static let waypointFill    = "#f5a623"
+        static let selection       = "#111111"
+
         static let label           = "#40464e"
         static let labelHalo       = "#f7f5f0"
         static let roadLabel       = "#5d6470"
@@ -353,9 +390,70 @@ enum MapStyle {
                         widths: [[2, 0.4], [6, 0.8], [10, 1.4]],
                         dashed: true))
 
+        // Lines go under the labels: a route is the subject, but a place
+        // name it happens to cross should still be readable.
+        out.append(contentsOf: overlayLineLayers())
+
         out.append(contentsOf: labelLayers())
 
+        // Points go over everything, including labels. A via point hidden
+        // behind a street name is one the user cannot grab.
+        out.append(contentsOf: overlayPointLayers())
+
         return out
+    }
+
+    /// Track and route lines, each drawn casing-then-stroke like the roads.
+    ///
+    /// The casing is what keeps a magenta line legible where it runs along a
+    /// road of similar width, which on a touring map is most of the time.
+    private static func overlayLineLayers() -> [[String: Any]] {
+        [
+            // Tracks first, so a route planned from a recorded track draws
+            // on top of it rather than disappearing underneath.
+            geoJSONLine("track-line", source: Overlay.trackLines,
+                        color: ["coalesce", ["get", "color"], Palette.trackLine],
+                        widths: [[6, 1.2], [11, 2.4], [16, 4.5]]),
+
+            geoJSONLine("route-casing", source: Overlay.routeLines,
+                        color: Palette.routeCasing,
+                        widths: [[6, 4.0], [11, 7.0], [16, 12.0]]),
+            geoJSONLine("route-line", source: Overlay.routeLines,
+                        color: ["coalesce", ["get", "color"], Palette.routeLine],
+                        widths: [[6, 2.0], [11, 4.0], [16, 7.0]]),
+        ]
+    }
+
+    private static func overlayPointLayers() -> [[String: Any]] {
+        [
+            geoJSONCircle("waypoint-dot", source: Overlay.waypoints,
+                          fill: Palette.waypointFill,
+                          radii: [[6, 3.0], [11, 5.0], [16, 7.0]]),
+
+            // Via points read as handles rather than as places: white with a
+            // route-coloured ring, and larger, because they are the thing the
+            // user aims at with a cursor.
+            geoJSONCircle("via-point", source: Overlay.viaPoints,
+                          fill: Palette.viaFill,
+                          stroke: Palette.routeLine,
+                          radii: [[6, 3.5], [11, 6.0], [16, 8.0]]),
+
+            // Selection is a property on the feature rather than a separate
+            // source, so selecting something is a data push and never a layer
+            // change.
+            [
+                "id": "via-point-selected",
+                "type": "circle",
+                "source": Overlay.viaPoints,
+                "filter": ["==", ["coalesce", ["get", "selected"], false], true],
+                "paint": [
+                    "circle-radius": interpolate([[6, 6.0], [11, 9.0], [16, 12.0]]),
+                    "circle-color": "rgba(0, 0, 0, 0)",
+                    "circle-stroke-width": 2.0,
+                    "circle-stroke-color": Palette.selection,
+                ],
+            ],
+        ]
     }
 
     // MARK: - Terrain
@@ -604,6 +702,48 @@ enum MapStyle {
         ]
         if let maxZoom { out["maxzoom"] = maxZoom }
         if let filter { out["filter"] = filter }
+        return out
+    }
+
+    /// The existing `line` and `fill` helpers hardcode `source-layer`, which
+    /// only vector tile sources have. A GeoJSON source has no sub-layers, so
+    /// the overlay needs its own pair.
+    private static func geoJSONLine(_ id: String,
+                                    source: String,
+                                    color: Any,
+                                    widths: [[Double]]) -> [String: Any] {
+        [
+            "id": id,
+            "type": "line",
+            "source": source,
+            "layout": ["line-cap": "round", "line-join": "round"],
+            "paint": ["line-color": color, "line-width": interpolate(widths)],
+        ]
+    }
+
+    private static func geoJSONCircle(_ id: String,
+                                      source: String,
+                                      fill: String,
+                                      stroke: String? = nil,
+                                      radii: [[Double]]) -> [String: Any] {
+        var paint: [String: Any] = [
+            "circle-radius": interpolate(radii),
+            "circle-color": fill,
+        ]
+        if let stroke {
+            paint["circle-stroke-width"] = 2.0
+            paint["circle-stroke-color"] = stroke
+        }
+        return ["id": id, "type": "circle", "source": source, "paint": paint]
+    }
+
+    /// `[zoom, value]` stops as a MapLibre interpolate expression.
+    private static func interpolate(_ stops: [[Double]]) -> [Any] {
+        var out: [Any] = ["interpolate", ["linear"], ["zoom"]]
+        for pair in stops {
+            out.append(pair[0])
+            out.append(pair[1])
+        }
         return out
     }
 
