@@ -3,9 +3,7 @@ import UniformTypeIdentifiers
 
 /// The window: library on the left, map on the right.
 struct ContentView: View {
-    @State private var model = LibraryModel()
-    @State private var isImporting = false
-    @State private var isExporting = false
+    @Bindable var model: LibraryModel
 
     var body: some View {
         #if os(macOS)
@@ -16,13 +14,13 @@ struct ContentView: View {
             map
         }
         .toolbar { toolbar }
-        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.gpx], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.gpx], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): urls.forEach(model.importGPX(from:))
             case .failure(let error): model.failure = error.localizedDescription
             }
         }
-        .fileExporter(isPresented: $isExporting,
+        .fileExporter(isPresented: $model.isExporting,
                       document: GPXFile(),
                       contentType: .gpx,
                       defaultFilename: "Swiftcamp") { result in
@@ -78,10 +76,10 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
-            Button { isImporting = true } label: {
+            Button { model.isImporting = true } label: {
                 Label("Import GPX", systemImage: "square.and.arrow.down")
             }
-            Button { isExporting = true } label: {
+            Button { model.isExporting = true } label: {
                 Label("Export GPX", systemImage: "square.and.arrow.up")
             }
             .disabled(model.routes.isEmpty && model.waypoints.isEmpty && model.tracks.isEmpty)

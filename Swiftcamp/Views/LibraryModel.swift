@@ -26,6 +26,14 @@ final class LibraryModel {
     /// behind it changes — see `MapWebView` for why that matters.
     private(set) var overlay: MapOverlay = .empty
 
+    /// Whether the open or save panel is up.
+    ///
+    /// On the model rather than in the view because the File menu and the
+    /// toolbar both raise them, and a menu command lives in the `App` where
+    /// a view's `@State` cannot be reached.
+    var isImporting = false
+    var isExporting = false
+
     /// The last thing that went wrong, for the banner. Import failures are
     /// the common case and the user chose the file, so they are owed a
     /// reason rather than a silent no-op.

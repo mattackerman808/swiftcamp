@@ -49,9 +49,16 @@ struct LibrarySidebar: View {
             }
 
             if model.routes.isEmpty && model.tracks.isEmpty && model.waypoints.isEmpty {
-                ContentUnavailableView("Nothing here yet",
-                                       systemImage: "map",
-                                       description: Text("Import a GPX file to get started."))
+                // A button, not just an instruction. Telling someone to
+                // import a file and leaving them to find the toolbar is how
+                // an empty app stays empty.
+                ContentUnavailableView {
+                    Label("Nothing here yet", systemImage: "map")
+                } description: {
+                    Text("Import a GPX file to get started.")
+                } actions: {
+                    Button("Import GPX…") { model.isImporting = true }
+                }
             }
         }
         .listStyle(.sidebar)
