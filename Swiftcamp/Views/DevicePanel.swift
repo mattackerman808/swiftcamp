@@ -260,7 +260,7 @@ struct DevicePanel: View {
                         }
 
                         if storage.gpxFolderMissing {
-                            Text("No Garmin/GPX folder yet. Sending a route will create it.")
+                            Text("No GPX folder yet. Sending a route will create it.")
                                 .font(.caption).foregroundStyle(.secondary)
                         } else if storage.gpxFiles.isEmpty {
                             Text("No GPX files.")

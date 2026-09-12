@@ -77,9 +77,18 @@ struct DeviceFile: Identifiable, Hashable, Sendable {
 /// A real Finder volume would be a filesystem extension over this, which is a
 /// separate and much larger piece of work.
 struct GarminBrowser {
-    /// Where Garmin units look for user routes and tracks. Case matters on
-    /// the device even though it does not on a Mac.
-    static let gpxPath = ["Garmin", "GPX"]
+    /// Where Garmin units keep user routes and tracks — and it is not one
+    /// path.
+    ///
+    /// Over MTP a zūmo XT3 exposes `GPX` at the root of its internal storage,
+    /// alongside `Voice`, `Text`, `Vehicle` and `Logs`. In other words the
+    /// MTP root *is* what would be the `Garmin` folder on a unit that mounts
+    /// as a disk, and the familiar `Garmin/GPX` path is a mass-storage
+    /// spelling of the same place.
+    ///
+    /// So both are searched, and which one gets created is decided by what
+    /// the device already looks like rather than by a guess.
+    static let gpxCandidates = [["GPX"], ["Garmin", "GPX"]]
 
     let session: MTPSession
 
@@ -152,9 +161,29 @@ struct GarminBrowser {
         return parent
     }
 
+    /// The handle of the folder this device keeps GPX in, creating it only
+    /// when asked.
+    ///
+    /// When neither layout exists, the one to create follows the device: a
+    /// root with a `Garmin` folder in it is a unit using the nested spelling,
+    /// and anything else gets `GPX` at the root, which is what the units that
+    /// speak MTP actually do.
+    func gpxFolder(storage: UInt32, creating: Bool = false) throws -> UInt32 {
+        for candidate in Self.gpxCandidates {
+            if let handle = try? resolve(candidate, storage: storage) { return handle }
+        }
+        guard creating else { throw MTP.Failure.notFound("A GPX folder") }
+
+        let root = try contents(of: MTP.rootParent, storage: storage)
+        let nested = root.contains {
+            $0.isFolder && $0.name.caseInsensitiveCompare("Garmin") == .orderedSame
+        }
+        return try resolve(nested ? ["Garmin", "GPX"] : ["GPX"], storage: storage, creating: true)
+    }
+
     /// The GPX files already on the unit.
     func gpxFiles(storage: UInt32) throws -> [DeviceFile] {
-        let folder = try resolve(Self.gpxPath, storage: storage)
+        let folder = try gpxFolder(storage: storage)
         return try contents(of: folder, storage: storage)
             .filter { !$0.isFolder && $0.name.lowercased().hasSuffix(".gpx") }
     }
@@ -170,7 +199,7 @@ struct GarminBrowser {
     /// `Route.gpx` and `Route (1).gpx` side by side on a unit whose screen
     /// shows a list of names is how someone follows last week's ride.
     func write(_ data: Data, named name: String, storage: UInt32) throws {
-        let folder = try resolve(Self.gpxPath, storage: storage, creating: true)
+        let folder = try gpxFolder(storage: storage, creating: true)
 
         if let existing = try contents(of: folder, storage: storage)
             .first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {

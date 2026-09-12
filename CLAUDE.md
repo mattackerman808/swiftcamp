@@ -214,6 +214,12 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
+- **A Garmin's MTP root is its `Garmin` folder.** A zūmo XT3 exposes `GPX`
+  at the root of internal storage, beside `Voice`, `Text` and `Vehicle`. The
+  familiar `Garmin/GPX` is the mass-storage spelling of the same place, so
+  both have to be searched. Looking at the device settled this in seconds
+  after a long time spent reasoning about it, which is the renderer lesson
+  again in a different costume.
 - **A `didSet` that publishes, behind a SwiftUI binding, is a loop.**
   `List(selection:)` writes through its binding during layout, and assigning a
   `Set` fires `didSet` whether or not the value changed. Rebuilding published
