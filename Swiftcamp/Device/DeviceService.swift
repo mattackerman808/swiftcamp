@@ -25,10 +25,10 @@ actor DeviceService {
         var name: String
         var freeBytes: UInt64
         var capacityBytes: UInt64
-        var gpxFiles: [DeviceFile]
-        /// Nil when `Garmin/GPX` does not exist on this storage yet, which is
-        /// normal for a fresh memory card and not an error.
-        var gpxFolderMissing: Bool
+        /// Where the browser should open. Nil when the unit has no GPX
+        /// folder yet, which is normal for a fresh memory card and not an
+        /// error — the browser then opens at the root instead.
+        var gpxFolder: UInt32?
     }
 
     // MARK: - Discovery
@@ -57,19 +57,11 @@ actor DeviceService {
         var storages: [StorageSummary] = []
 
         for storage in try browser.storages() {
-            var files: [DeviceFile] = []
-            var missing = false
-            do {
-                files = try browser.gpxFiles(storage: storage.id)
-            } catch MTP.Failure.notFound {
-                missing = true
-            }
             storages.append(StorageSummary(id: storage.id,
                                            name: storage.name,
                                            freeBytes: storage.free,
                                            capacityBytes: storage.capacity,
-                                           gpxFiles: files,
-                                           gpxFolderMissing: missing))
+                                           gpxFolder: try? browser.gpxFolder(storage: storage.id)))
         }
 
         return Snapshot(unit: unit,
@@ -106,14 +98,10 @@ actor DeviceService {
         return try browser.contents(of: parent, storage: storage)
     }
 
-    /// Re-reads one storage's GPX folder after a transfer.
-    func refresh(storage: UInt32) throws -> [DeviceFile] {
+    /// The GPX folder's handle, which a send may have just created.
+    func gpxFolder(storage: UInt32) throws -> UInt32? {
         guard let browser else { throw MTP.Failure.noDevice }
-        do {
-            return try browser.gpxFiles(storage: storage)
-        } catch MTP.Failure.notFound {
-            return []
-        }
+        return try? browser.gpxFolder(storage: storage)
     }
 }
 #endif

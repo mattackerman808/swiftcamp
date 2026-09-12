@@ -40,7 +40,26 @@ final class DeviceModel {
             // Clearing the status matters: leaving "Connecting…" up after it
             // has connected reads as a job still running, which is the one
             // thing a progress message must never say when it is finished.
-            return { self.snapshot = snapshot; self.status = nil }
+            return {
+                self.snapshot = snapshot
+                self.status = nil
+                // Straight to the files. Connecting and then being asked to
+                // press Browse is a step that exists only because the code is
+                // arranged that way.
+                if let first = snapshot.storages.first { self.open(first) }
+            }
+        }
+    }
+
+    /// Opens a storage at its GPX folder, or at the root when it has none.
+    func open(_ storage: DeviceService.StorageSummary) {
+        browseStorage = storage.id
+        if let folder = storage.gpxFolder {
+            browsePath = [Crumb(name: "GPX", handle: folder)]
+            list(storage: storage.id, parent: folder)
+        } else {
+            browsePath = []
+            list(storage: storage.id, parent: MTP.rootParent)
         }
     }
 
@@ -49,13 +68,19 @@ final class DeviceModel {
         Task { await service.disconnect() }
     }
 
-    /// Writes one GPX file into `Garmin/GPX`.
+    /// Writes one GPX file into the device's GPX folder and shows it.
     func send(_ data: Data, named name: String, to storage: UInt32) {
         run("Sending \(name)…") { [service] in
             try await service.send(data, named: name, to: storage)
-            let files = try await service.refresh(storage: storage)
+            // The send may have created the folder, so the handle is only
+            // knowable afterwards.
+            let folder = try await service.gpxFolder(storage: storage)
+            let files = try await service.list(storage: storage,
+                                               parent: folder ?? MTP.rootParent)
             return {
-                self.replaceFiles(files, in: storage)
+                self.browseStorage = storage
+                self.browsePath = folder.map { [Crumb(name: "GPX", handle: $0)] } ?? []
+                self.browseFiles = files
                 self.status = "Sent \(name)."
             }
         }
@@ -94,26 +119,11 @@ final class DeviceModel {
         }
     }
 
-    func closeBrowser() {
-        browseStorage = nil
-        browsePath = []
-        browseFiles = []
-    }
-
     private func list(storage: UInt32, parent: UInt32) {
         run("Reading folder…") { [service] in
             let files = try await service.list(storage: storage, parent: parent)
             return { self.browseFiles = files; self.status = nil }
         }
-    }
-
-    private func replaceFiles(_ files: [DeviceFile], in storage: UInt32) {
-        guard var snapshot else { return }
-        for index in snapshot.storages.indices where snapshot.storages[index].id == storage {
-            snapshot.storages[index].gpxFiles = files
-            snapshot.storages[index].gpxFolderMissing = false
-        }
-        self.snapshot = snapshot
     }
 
     /// Runs device work off the main actor and applies the result on it.
@@ -242,9 +252,15 @@ struct DevicePanel: View {
                     in: RoundedRectangle(cornerRadius: 6))
     }
 
+    /// Storage headers, then the folder you are standing in.
+    ///
+    /// One list, not two. The panel used to show the GPX folder's contents
+    /// and then offer a Browse button that showed the same files again a few
+    /// pixels lower, which is a distinction that only made sense from inside
+    /// the code.
     private func connected(_ snapshot: DeviceService.Snapshot) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(snapshot.model).font(.title3).bold()
                     if !snapshot.serialNumber.isEmpty {
@@ -254,68 +270,48 @@ struct DevicePanel: View {
                 }
 
                 ForEach(snapshot.storages) { storage in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Label(storage.name, systemImage: "internaldrive")
-                                .font(.subheadline).bold()
-                            Spacer()
-                            Text(capacity(storage))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-
-                        if storage.gpxFolderMissing {
-                            Text("No GPX folder yet. Sending a route will create it.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else if storage.gpxFiles.isEmpty {
-                            Text("No GPX files.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            ForEach(storage.gpxFiles) { file in
-                                HStack {
-                                    Image(systemName: "doc.text").foregroundStyle(.secondary)
-                                    Text(file.name)
-                                    Spacer()
-                                    Text(size(file.size)).font(.caption).foregroundStyle(.secondary)
-                                    Button("Import") { importFromDevice(file) }
-                                        .controlSize(.small)
-                                }
-                                .font(.callout)
-                            }
-                        }
-
-                        HStack {
-                            Button {
-                                sendLibrary(to: storage.id)
-                            } label: {
-                                Label(sendLabel, systemImage: "arrow.up.circle")
-                            }
-                            .disabled(model.isWorking || library.routes.isEmpty
-                                      && library.tracks.isEmpty && library.waypoints.isEmpty)
-
-                            Button {
-                                model.browseRoot(storage.id)
-                            } label: {
-                                Label("Browse", systemImage: "folder")
-                            }
-                            .disabled(model.isWorking)
-                        }
-                        .controlSize(.small)
-                    }
-                    .padding(12)
-                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                    storageRow(storage)
                 }
 
-                if model.browseStorage != nil { browser }
+                if model.browseStorage != nil {
+                    Divider()
+                    browser
+                }
             }
             .padding(14)
         }
     }
 
-    /// The device's own folder tree.
-    ///
-    /// Here because a device that refuses a file is usually a device whose
-    /// layout is not what we assumed, and looking settles that faster than
-    /// reasoning about the specification does.
+    private func storageRow(_ storage: DeviceService.StorageSummary) -> some View {
+        let isOpen = model.browseStorage == storage.id
+        return HStack(spacing: 10) {
+            Image(systemName: "internaldrive")
+                .foregroundStyle(isOpen ? Color.accentColor : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(storage.name).bold()
+                Text(capacity(storage)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                sendLibrary(to: storage.id)
+            } label: {
+                Label(sendLabel, systemImage: "arrow.up.circle")
+            }
+            .controlSize(.small)
+            .disabled(model.isWorking || library.routes.isEmpty
+                      && library.tracks.isEmpty && library.waypoints.isEmpty)
+        }
+        .font(.callout)
+        .padding(10)
+        .contentShape(Rectangle())
+        .background(isOpen ? Color.accentColor.opacity(0.10) : Color.secondary.opacity(0.06),
+                    in: RoundedRectangle(cornerRadius: 8))
+        // Only meaningful with a card in as well as internal storage, but
+        // then it is the only way to reach the card.
+        .onTapGesture { model.open(storage) }
+    }
+
+    /// Where you are on the device.
     private var browser: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
@@ -327,48 +323,45 @@ struct DevicePanel: View {
                         .buttonStyle(.link)
                 }
                 Spacer()
-                Button("Close") { model.closeBrowser() }.buttonStyle(.link)
+                if model.browseFiles.count > 8 {
+                    Text("\(model.browseFiles.count) items").foregroundStyle(.secondary)
+                }
             }
             .font(.caption)
 
             if model.browseFiles.isEmpty {
-                Text("Empty.").font(.caption).foregroundStyle(.secondary)
-            } else if model.browseFiles.count > 8 {
-                Text("\(model.browseFiles.count) items")
+                Text(model.browsePath.isEmpty
+                     ? "Nothing on this storage."
+                     : "This folder is empty.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            if !model.browseFiles.isEmpty {
-                ForEach(model.browseFiles) { file in
-                    HStack(spacing: 8) {
-                        Image(systemName: file.isFolder ? "folder.fill" : "doc")
-                            .foregroundStyle(file.isFolder ? Color.accentColor : .secondary)
-                        if file.isFolder {
-                            Button(file.name) { model.descend(into: file) }
-                                .buttonStyle(.plain)
-                        } else {
-                            Text(file.name)
-                        }
-                        Spacer()
-                        if !file.isFolder {
-                            Text(size(file.size)).font(.caption).foregroundStyle(.secondary)
-                            // Anywhere on the device, not just the folder we
-                            // went looking for. The archived track logs are
-                            // the rider's own history and they live a level
-                            // down, where the GPX listing above never reaches.
-                            if file.name.lowercased().hasSuffix(".gpx") {
-                                Button("Import") { importFromDevice(file) }
-                                    .controlSize(.small)
-                                    .disabled(model.isWorking)
-                            }
+            ForEach(model.browseFiles) { file in
+                HStack(spacing: 8) {
+                    Image(systemName: file.isFolder ? "folder.fill" : "doc")
+                        .foregroundStyle(file.isFolder ? Color.accentColor : .secondary)
+                    if file.isFolder {
+                        Button(file.name) { model.descend(into: file) }
+                            .buttonStyle(.plain)
+                    } else {
+                        Text(file.name)
+                    }
+                    Spacer()
+                    if !file.isFolder {
+                        Text(size(file.size)).font(.caption).foregroundStyle(.secondary)
+                        // Anywhere on the device, not only in the folder we
+                        // opened at. The archived track logs are the rider's
+                        // own history and they sit a level down.
+                        if file.name.lowercased().hasSuffix(".gpx") {
+                            Button("Import") { importFromDevice(file) }
+                                .controlSize(.small)
+                                .disabled(model.isWorking)
                         }
                     }
-                    .font(.callout)
                 }
+                .font(.callout)
             }
         }
-        .padding(12)
-        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var footer: some View {
