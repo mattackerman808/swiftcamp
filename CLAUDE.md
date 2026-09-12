@@ -118,6 +118,7 @@ to whichever renderer the platform uses.
 | `MapStyle.swift` | All cartography: sources, layers, filters, colours |
 | `MapOverlay.swift` | What the map shows, as a value the renderer can be handed |
 | `OverlayGeoJSON.swift` | Library content to GeoJSON, pure and testable |
+| `../Model/ItemColor.swift` | The only colour palette, and it is Garmin's |
 | `BasemapSource.swift` | CDN URLs, bundled asset paths, attribution, max zoom |
 | `ShieldCatalog.swift` | **Generated.** Do not edit; see below |
 | `macOS/MapWebView.swift` | macOS host, MapLibre GL JS in a web view |
@@ -216,6 +217,10 @@ implements them; this is the index.
   one-shot snapshot caught an empty map and looked exactly like a broken
   overlay. Every idle now overwrites the file, and the harness waits past the
   first one.
+- **Colour is Garmin's vocabulary, not a colour well.** `gpxx:DisplayColor`
+  is sixteen names. Anything off that list is dropped or rewritten on export,
+  so the route reaches the device in a colour nobody picked. `ItemColor` holds
+  the sixteen and is the only place a hex appears; hex never leaves the app.
 - **A Garmin route's shape lives in `gpxx:rpt`, not in its via points.** Each
   `<rtept>` carries the road geometry leading away from it inside its
   extension. Drop it and the device re-routes from scratch on import, which is

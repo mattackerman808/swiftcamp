@@ -435,7 +435,7 @@ enum MapStyle {
             // user aims at with a cursor.
             geoJSONCircle("via-point", source: Overlay.viaPoints,
                           fill: Palette.viaFill,
-                          stroke: Palette.routeLine,
+                          stroke: ["coalesce", ["get", "color"], Palette.routeLine],
                           radii: [[6, 3.5], [11, 6.0], [16, 8.0]]),
 
             // Selection is a property on the feature rather than a separate
@@ -724,7 +724,7 @@ enum MapStyle {
     private static func geoJSONCircle(_ id: String,
                                       source: String,
                                       fill: String,
-                                      stroke: String? = nil,
+                                      stroke: Any? = nil,
                                       radii: [[Double]]) -> [String: Any] {
         var paint: [String: Any] = [
             "circle-radius": interpolate(radii),

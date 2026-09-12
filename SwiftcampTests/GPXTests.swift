@@ -329,4 +329,91 @@ final class GPXTests: XCTestCase {
         XCTAssertEqual(try store.routes().first?.listID, list.id)
         XCTAssertEqual(try store.tracks().first?.listID, list.id)
     }
+
+    // MARK: - Colour
+
+    /// A file that names its own colour keeps it. That is the author's
+    /// choice, and overwriting it with our default would quietly rewrite
+    /// their library.
+    func testImportKeepsAColourTheFileNamed() throws {
+        let store = LibraryStore(try AppDatabase.inMemory())
+        try store.importGPX(try read("basecamp-route"))
+
+        XCTAssertEqual(try store.routes().first?.color, "Magenta")
+        XCTAssertEqual(try store.tracks().first?.color, "DarkGreen")
+    }
+
+    /// Anything arriving without one is given a colour, starting at magenta
+    /// and counting on, so two routes never land on the map indistinguishable
+    /// from each other.
+    func testImportAssignsDistinctColoursWhenTheFileHasNone() throws {
+        let store = LibraryStore(try AppDatabase.inMemory())
+        var document = GPXDocument()
+        document.routes = (0..<3).map { i in
+            let route = Route(name: "Route \(i)")
+            return RouteDetail(route: route, points: [
+                RoutePoint(routeID: route.id, seq: 0, lat: 40.0 + Double(i), lon: -105.0),
+                RoutePoint(routeID: route.id, seq: 1, lat: 40.5 + Double(i), lon: -105.5),
+            ])
+        }
+
+        try store.importGPX(document)
+
+        let colors = try store.routes().sorted { $0.name < $1.name }.map(\.color)
+        XCTAssertEqual(colors.first, "Magenta", "the first one is the usual route colour")
+        XCTAssertEqual(Set(colors).count, 3, "and no two share one")
+        for color in colors { XCTAssertNotNil(ItemColor.named(color)) }
+    }
+
+    /// Counting on from what is already there, so a second import does not
+    /// start at magenta again and collide with the first.
+    func testASecondImportContinuesThePalette() throws {
+        let store = LibraryStore(try AppDatabase.inMemory())
+
+        func uncolouredTrack(_ name: String) -> GPXDocument {
+            var document = GPXDocument()
+            let track = Track(name: name)
+            document.tracks = [TrackDetail(track: track, points: [
+                TrackPoint(trackID: track.id, seq: 0, segment: 0, lat: 40, lon: -105),
+                TrackPoint(trackID: track.id, seq: 1, segment: 0, lat: 41, lon: -106),
+            ])]
+            return document
+        }
+
+        try store.importGPX(uncolouredTrack("First"))
+        try store.importGPX(uncolouredTrack("Second"))
+
+        let colors = try store.tracks().map(\.color)
+        XCTAssertEqual(Set(colors).count, 2)
+    }
+
+    /// Recolouring writes the header only. An INSERT OR REPLACE here would
+    /// cascade the points away, which is the bug tachbase shipped.
+    func testRecolouringKeepsTheGeometry() throws {
+        let store = LibraryStore(try AppDatabase.inMemory())
+        try store.importGPX(try read("basecamp-route"))
+        let route = try XCTUnwrap(try store.routes().first)
+
+        try store.setColor(XCTUnwrap(ItemColor.named("Blue")), forRoute: route.id)
+
+        let read = try XCTUnwrap(try store.routeDetail(id: route.id))
+        XCTAssertEqual(read.route.color, "Blue")
+        XCTAssertEqual(read.points.count, 3, "the via points must survive a recolour")
+        XCTAssertEqual(read.points[0].geometry?.count, 4, "and so must the shaping points")
+    }
+
+    /// And the new colour has to survive the trip back out to a device.
+    func testARecolouredRouteExportsItsNewColour() throws {
+        let store = LibraryStore(try AppDatabase.inMemory())
+        try store.importGPX(try read("basecamp-route"))
+        let route = try XCTUnwrap(try store.routes().first)
+        try store.setColor(XCTUnwrap(ItemColor.named("DarkCyan")), forRoute: route.id)
+
+        let document = try store.exportGPX(routeIDs: [route.id])
+        let text = GPXWriter.write(document)
+        XCTAssertTrue(text.contains("<gpxx:DisplayColor>DarkCyan</gpxx:DisplayColor>"))
+
+        let back = try GPXReader.read(data: Data(text.utf8))
+        XCTAssertEqual(back.routes.first?.route.color, "DarkCyan")
+    }
 }

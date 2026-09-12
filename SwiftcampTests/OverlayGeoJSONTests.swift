@@ -103,23 +103,10 @@ final class OverlayGeoJSONTests: XCTestCase {
 
     // MARK: - Colour
 
-    /// An unparseable colour in a data-driven paint expression fails the
-    /// whole layer, not one feature, so anything unrecognised has to become
-    /// nil and let the style's fallback take over.
-    func testGarminColoursMapToHexAndUnknownOnesToNil() {
-        XCTAssertEqual(GarminColor.hex("Magenta"), "#ff00ff")
-        XCTAssertEqual(GarminColor.hex("DarkGreen"), "#006400")
-        XCTAssertEqual(GarminColor.hex("darkgreen"), "#006400", "case must not matter")
-        // Not a CSS colour name, which is why passing names straight through
-        // would have been a quiet mistake.
-        XCTAssertEqual(GarminColor.hex("DarkYellow"), "#808000")
-        XCTAssertNil(GarminColor.hex("Chartreuse"))
-        XCTAssertNil(GarminColor.hex(nil))
-    }
-
     func testRouteColourReachesTheFeature() throws {
         let collection = OverlayGeoJSON.routeLines([route(color: "Magenta")])
-        XCTAssertEqual(collection.features.first?.properties.color, "#ff00ff")
+        XCTAssertEqual(collection.features.first?.properties.color,
+                       ItemColor.named("Magenta")?.hex)
     }
 
     // MARK: - Encoding

@@ -20,7 +20,7 @@ enum OverlayGeoJSON {
             return Feature(geometry: .lineString(path),
                            properties: Properties(id: detail.route.id,
                                                   name: detail.route.name,
-                                                  color: GarminColor.hex(detail.route.color)))
+                                                  color: ItemColor.hex(detail.route.color)))
         })
     }
 
@@ -34,6 +34,13 @@ enum OverlayGeoJSON {
                         properties: Properties(id: detail.route.id,
                                                seq: point.seq,
                                                name: point.name,
+                                               // Carried so a handle is
+                                               // ringed in its own route's
+                                               // colour. Where two routes
+                                               // cross, a ring that matches
+                                               // neither says nothing about
+                                               // which one it belongs to.
+                                               color: ItemColor.hex(detail.route.color),
                                                selected: selected.contains(handle(detail.route.id, point.seq))))
             }
         })
@@ -48,7 +55,7 @@ enum OverlayGeoJSON {
                 Feature(geometry: .lineString(thinned(segment)),
                         properties: Properties(id: detail.track.id,
                                                name: detail.track.name,
-                                               color: GarminColor.hex(detail.track.color)))
+                                               color: ItemColor.hex(detail.track.color)))
             }
         })
     }
@@ -156,41 +163,5 @@ enum OverlayGeoJSON {
         var name: String?
         var color: String?
         var selected: Bool?
-    }
-}
-
-/// Garmin's `DisplayColor` vocabulary, as hex.
-///
-/// Most of their names happen to be CSS colour names, so passing them
-/// straight through would usually work — but `DarkYellow` is not one, and an
-/// unparseable colour in a data-driven paint expression fails the whole
-/// layer, not just the one feature. Mapping explicitly and returning nil for
-/// anything unrecognised makes the fallback in the style do its job.
-enum GarminColor {
-    private static let table = [
-        "black": "#000000",
-        "darkred": "#8b0000",
-        "darkgreen": "#006400",
-        "darkyellow": "#808000",   // not a CSS name, which is the whole point
-        "darkblue": "#00008b",
-        "darkmagenta": "#8b008b",
-        "darkcyan": "#008b8b",
-        "lightgray": "#d3d3d3",
-        "darkgray": "#a9a9a9",
-        "red": "#ff0000",
-        "green": "#008000",
-        "yellow": "#ffff00",
-        "blue": "#0000ff",
-        "magenta": "#ff00ff",
-        "cyan": "#00ffff",
-        "white": "#ffffff",
-    ]
-
-    static func hex(_ name: String?) -> String? {
-        guard let name else { return nil }
-        // `Transparent` is in Garmin's list and means "do not draw". Falling
-        // back to the default colour is wrong, but an invisible route the
-        // user cannot find is worse.
-        return table[name.lowercased()]
     }
 }

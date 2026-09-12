@@ -182,9 +182,19 @@ struct LibraryStore: Sendable {
                 ids.append(waypoint.id)
             }
 
+            // Anything arriving without a colour gets one, counting on from
+            // what is already in the library so two imports in a row do not
+            // both start at magenta. A file that names its own colour keeps
+            // it: that is the author's choice and ours to preserve.
+            var nextColor = try Route.fetchCount(db) + Track.fetchCount(db)
+
             for detail in document.routes {
                 var route = detail.route
                 route.listID = listID
+                if ItemColor.named(route.color) == nil {
+                    route.color = ItemColor.default(for: nextColor).name
+                    nextColor += 1
+                }
                 try route.insert(db)
                 ids.append(route.id)
                 for (index, point) in detail.points.enumerated() {
@@ -199,6 +209,10 @@ struct LibraryStore: Sendable {
             for detail in document.tracks {
                 var track = detail.track
                 track.listID = listID
+                if ItemColor.named(track.color) == nil {
+                    track.color = ItemColor.default(for: nextColor).name
+                    nextColor += 1
+                }
                 try track.insert(db)
                 ids.append(track.id)
                 for (index, point) in detail.points.enumerated() {
@@ -244,6 +258,28 @@ struct LibraryStore: Sendable {
             }
 
             return document
+        }
+    }
+
+    /// Recolours a route or a track.
+    ///
+    /// Writes the header only. The points are untouched, which `save` makes
+    /// safe — an `INSERT OR REPLACE` here would cascade them away.
+    func setColor(_ color: ItemColor, forRoute id: String) throws {
+        try database.writer.write { db in
+            guard var route = try Route.fetchOne(db, key: id) else { return }
+            route.color = color.name
+            route.updatedAt = .now
+            try route.update(db)
+        }
+    }
+
+    func setColor(_ color: ItemColor, forTrack id: String) throws {
+        try database.writer.write { db in
+            guard var track = try Track.fetchOne(db, key: id) else { return }
+            track.color = color.name
+            track.updatedAt = .now
+            try track.update(db)
         }
     }
 

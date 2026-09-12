@@ -354,6 +354,23 @@ final class LibraryModel {
         }
     }
 
+    /// Recolours whichever kind of item this is.
+    ///
+    /// The sidebar knows it is looking at a route or a track, but the
+    /// selection it carries is just an id, so the lookup happens once here
+    /// rather than at every call site.
+    func setColor(_ color: ItemColor, for id: String) {
+        do {
+            if routes.contains(where: { $0.route.id == id }) {
+                try store.setColor(color, forRoute: id)
+            } else if tracks.contains(where: { $0.track.id == id }) {
+                try store.setColor(color, forTrack: id)
+            }
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+
     func delete(_ id: String) {
         do {
             if routes.contains(where: { $0.route.id == id }) {
