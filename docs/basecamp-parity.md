@@ -159,7 +159,8 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 
 | Feature | Status |
 | --- | --- |
-| Send and receive waypoints, routes, tracks | **Build** — see below, this is the hard one |
+| Send and receive via a memory card | **Build** — small, see below |
+| Send and receive over MTP | **Build** — large, and possibly unnecessary |
 | Strip shaping points on transfer | **Build** |
 | Simplify tracks to a device point limit | **Build** |
 | Browse device contents | **Build** |
@@ -170,25 +171,43 @@ Everything above is ordinary work except these.
 
 ### 1. Device transfer on macOS
 
-This is the one that decides whether Swiftcamp is a replacement or just a
-planner, and it is not a small matter.
+Smaller than it first looked, because the memory card sidesteps the hard part.
 
-Older Garmin units mount as USB mass storage. Copying GPX into `/Garmin/GPX`
-is all there is to it, and that path is easy.
+**What MTP is.** Media Transfer Protocol, Microsoft's, now a USB device class,
+and yes — it is the same thing Android phones use. It is not a filesystem. The
+device serves *objects* in reply to commands, and the host never sees a block
+device, so there is nothing for macOS to mount. Devices prefer it because USB
+mass storage requires handing the raw disk to the computer and giving up use of
+its own storage while plugged in; MTP lets the unit keep working. macOS has no
+MTP support at all, which is why Mac users are pointed at OpenMTP, MacDroid or
+Android File Transfer. BaseCamp works because Garmin shipped their own stack.
 
-**Modern zūmo units do not.** The zūmo XT and XT2 expose MTP, and macOS has
-no native MTP support at all — which is why Mac users are told to install
-OpenMTP or use Garmin Express. BaseCamp works because Garmin shipped their own
-MTP stack inside it.
+**The memory card avoids all of it.** A microSD card in a reader mounts as an
+ordinary FAT volume. Garmin units read GPX from `Garmin/GPX` on the card —
+case-sensitive, and it walks subfolders, so `Garmin/GPX/2026 Rockies/` works —
+and the files are then imported through Trip Planner. Experienced riders
+already prefer this to internal memory, because the device rewrites and prunes
+what it finds there and leaves the card alone.
 
-So this is a real engineering project: talk MTP over USB ourselves, probably
-over libusb, or ship a helper. It needs a spike against actual hardware before
-anything is promised. It should not be attempted until the planner is good,
-but it should also not be assumed away, because "I cannot get my route onto my
-bike" is the one failure that makes everything else pointless.
+So the plan is:
 
-The honest interim answer is that the user exports GPX and copies it across
-with a tool that already speaks MTP.
+1. **Write to a mounted card.** Detect a volume with a `Garmin` folder, or let
+   the user pick one, and read and write `Garmin/GPX`. This is ordinary file
+   handling and is the smallest useful version of device support.
+2. **Mass storage for older units**, which is the same code: they mount as a
+   volume with the same layout.
+3. **MTP only if the card proves insufficient.** `libmtp` over `libusb` is the
+   route, and Subsurface's `libdc` is a precedent for driving Garmin hardware
+   through it. Each model needs its USB identifiers registered. Weeks of work
+   plus hardware to test against, and worth doing only if a device the author
+   cares about has no card slot.
+
+**The hardware on hand covers both paths.** The author's zūmo XT3 speaks MTP
+over USB but has a microSD slot, so the card path serves it. A BMW Motorrad
+Navigator VI — the same platform as a zūmo 595 — still connects as mass
+storage on a Mac, so it exercises the mounted-volume path directly. Between
+them, device support can be built and tested without MTP and without hunting
+for old hardware.
 
 ### 2. GDB import
 
@@ -226,10 +245,13 @@ plan a ride and hand it to a device by hand.*
 Track split, join, filter. Elevation profiles and real statistics. *At the end
 of this, a BaseCamp user can move their library across and not lose anything.*
 
-**Stage C — the device.** Mass-storage transfer first, since it is easy and
-covers older units. Then the MTP spike, honestly scoped, against real hardware.
-Shaping-point stripping and track simplification on transfer. *At the end of
-this, Swiftcamp replaces BaseCamp.*
+**Stage C — the device.** Memory-card and mass-storage transfer, which are the
+same code and cover every unit with a card slot. Shaping-point stripping and
+track simplification on the way out. MTP only if a device that matters turns
+out to need it. *At the end of this, Swiftcamp replaces BaseCamp.*
+
+This stage got much cheaper once the card path was understood, and it could
+reasonably move ahead of Stage B.
 
 **Stage D — routing.** Valhalla, region packs, activity profiles, avoidances,
 snapping and recalculation on drag. *At the end of this, Swiftcamp is better
@@ -243,9 +265,9 @@ sits after Stage D because it is built on the same road data as snapping.
 
 ## Open questions
 
-- **Which devices matter?** The MTP work is only worth it for units the author
-  and the target rider actually own. A zūmo XT is a different answer from a
-  GPSMAP 66.
+- **Is MTP ever needed?** Answered for now: no. The zūmo XT3 has a card slot
+  and the Navigator VI mounts as a volume, so both devices on hand are served
+  without it. It becomes a question again only for a unit with no card slot.
 - **Address search needs a geocoder.** Self-hosting Nominatim is a real
   service with real cost, and every hosted option has terms. This is the first
   feature that would put a vendor back in the serving path, which
