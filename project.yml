@@ -20,6 +20,9 @@ packages:
   MapLibre:
     url: https://github.com/maplibre/maplibre-gl-native-distribution
     from: "6.29.0"
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: "7.11.0"
 
 targets:
   Swiftcamp-iOS:
@@ -60,6 +63,8 @@ targets:
     dependencies:
       - package: MapLibre
         product: MapLibre
+      - package: GRDB
+        product: GRDB
 
   Swiftcamp-macOS:
     type: application
@@ -91,6 +96,33 @@ targets:
     # only ios-arm64 and ios-arm64_x86_64-simulator slices, so linking it
     # here would not build. macOS renders through MapLibre GL JS instead —
     # see Map/macOS/MapWebView.swift.
+    dependencies:
+      - package: GRDB
+        product: GRDB
+
+  # The library store and the GPX reader/writer are the first code here that
+  # is testable without a renderer, and GPX is the one place a silent bug
+  # ships a broken file to a device. tachbase's own test bundle is the
+  # template; note it has no coverage of its 55 migrations, which is the gap
+  # DatabaseMigrationTests exists to not repeat.
+  SwiftcampTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: SwiftcampTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        # Spelled out because the target is `Swiftcamp-macOS` but its
+        # PRODUCT_NAME is `Swiftcamp`. XcodeGen derives TEST_HOST from the
+        # target name, which points at an executable that does not exist.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Swiftcamp.app/Contents/MacOS/Swiftcamp"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: Swiftcamp-macOS
 
 schemes:
   Swiftcamp-iOS:
@@ -107,5 +139,9 @@ schemes:
         Swiftcamp-macOS: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - SwiftcampTests
     archive:
       config: Release

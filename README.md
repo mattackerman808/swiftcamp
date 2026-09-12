@@ -51,6 +51,13 @@ xcodebuild -project Swiftcamp.xcodeproj -scheme Swiftcamp-macOS \
   -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO
 ```
 
+Tests are a macOS unit-test bundle hosted by the app:
+
+```bash
+xcodebuild -project Swiftcamp.xcodeproj -scheme Swiftcamp-macOS \
+  -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
+```
+
 The macOS app takes `-SwiftcampSnapshot <path>` to write a PNG of the map once
 it settles, which works without Screen Recording permission, and
 `-SwiftcampCenter <lon,lat> -SwiftcampZoom <z>` to point it somewhere other
