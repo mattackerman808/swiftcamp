@@ -214,6 +214,11 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
+- **`SetConfiguration` is not idempotent.** It tears down and rebuilds every
+  interface on the device, aborting whatever they were doing. macOS has
+  already configured anything it enumerated, so calling it again is pure
+  disruption. It came over from the hakchi port, where the target really was
+  unconfigured, without the condition that made it safe there.
 - **Never reset a device that is merely busy.** A zūmo answers `Device_Busy`
   while it is downloading maps over Wi-Fi, and resetting it there aborts the
   download: the unit puts up "Outdoor Maps+ download failed" and the rider

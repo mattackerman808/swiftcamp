@@ -243,8 +243,22 @@ sc_usb_handle *sc_usb_open(uint32_t location_id, sc_usb_error *error) {
         return NULL;
     }
 
+    // Configure the device only if it is not configured already.
+    //
+    // SetConfiguration is not a read-modify-write: it tears down and rebuilds
+    // every interface on the device, which aborts whatever those interfaces
+    // were doing. macOS has already configured anything it has enumerated, so
+    // calling it again is pure disruption — on a zūmo it is a plausible way to
+    // kill an Outdoor Maps download the unit was in the middle of.
+    //
+    // The port this came from talked to a console in bootloader mode, which
+    // genuinely was unconfigured. A Garmin is not, and the call carried over
+    // without the condition that made it safe.
+    UInt8 current = 0;
     IOUSBConfigurationDescriptorPtr configuration = NULL;
-    if ((*device)->GetConfigurationDescriptorPtr(device, 0, &configuration) == kIOReturnSuccess) {
+    if ((*device)->GetConfiguration(device, &current) == kIOReturnSuccess &&
+        (*device)->GetConfigurationDescriptorPtr(device, 0, &configuration) == kIOReturnSuccess &&
+        current != configuration->bConfigurationValue) {
         (*device)->SetConfiguration(device, configuration->bConfigurationValue);
     }
 
