@@ -343,6 +343,15 @@ struct DevicePanel: View {
                         Spacer()
                         if !file.isFolder {
                             Text(size(file.size)).font(.caption).foregroundStyle(.secondary)
+                            // Anywhere on the device, not just the folder we
+                            // went looking for. The archived track logs are
+                            // the rider's own history and they live a level
+                            // down, where the GPX listing above never reaches.
+                            if file.name.lowercased().hasSuffix(".gpx") {
+                                Button("Import") { importFromDevice(file) }
+                                    .controlSize(.small)
+                                    .disabled(model.isWorking)
+                            }
                         }
                     }
                     .font(.callout)
