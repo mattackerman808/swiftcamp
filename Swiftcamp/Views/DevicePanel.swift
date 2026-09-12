@@ -398,7 +398,10 @@ struct DevicePanel: View {
             Button {
                 sendingTo = storage.id
             } label: {
-                Label("Send…", systemImage: "arrow.up.circle")
+                // Export and Import, so the two directions read as a pair.
+                // "Send" and "Import" were each defensible alone and made no
+                // sense side by side.
+                Label("Export to Device…", systemImage: "arrow.up.circle")
             }
             .controlSize(.small)
             .disabled(model.isWorking || libraryIsEmpty)
@@ -486,12 +489,20 @@ struct DevicePanel: View {
                         case .ends:
                             // The cheap answer gave dates. Counts and distance
                             // need every point, so the whole file has to come
-                            // across, and that is the user's call.
-                            Button("Measure") { model.identifyFully(file) }
-                                .controlSize(.small)
-                                .disabled(model.isWorking)
-                                .help("Read the whole file (\(size(file.size))) to count its "
-                                      + "tracks and measure how far they go.")
+                            // across, and that is the user's call — but it is
+                            // a minor one, and a worded button beside Import
+                            // gave it equal billing with the thing people
+                            // actually came to do.
+                            Button {
+                                model.identifyFully(file)
+                            } label: {
+                                Image(systemName: "info.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .disabled(model.isWorking)
+                            .help("Read the whole file (\(size(file.size))) to count its "
+                                  + "tracks and measure how far they go.")
                         case .whole:
                             EmptyView()
                         }

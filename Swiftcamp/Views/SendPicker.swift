@@ -32,7 +32,7 @@ struct SendPicker: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Send to \(storage.name)").font(.headline)
+            Text("Export to \(storage.name)").font(.headline)
             Text("One file each, in the device's GPX folder.")
                 .font(.caption).foregroundStyle(.secondary)
         }
