@@ -24,9 +24,10 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 **The macOS basemap is done. The product is not started.**
 
 Working: street detail to z15 and terrain streamed from our own CDN,
-hillshade, buildings, place and street labels, and authentic route shields
-for all 50 states. Both platforms render, though only macOS is being
-actively worked on.
+ground cover coloured by kind, hypsometric elevation tint, hillshade,
+buildings, place and street labels, and authentic route shields for all 50
+states. Both platforms render, though only macOS is being actively worked
+on.
 
 Not started: any data model, waypoints, tracks, routes, GPX import or
 export, or route editing. There is a map and nothing to put on it.
@@ -177,4 +178,14 @@ implements them; this is the index.
   layers were capped.
 - **A missing sprite image is a per-frame log, not a one-time failure.** Match
   names against a known list rather than concatenating them blind.
+- **Ground cover lives in two layers at two depths.** Protomaps puts coarse
+  `landcover` at z0-7 and per-polygon `landuse` at z2-15. Colour both without
+  a fade and every forest in view blinks out between z7 and z8, because the
+  deeper tiles do not contain the features at all — absence, not a maxzoom
+  MapLibre can overzoom past.
+- **A launch argument whose value starts with `-` never arrives.** The
+  `UserDefaults` argument domain reads any dashed token as a key, so
+  `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map
+  opens where it always did. Every western longitude hits this. Read
+  `CommandLine.arguments` directly for anything that can be negative.
 

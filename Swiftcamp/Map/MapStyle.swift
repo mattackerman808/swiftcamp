@@ -24,9 +24,16 @@ import Foundation
 ///
 /// ## Layer order is load-bearing
 ///
-/// Fills first (world, then the detailed streets fills painting over them),
-/// *then* hillshade, *then* roads and boundaries. Putting hillshade below
-/// the streets fills would hide it entirely, since those fills are opaque.
+/// Land fills first (world, then the detailed streets fills painting over
+/// them), then the two terrain layers, then water, then roads and
+/// boundaries. Putting the terrain layers below the streets fills would
+/// hide them entirely, since those fills are opaque.
+///
+/// Water sits *above* the terrain layers rather than with the other fills.
+/// The DEM reads sea level across every lake and ocean, so a hypsometric
+/// ramp drawn over water tints it with the low end of the elevation scale
+/// and a shaded lake surface picks up relief it does not have. Painting
+/// water last leaves it flat, which is also how a paper topo sheet reads.
 ///
 /// **`places` and `pois` are not drawn.** Both are label layers, and text
 /// needs a `glyphs` URL. Pointing that at a remote server would break the
@@ -99,9 +106,23 @@ enum MapStyle {
     private enum Palette {
         static let background = "#f5f3ee"
         static let earth      = "#f5f3ee"
-        static let landcover  = "#e6ebe0"
-        static let landuse    = "#eceee8"
         static let water      = "#b9d9e8"
+
+        // Ground cover. Green enough to read as terrain rather than paper,
+        // desaturated enough that none of it competes with a route line.
+        // These are the only saturated colours on the map that cover large
+        // areas, so they are the easiest thing here to overdo.
+        static let forest      = "#d4e2c2"
+        static let park        = "#dcecd2"
+        static let grass       = "#e7edd6"
+        static let scrub       = "#e0e4c9"
+        static let farmland    = "#f0ebd9"
+        static let wetland     = "#d9e7e2"
+        static let sand        = "#f3ecd6"
+        static let bareRock    = "#dfdcd6"
+        static let glacier     = "#eef4f7"
+        static let urban       = "#edeae4"
+        static let institution = "#efece5"
         static let boundary   = "#9a9a9a"
         static let roadMinor  = "#ffffff"
         static let roadMajor  = "#fdf3d8"
@@ -117,6 +138,53 @@ enum MapStyle {
         static let shieldText      = "#3d3226"
         static let track           = "#b9ab92"
         static let path            = "#cfc9bd"
+    }
+
+    // MARK: - Ground cover
+
+    /// Colour per `kind`, shared by the `landcover` and `landuse` layers.
+    ///
+    /// The two layers key off the same vocabulary — `forest`, `grassland`,
+    /// `scrub` and `farmland` all appear in both — so one table serves both
+    /// and they cannot drift apart at the zoom where one hands over to the
+    /// other.
+    ///
+    /// Grouped by colour rather than listed per kind because the interesting
+    /// question at a glance is which kinds share a treatment. `wood` and
+    /// `forest` are the same green on purpose: OSM uses `natural=wood` for
+    /// the trees and `landuse=forest` for the managed boundary around them,
+    /// and in the western US a National Forest is tagged the second way, so
+    /// splitting them would colour the Rockies by land ownership.
+    private static let landKinds: [(color: String, kinds: [String])] = [
+        (Palette.forest,      ["forest", "wood"]),
+        (Palette.park,        ["park", "nature_reserve", "protected_area",
+                               "recreation_ground", "garden", "village_green", "allotments"]),
+        (Palette.grass,       ["grassland", "meadow", "grass", "pitch", "golf_course"]),
+        (Palette.scrub,       ["scrub", "heath"]),
+        (Palette.farmland,    ["farmland", "orchard", "vineyard"]),
+        (Palette.wetland,     ["wetland", "marsh", "swamp", "mud"]),
+        (Palette.sand,        ["sand", "beach", "dune"]),
+        (Palette.bareRock,    ["bare_rock", "barren", "scree", "quarry"]),
+        (Palette.glacier,     ["glacier", "snow", "ice"]),
+        (Palette.urban,       ["residential", "commercial", "industrial", "retail", "urban_area"]),
+        (Palette.institution, ["school", "university", "college", "hospital",
+                               "cemetery", "military", "aerodrome", "airfield", "dam", "pier"]),
+    ]
+
+    /// `landKinds` flattened into a MapLibre `match` expression.
+    ///
+    /// Unrecognised kinds fall through to `earth`, so they paint nothing
+    /// visible. Protomaps introduces kinds between planet builds, and a
+    /// loud default would make the next new one look like a rendering bug
+    /// rather than a gap in this table.
+    private static func landKindColor() -> [Any] {
+        var out: [Any] = ["match", ["get", "kind"]]
+        for (color, kinds) in landKinds {
+            out.append(kinds)
+            out.append(color)
+        }
+        out.append(Palette.earth)
+        return out
     }
 
     /// Builds the `match` expression mapping a shield to its numeral
@@ -180,21 +248,29 @@ enum MapStyle {
         // map as huge diagonal blue bands where there is no water at all.
         // Above the cap the streamed archive is the only thing drawing.
         out.append(fill("world-earth", src: "world", layer: "earth", color: Palette.earth, maxZoom: worldLayerMaxZoom))
-        out.append(fill("world-landcover", src: "world", layer: "landcover", color: Palette.landcover, maxZoom: worldLayerMaxZoom))
-        out.append(fill("world-landuse", src: "world", layer: "landuse", color: Palette.landuse, maxZoom: worldLayerMaxZoom))
-        out.append(fill("world-water", src: "world", layer: "water", color: Palette.water, maxZoom: worldLayerMaxZoom,
-                        filter: ["==", ["geometry-type"], "Polygon"]))
+        out.append(fill("world-landcover", src: "world", layer: "landcover", color: landKindColor(),
+                        maxZoom: worldLayerMaxZoom, opacity: landcoverFade(to: worldLayerMaxZoom)))
+        out.append(fill("world-landuse", src: "world", layer: "landuse", color: landKindColor(), maxZoom: worldLayerMaxZoom))
 
         // Streamed detail, painting over the bundled fills where it exists.
         out.append(fill("earth", src: "streets", layer: "earth", color: Palette.earth))
-        out.append(fill("landcover", src: "streets", layer: "landcover", color: Palette.landcover))
-        out.append(fill("landuse", src: "streets", layer: "landuse", color: Palette.landuse))
+        out.append(fill("landcover", src: "streets", layer: "landcover", color: landKindColor(),
+                        opacity: landcoverFade(to: 8)))
+        out.append(fill("landuse", src: "streets", layer: "landuse", color: landKindColor()))
+
+        // Elevation tint and relief, in that order, over the land fills and
+        // under the water.
+        out.append(colorRelief())
+        out.append(hillshade())
+
         // Water carries BOTH polygons (lakes, reservoirs, riverbanks) and
         // linestrings (stream and river centrelines) in the same layer.
         // Filling a linestring makes MapLibre close the path, which turns a
         // creek into an enormous blob following its course — this is what
         // produced the phantom blue bands across Campbell and Saratoga.
         // Fill polygons only; draw the centrelines as lines below.
+        out.append(fill("world-water", src: "world", layer: "water", color: Palette.water, maxZoom: worldLayerMaxZoom,
+                        filter: ["==", ["geometry-type"], "Polygon"]))
         out.append(fill("water", src: "streets", layer: "water", color: Palette.water,
                         filter: ["==", ["geometry-type"], "Polygon"]))
 
@@ -207,20 +283,6 @@ enum MapStyle {
                         filter: ["all",
                                  ["==", ["geometry-type"], "LineString"],
                                  ["<=", ["coalesce", ["get", "min_zoom"], 0], ["zoom"]]]))
-
-        // Above every fill, below every road. Subtle on purpose: this is a
-        // road-touring map, so relief is context for why a road bends, not
-        // the subject.
-        out.append([
-            "id": "hillshade",
-            "type": "hillshade",
-            "source": "terrain",
-            "paint": [
-                "hillshade-exaggeration": 0.35,
-                "hillshade-shadow-color": "#5a5048",
-                "hillshade-highlight-color": "#ffffff",
-            ],
-        ])
 
         // Buildings sit above the fills and hillshade but below roads, so a
         // route line and the roads it follows stay readable across a dense
@@ -294,6 +356,84 @@ enum MapStyle {
         out.append(contentsOf: labelLayers())
 
         return out
+    }
+
+    // MARK: - Terrain
+
+    /// Fades `landcover` out as `landuse` takes over.
+    ///
+    /// Protomaps splits ground cover across two layers at different depths:
+    /// `landcover` is coarse and stops at z7, `landuse` is per-polygon and
+    /// runs z2 to z15. Colouring both and leaving it there makes every
+    /// forest in view blink out of existence on the step from z7 to z8,
+    /// because `landcover` simply has no features in the deeper tiles — it
+    /// is not a maxzoom that MapLibre can overzoom past, it is absence.
+    ///
+    /// Fading from z6 hands the ground over gradually while `landuse` is
+    /// already drawing underneath, so nothing pops.
+    private static func landcoverFade(to zoom: Double) -> [Any] {
+        ["interpolate", ["linear"], ["zoom"], 6, 1.0, zoom, 0.0]
+    }
+
+    /// Hypsometric tint: ground colour by absolute elevation.
+    ///
+    /// Reads the same Terrarium DEM the hillshade does, so it costs no new
+    /// tiles. `color-relief` is a recent layer type and the split backend
+    /// makes "recent" a real risk, so this was checked against both shipped
+    /// binaries before being used — MapLibre Native 6.29.0 and MapLibre GL
+    /// JS 5.6.1 both carry it, along with every `hillshade-method` value.
+    ///
+    /// The ramp carries its own alpha rather than leaning on
+    /// `color-relief-opacity`, so the low end is fully transparent and the
+    /// `landuse` greens below show through unmodified. A flat opacity would
+    /// wash a tan haze over farmland at sea level.
+    ///
+    /// Elevation is absolute, not relative to the surrounding terrain, so
+    /// the High Plains read as high because they are: Denver starts at
+    /// 1600 m. That is honest and it is what a paper topo does, but it is
+    /// the first thing to reach for if the map looks too warm out east.
+    private static func colorRelief() -> [String: Any] {
+        [
+            "id": "hypsometric",
+            "type": "color-relief",
+            "source": "terrain",
+            "paint": [
+                "color-relief-opacity": 1.0,
+                "color-relief-color": ["interpolate", ["linear"], ["elevation"],
+                                       0,    "rgba(255, 255, 255, 0)",
+                                       400,  "rgba(232, 236, 198, 0.06)",
+                                       1200, "rgba(226, 214, 166, 0.12)",
+                                       2200, "rgba(214, 196, 160, 0.16)",
+                                       3000, "rgba(202, 194, 184, 0.26)",
+                                       3600, "rgba(216, 212, 208, 0.44)",
+                                       4200, "rgba(248, 250, 252, 0.64)"],
+            ],
+        ]
+    }
+
+    /// Relief shading, over the tint and under the water.
+    ///
+    /// `igor` rather than the default `standard`. The standard method lights
+    /// slopes toward white and shades them toward black, which drains the
+    /// colour out of exactly the terrain the tint above exists to colour.
+    /// Igor shades only, leaving lit ground at its own colour, which is why
+    /// hand-drawn relief on paper maps looks the way it does.
+    ///
+    /// The highlight is therefore fully transparent. Leaving it opaque white
+    /// under `igor` reintroduces the washing-out that choosing `igor` was
+    /// meant to avoid.
+    private static func hillshade() -> [String: Any] {
+        [
+            "id": "hillshade",
+            "type": "hillshade",
+            "source": "terrain",
+            "paint": [
+                "hillshade-method": "igor",
+                "hillshade-exaggeration": 0.45,
+                "hillshade-shadow-color": "#6a6350",
+                "hillshade-highlight-color": "rgba(255, 255, 255, 0)",
+            ],
+        ]
     }
 
     // MARK: - Labels
@@ -443,18 +583,24 @@ enum MapStyle {
 
     // MARK: - Layer helpers
 
+    /// `color` takes a hex string or a MapLibre expression, so a layer whose
+    /// colour varies per feature needs no separate helper.
     private static func fill(_ id: String,
                              src: String,
                              layer: String,
-                             color: String,
+                             color: Any,
                              maxZoom: Double? = nil,
+                             opacity: Any? = nil,
                              filter: [Any]? = nil) -> [String: Any] {
+        var paint: [String: Any] = ["fill-color": color]
+        if let opacity { paint["fill-opacity"] = opacity }
+
         var out: [String: Any] = [
             "id": id,
             "type": "fill",
             "source": src,
             "source-layer": layer,
-            "paint": ["fill-color": color],
+            "paint": paint,
         ]
         if let maxZoom { out["maxzoom"] = maxZoom }
         if let filter { out["filter"] = filter }

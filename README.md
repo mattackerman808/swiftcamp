@@ -52,7 +52,15 @@ xcodebuild -project Swiftcamp.xcodeproj -scheme Swiftcamp-macOS \
 ```
 
 The macOS app takes `-SwiftcampSnapshot <path>` to write a PNG of the map once
-it settles, which works without Screen Recording permission.
+it settles, which works without Screen Recording permission, and
+`-SwiftcampCenter <lon,lat> -SwiftcampZoom <z>` to point it somewhere other
+than the default downtown view first. Together they are how a cartography
+change gets checked against the real renderer.
+
+```bash
+Swiftcamp.app/Contents/MacOS/Swiftcamp \
+  -SwiftcampSnapshot /tmp/rmnp.png -SwiftcampCenter -105.62,40.33 -SwiftcampZoom 11
+```
 
 ## Data
 
