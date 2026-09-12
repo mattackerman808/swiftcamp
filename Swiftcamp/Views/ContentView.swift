@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// The window: library on the left, map on the right.
 struct ContentView: View {
     @Bindable var model: LibraryModel
-    @State private var isShowingDevice = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         #if os(macOS)
@@ -21,7 +21,6 @@ struct ContentView: View {
             case .failure(let error): model.failure = error.localizedDescription
             }
         }
-        .sheet(isPresented: $isShowingDevice) { DevicePanel(library: model) }
         .fileExporter(isPresented: $model.isExporting,
                       document: GPXFile(),
                       contentType: .gpx,
@@ -85,9 +84,10 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
-            Button { isShowingDevice = true } label: {
-                Label("Device", systemImage: "cable.connector")
+            Button { openWindow(id: TransferWindow.id) } label: {
+                Label("Transfer", systemImage: "arrow.left.arrow.right")
             }
+            .help("Move routes and tracks between the library and a device")
             Button { model.isImporting = true } label: {
                 Label("Import GPX", systemImage: "square.and.arrow.down")
             }

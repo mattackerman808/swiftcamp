@@ -7,7 +7,17 @@ struct SwiftcampApp: App {
     /// see a view's `@State`.
     @State private var model = LibraryModel()
 
+    // Each scene is its own property. A `#if` cannot hold both a modifier
+    // continuing the scene above it and a new scene after it, which is what
+    // trying to add the transfer window inline ran into.
     var body: some Scene {
+        mainWindow
+        #if os(macOS)
+        transferWindow
+        #endif
+    }
+
+    private var mainWindow: some Scene {
         WindowGroup {
             ContentView(model: model)
         }
@@ -32,4 +42,19 @@ struct SwiftcampApp: App {
         }
         #endif
     }
+
+    #if os(macOS)
+    /// A window, not a sheet.
+    ///
+    /// Moving routes onto a device is the work, not a question the app asks.
+    /// It was a modal sheet with an Export button inside it, which put the
+    /// point of the feature behind a dialog and a verb.
+    private var transferWindow: some Scene {
+        Window("Transfer", id: TransferWindow.id) {
+            TransferWindow(library: model)
+        }
+        .defaultSize(width: 900, height: 560)
+        .keyboardShortcut("t", modifiers: [.command, .shift])
+    }
+    #endif
 }

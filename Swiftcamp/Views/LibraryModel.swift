@@ -309,6 +309,19 @@ final class LibraryModel {
                              trackIDs: tracks.map(\.track.id).filter(ids.contains))
     }
 
+    /// The library items named, as device files ready to write.
+    ///
+    /// One file per item, because a Garmin lists what it finds by filename
+    /// and three routes in one file appear on the unit as a single entry.
+    func files(for ids: Set<String>) -> [(name: String, data: Data)] {
+        ids.compactMap { id in
+            guard let document = document(for: id) else { return nil }
+            return (DeviceFilename.make(from: name(for: id) ?? "Route"),
+                    GPXWriter.data(document))
+        }
+        .sorted { $0.name < $1.name }
+    }
+
     /// What something is called, for a filename and a checkbox.
     func name(for id: String) -> String? {
         routes.first { $0.route.id == id }?.route.name
