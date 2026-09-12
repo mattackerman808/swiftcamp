@@ -183,6 +183,12 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
+- **GRDB's snake_case strategies are not inverse over a trailing acronym.**
+  `routeID` encodes to `route_id`, and `route_id` decodes back to `routeId`.
+  A non-optional property throws and you find it at once; an optional one
+  reads back `nil`, so a waypoint saved into a folder comes out unfiled with
+  nothing reported. `ColumnNaming` replaces both strategies and
+  `ColumnNamingTests` pins the round trip.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map
