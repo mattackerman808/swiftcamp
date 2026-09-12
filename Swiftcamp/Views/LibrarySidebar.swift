@@ -16,7 +16,7 @@ struct LibrarySidebar: View {
                 Section("Routes") {
                     ForEach(model.routes) { detail in
                         row(name: detail.route.name,
-                            detail: "\(detail.viaPoints.count) via points · \(distance(detail.length))",
+                            detail: model.summaries[detail.route.id] ?? "",
                             symbol: "point.topleft.down.to.point.bottomright.curvepath")
                         .tag(detail.route.id)
                         .contextMenu { deleteButton(detail.route.id) }
@@ -28,7 +28,7 @@ struct LibrarySidebar: View {
                 Section("Tracks") {
                     ForEach(model.tracks) { detail in
                         row(name: detail.track.name,
-                            detail: "\(detail.points.count) points · \(distance(detail.length))",
+                            detail: model.summaries[detail.track.id] ?? "",
                             symbol: "scribble")
                         .tag(detail.track.id)
                         .contextMenu { deleteButton(detail.track.id) }
@@ -77,16 +77,6 @@ struct LibrarySidebar: View {
 
     private func deleteButton(_ id: String) -> some View {
         Button("Delete", role: .destructive) { model.delete(id) }
-    }
-
-    /// Miles, because this is a US touring app and the GPS it feeds is set
-    /// the same way. The stored value is metres; the conversion lives here
-    /// so nothing below the UI ever carries a unit in its name.
-    private func distance(_ metres: Double) -> String {
-        let miles = metres / 1609.344
-        return miles < 10
-            ? String(format: "%.1f mi", miles)
-            : String(format: "%.0f mi", miles)
     }
 
     private func coordinate(_ c: Coordinate) -> String {

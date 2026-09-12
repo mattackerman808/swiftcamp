@@ -201,6 +201,21 @@ implements them; this is the index.
   a fade and every forest in view blinks out between z7 and z8, because the
   deeper tiles do not contain the features at all — absence, not a maxzoom
   MapLibre can overzoom past.
+- **A `didSet` that publishes, behind a SwiftUI binding, is a loop.**
+  `List(selection:)` writes through its binding during layout, and assigning a
+  `Set` fires `didSet` whether or not the value changed. Rebuilding published
+  state there invalidates the view, which lays out again. The window pegs the
+  main thread and macOS reports it as not responding. Guard on inequality at
+  both ends: the `didSet`, and the assignment it triggers.
+- **Reading a file on the main actor freezes the window.** A day's recorded
+  track is a few hundred thousand fixes. Parsing and inserting belong on a
+  detached task, and so does encoding the overlay, which is proportional to
+  the whole library.
+- **The snapshot harness photographs the first settled frame, not the last.**
+  Overlay data arrives after the basemap and on its own schedule, so a
+  one-shot snapshot caught an empty map and looked exactly like a broken
+  overlay. Every idle now overwrites the file, and the harness waits past the
+  first one.
 - **A Garmin route's shape lives in `gpxx:rpt`, not in its via points.** Each
   `<rtept>` carries the road geometry leading away from it inside its
   extension. Drop it and the device re-routes from scratch on import, which is

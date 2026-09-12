@@ -7,7 +7,7 @@ import Foundation
 /// `Route.color` is a `gpxx:DisplayColor`, `RoutePoint.geometry` is a
 /// `gpxx:rpt` list — so a parallel hierarchy would be the same fields twice
 /// with a translation layer between them, which is where fidelity gets lost.
-struct GPXDocument: Equatable {
+struct GPXDocument: Equatable, Sendable {
     /// The `creator` attribute, which is required by the schema. Garmin
     /// devices have been known to care what it says.
     var creator: String = GPX.creator
@@ -66,7 +66,7 @@ enum GPXError: LocalizedError, Equatable {
 }
 
 /// What an import added, for the message shown afterwards.
-struct GPXImportCount: Equatable {
+struct GPXImportCount: Equatable, Sendable {
     var waypoints = 0
     var routes = 0
     var tracks = 0

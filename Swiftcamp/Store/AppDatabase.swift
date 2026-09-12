@@ -14,7 +14,7 @@ import GRDB
 /// Add a new `registerMigration("vN")` block for every schema change and
 /// never edit a registered one. A user's file may already have applied the
 /// old version, and the migrator only moves forward.
-final class AppDatabase {
+final class AppDatabase: Sendable {
     /// The process-wide library.
     ///
     /// Fatal on failure, following the tachbase precedent: there is no useful

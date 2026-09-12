@@ -45,12 +45,38 @@ enum OverlayGeoJSON {
     static func trackLines(_ tracks: [TrackDetail]) -> FeatureCollection {
         FeatureCollection(features: tracks.flatMap { detail in
             detail.segments.filter { $0.count > 1 }.map { segment in
-                Feature(geometry: .lineString(segment),
+                Feature(geometry: .lineString(thinned(segment)),
                         properties: Properties(id: detail.track.id,
                                                name: detail.track.name,
                                                color: GarminColor.hex(detail.track.color)))
             }
         })
+    }
+
+    /// How many points of one segment are worth drawing.
+    ///
+    /// A day's recording is a few hundred thousand fixes, most of them a
+    /// metre or two apart. At any zoom a touring map is used at, thousands of
+    /// them land on the same pixel, so handing the renderer all of them buys
+    /// nothing and costs a multi-megabyte push and a line that is slow to pan.
+    private static let maxPointsPerSegment = 4_000
+
+    /// Evenly thins a segment for display.
+    ///
+    /// Display only. The stored track keeps every point, and export writes
+    /// every point — thinning what leaves the app would quietly degrade the
+    /// user's own recording, which is theirs and not ours to round off.
+    ///
+    /// Evenly rather than by Douglas-Peucker: this runs on every overlay
+    /// rebuild, the input is already dense, and the last point is kept
+    /// explicitly so a thinned line still ends where the ride ended.
+    static func thinned(_ path: [Coordinate], limit: Int = maxPointsPerSegment) -> [Coordinate] {
+        guard path.count > limit, limit > 1 else { return path }
+
+        let step = Int((Double(path.count) / Double(limit)).rounded(.up))
+        var out = stride(from: 0, to: path.count, by: step).map { path[$0] }
+        if let last = path.last, out.last != last { out.append(last) }
+        return out
     }
 
     static func waypoints(_ waypoints: [Waypoint], selected: Set<String> = []) -> FeatureCollection {

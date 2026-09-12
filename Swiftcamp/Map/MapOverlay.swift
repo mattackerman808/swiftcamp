@@ -18,7 +18,7 @@ import Foundation
 /// constantly. Comparing four strings decides whether to cross the bridge at
 /// all, and `OverlayGeoJSON` encodes with sorted keys so identical content
 /// really does produce identical bytes.
-struct MapOverlay: Equatable {
+struct MapOverlay: Equatable, Sendable {
     var sources: [String: String]
 
     static let empty = MapOverlay(sources: Dictionary(
@@ -59,8 +59,8 @@ struct MapOverlay: Equatable {
 /// `routeID` and `seq` together identify a via point. The database row id is
 /// deliberately not used: saving a route rewrites every one of its points, so
 /// a row id is not stable across the edit that a click usually precedes.
-struct MapClick: Equatable {
-    enum Target: Equatable {
+struct MapClick: Equatable, Sendable {
+    enum Target: Equatable, Sendable {
         case viaPoint(routeID: String, seq: Int)
         case routeLine(routeID: String)
         case waypoint(id: String)

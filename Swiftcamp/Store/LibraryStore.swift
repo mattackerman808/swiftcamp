@@ -15,7 +15,7 @@ import GRDB
 /// gated on row count. That design is documented in its own source twice: as
 /// a post-mortem of a 4,000-per-second update storm, and as a bug where a
 /// change that kept the row count identical never refreshed the list at all.
-struct LibraryStore {
+struct LibraryStore: Sendable {
     var database: AppDatabase
 
     init(_ database: AppDatabase = .shared) {

@@ -59,7 +59,14 @@ struct ContentView: View {
                     .padding(8)
             }
             .overlay(alignment: .top) {
-                if let failure = model.failure {
+                if model.isBusy {
+                    Label("Reading…", systemImage: "clock")
+                        .font(.callout)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(12)
+                } else if let failure = model.failure {
                     // The user picked the file, so they are owed a reason
                     // rather than an import that appears to do nothing.
                     Label(failure, systemImage: "exclamationmark.triangle.fill")

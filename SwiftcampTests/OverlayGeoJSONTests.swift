@@ -151,4 +151,30 @@ final class OverlayGeoJSONTests: XCTestCase {
         let json = try OverlayGeoJSON.routeLines([route()]).json()
         XCTAssertFalse(json.contains("null"), "a long collection should not carry nulls")
     }
+
+    // MARK: - Thinning
+
+    /// Display only. A long segment is thinned before it reaches the
+    /// renderer, but the stored track and the exported file keep every point.
+    func testLongSegmentsAreThinnedForDisplay() {
+        let dense = (0..<50_000).map { Coordinate(lat: 40 + Double($0) * 1e-6, lon: -105) }
+        let thin = OverlayGeoJSON.thinned(dense)
+
+        XCTAssertLessThan(thin.count, dense.count / 10)
+        XCTAssertEqual(thin.first, dense.first)
+        XCTAssertEqual(thin.last, dense.last, "a thinned ride must still end where it ended")
+    }
+
+    func testShortSegmentsAreLeftAlone() {
+        let path = (0..<100).map { Coordinate(lat: 40 + Double($0) * 1e-4, lon: -105) }
+        XCTAssertEqual(OverlayGeoJSON.thinned(path), path)
+    }
+
+    func testThinningKeepsPointsInOrder() {
+        let dense = (0..<20_000).map { Coordinate(lat: 40 + Double($0) * 1e-6, lon: -105) }
+        let thin = OverlayGeoJSON.thinned(dense, limit: 50)
+
+        XCTAssertEqual(thin, thin.sorted { $0.lat < $1.lat })
+        XCTAssertLessThanOrEqual(thin.count, 51, "the kept last point is the only overshoot")
+    }
 }

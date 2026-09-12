@@ -134,15 +134,20 @@ function post(message) {
   });
 
   map.on('idle', function () {
-    // Reported once, for the snapshot harness. 'idle' here rather than
-    // 'load' because it fires after tiles have actually been fetched,
-    // decoded and drawn, so a non-zero feature count proves the range
-    // requests reached real data.
-    if (map.__reported) { return; }
-    map.__reported = true;
-    var features = map.queryRenderedFeatures();
-    console.log('map idle, ' + map.getStyle().layers.length + ' layers, ' +
-                features.length + ' rendered features');
+    // Reported once: a non-zero feature count here proves the range requests
+    // reached real data, and repeating it on every idle would bury the log.
+    if (!map.__reported) {
+      map.__reported = true;
+      var features = map.queryRenderedFeatures();
+      console.log('map idle, ' + map.getStyle().layers.length + ' layers, ' +
+                  features.length + ' rendered features');
+    }
+
+    // The idle message itself fires EVERY time, so the snapshot harness
+    // photographs the settled map rather than the first thing it drew.
+    // Overlay data arrives after the basemap and on its own schedule, so a
+    // one-shot snapshot caught the map before the route was on it and
+    // reported an empty map as if the overlay had failed.
     post({ type: 'idle' });
   });
 

@@ -97,7 +97,7 @@ func newID() -> String { UUID().uuidString }
 // MARK: - Lists
 
 /// A folder. BaseCamp calls these lists, and they nest.
-struct LibraryList: LibraryRecord, Identifiable, Hashable {
+struct LibraryList: LibraryRecord, Identifiable, Hashable, Sendable {
     static let databaseTableName = "lists"
 
     var id: String = newID()
@@ -111,7 +111,7 @@ struct LibraryList: LibraryRecord, Identifiable, Hashable {
 // MARK: - Waypoints
 
 /// A single named point. Standalone `<wpt>` in GPX.
-struct Waypoint: LibraryRecord, Identifiable, Hashable {
+struct Waypoint: LibraryRecord, Identifiable, Hashable, Sendable {
     static let databaseTableName = "waypoints"
 
     var id: String = newID()
@@ -136,7 +136,7 @@ struct Waypoint: LibraryRecord, Identifiable, Hashable {
 // MARK: - Tracks
 
 /// A recorded breadcrumb trail. `<trk>` in GPX.
-struct Track: LibraryRecord, Identifiable, Hashable {
+struct Track: LibraryRecord, Identifiable, Hashable, Sendable {
     static let databaseTableName = "tracks"
 
     var id: String = newID()
@@ -153,7 +153,7 @@ struct Track: LibraryRecord, Identifiable, Hashable {
 /// Rows rather than a blob on the parent, unlike route geometry, because a
 /// recorded track runs to hundreds of thousands of points and both the map
 /// and any future elevation profile need to read a window of them.
-struct TrackPoint: LibraryRecord, Identifiable, Hashable {
+struct TrackPoint: LibraryRecord, Identifiable, Hashable, Sendable {
     static let databaseTableName = "track_points"
 
     /// Assigned by SQLite. Track points have no identity worth preserving
@@ -180,7 +180,7 @@ struct TrackPoint: LibraryRecord, Identifiable, Hashable {
 // MARK: - Routes
 
 /// A planned route. `<rte>` in GPX.
-struct Route: LibraryRecord, Identifiable, Hashable {
+struct Route: LibraryRecord, Identifiable, Hashable, Sendable {
     static let databaseTableName = "routes"
 
     var id: String = newID()
@@ -205,7 +205,7 @@ struct Route: LibraryRecord, Identifiable, Hashable {
 /// `<gpxx:rpt>` list inside its extension is precisely this geometry — which
 /// is why a BaseCamp route arrives on a device following the road the
 /// planner chose rather than being re-routed from scratch.
-struct RoutePoint: LibraryRecord, Identifiable, Hashable {
+struct RoutePoint: LibraryRecord, Identifiable, Hashable, Sendable {
     static let databaseTableName = "route_points"
 
     var id: Int64?
@@ -229,7 +229,7 @@ struct RoutePoint: LibraryRecord, Identifiable, Hashable {
 }
 
 /// A track and its points.
-struct TrackDetail: Identifiable, Hashable {
+struct TrackDetail: Identifiable, Hashable, Sendable {
     var track: Track
     var points: [TrackPoint]
 
@@ -247,7 +247,7 @@ struct TrackDetail: Identifiable, Hashable {
 }
 
 /// A route and its points, which is the only useful unit above the store.
-struct RouteDetail: Identifiable, Hashable {
+struct RouteDetail: Identifiable, Hashable, Sendable {
     var route: Route
     var points: [RoutePoint]
 

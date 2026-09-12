@@ -19,12 +19,30 @@ final class LibraryModel {
     private(set) var waypoints: [Waypoint] = []
 
     var selection: Set<String> = [] {
-        didSet { rebuildOverlay() }
+        // Guarded against a no-op write. `List(selection:)` assigns through
+        // this binding during layout, and `Set` assignment fires `didSet`
+        // whether or not the value changed — so an unguarded rebuild here
+        // publishes a new overlay, which invalidates the view, which lays
+        // out again. That loop pegs the main thread and the window stops
+        // answering events.
+        didSet { if selection != oldValue { rebuildOverlay() } }
     }
 
     /// The map's input. A value, `Equatable`, rebuilt only when the content
     /// behind it changes — see `MapWebView` for why that matters.
     private(set) var overlay: MapOverlay = .empty
+
+    /// Set while a file is being read or written. The window stays live and
+    /// says what it is doing, rather than going grey and unresponsive.
+    private(set) var isBusy = false
+
+    /// Per-item counts and lengths, computed once when the rows change.
+    ///
+    /// Never in a view body. `TrackDetail.length` sorts every point and sums
+    /// a haversine over all of them, and SwiftUI re-evaluates a row's body
+    /// far more often than the data changes — so a recorded track turns
+    /// scrolling the sidebar into seconds of work per frame.
+    private(set) var summaries: [String: String] = [:]
 
     /// Whether the open or save panel is up.
     ///
@@ -41,6 +59,7 @@ final class LibraryModel {
 
     private let store: LibraryStore
     @ObservationIgnored private var cancellables: [AnyDatabaseCancellable] = []
+    @ObservationIgnored private var overlayTask: Task<Void, Never>?
 
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
@@ -69,10 +88,12 @@ final class LibraryModel {
         // describe the same edit.
         track(ValueObservation.tracking { db in try Self.allRoutes(db) }) { [weak self] in
             self?.routes = $0
+            self?.rebuildSummaries()
             self?.rebuildOverlay()
         }
         track(ValueObservation.tracking { db in try Self.allTracks(db) }) { [weak self] in
             self?.tracks = $0
+            self?.rebuildSummaries()
             self?.rebuildOverlay()
         }
         track(store.observeWaypoints()) { [weak self] in
@@ -114,45 +135,125 @@ final class LibraryModel {
         }
     }
 
+    /// Rebuilds the overlay away from the main actor, and publishes it only
+    /// if it differs.
+    ///
+    /// Encoding is proportional to the library: every point of every track
+    /// becomes JSON. Doing that on the main thread is what turns importing a
+    /// long ride into a frozen window. Publishing unconditionally is what
+    /// turns a redundant rebuild into another round of view invalidation.
     private func rebuildOverlay() {
-        overlay = MapOverlay.make(routes: routes,
-                                  tracks: tracks,
-                                  waypoints: waypoints,
-                                  selection: selection)
+        let routes = self.routes
+        let tracks = self.tracks
+        let waypoints = self.waypoints
+        let selection = self.selection
+
+        // Only the newest rebuild matters. Three observations can land in
+        // quick succession on one import, and the first two describe a state
+        // nobody will ever see.
+        overlayTask?.cancel()
+        overlayTask = Task {
+            let built = await Task.detached(priority: .userInitiated) {
+                MapOverlay.make(routes: routes, tracks: tracks,
+                                waypoints: waypoints, selection: selection)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            if built != overlay { overlay = built }
+        }
+    }
+
+    /// Row subtitles, recomputed only when the rows themselves change.
+    private func rebuildSummaries() {
+        var out: [String: String] = [:]
+        for detail in routes {
+            out[detail.route.id] = "\(detail.viaPoints.count) via points · \(Self.miles(detail.length))"
+        }
+        for detail in tracks {
+            out[detail.track.id] = "\(detail.points.count) points · \(Self.miles(detail.length))"
+        }
+        summaries = out
+    }
+
+    /// Miles, because this is a US touring app and the GPS it feeds is set
+    /// the same way. Everything below the UI carries metres and no unit in
+    /// its name.
+    private static func miles(_ metres: Double) -> String {
+        let miles = metres / 1609.344
+        return miles < 10 ? String(format: "%.1f mi", miles) : String(format: "%.0f mi", miles)
     }
 
     // MARK: - Import and export
 
+    /// Reads a GPX file into the library, off the main thread.
+    ///
+    /// Parsing and the insert both happen away from the main actor. A day's
+    /// recorded track is a few hundred thousand points, and doing that work
+    /// where the window lives means the window stops drawing — which macOS
+    /// reports as "not responding" and the user reasonably reads as a crash.
     func importGPX(from url: URL) {
-        do {
-            // A file the user picked from outside the app needs its access
-            // scope opened. Without this the read fails only once the app is
-            // sandboxed, which is a change nobody will connect to this line.
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard !isBusy else { return }
+        isBusy = true
 
-            let document = try GPXReader.read(contentsOf: url)
-            guard !document.isEmpty else {
+        let store = self.store
+        Task {
+            let outcome = await Self.read(url, into: store)
+            isBusy = false
+
+            switch outcome {
+            case .success(let count) where count.isEmpty:
                 failure = "\(url.lastPathComponent) has no waypoints, routes or tracks in it."
-                return
+            case .success:
+                failure = nil
+            case .failure(let error):
+                failure = error.localizedDescription
             }
-            try store.importGPX(document)
-            failure = nil
-        } catch {
-            failure = error.localizedDescription
         }
     }
 
+    private static func read(_ url: URL, into store: LibraryStore) async -> Result<GPXImportCount, Error> {
+        await Task.detached(priority: .userInitiated) {
+            do {
+                // A file the user picked from outside the app needs its
+                // access scope opened. Without this the read fails only once
+                // the app is sandboxed, which is a change nobody will connect
+                // to this line.
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+                let document = try GPXReader.read(contentsOf: url)
+                guard !document.isEmpty else { return .success(GPXImportCount()) }
+                return .success(try store.importGPX(document))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+    }
+
     func exportGPX(to url: URL) {
-        do {
-            let document = try store.exportGPX(
-                waypointIDs: waypoints.map(\.id).filter(isSelectedOrNothingIs),
-                routeIDs: routes.map(\.route.id).filter(isSelectedOrNothingIs),
-                trackIDs: tracks.map(\.track.id).filter(isSelectedOrNothingIs))
-            try GPXWriter.data(document).write(to: url, options: .atomic)
-            failure = nil
-        } catch {
-            failure = error.localizedDescription
+        guard !isBusy else { return }
+        isBusy = true
+
+        let store = self.store
+        let waypointIDs = waypoints.map(\.id).filter(isSelectedOrNothingIs)
+        let routeIDs = routes.map(\.route.id).filter(isSelectedOrNothingIs)
+        let trackIDs = tracks.map(\.track.id).filter(isSelectedOrNothingIs)
+
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) { () -> Error? in
+                do {
+                    let document = try store.exportGPX(waypointIDs: waypointIDs,
+                                                       routeIDs: routeIDs,
+                                                       trackIDs: trackIDs)
+                    try GPXWriter.data(document).write(to: url, options: .atomic)
+                    return nil
+                } catch {
+                    return error
+                }
+            }.value
+
+            isBusy = false
+            failure = outcome?.localizedDescription
         }
     }
 
