@@ -196,11 +196,27 @@ So the plan is:
    handling and is the smallest useful version of device support.
 2. **Mass storage for older units**, which is the same code: they mount as a
    volume with the same layout.
-3. **MTP only if the card proves insufficient.** `libmtp` over `libusb` is the
-   route, and Subsurface's `libdc` is a precedent for driving Garmin hardware
-   through it. Each model needs its USB identifiers registered. Weeks of work
-   plus hardware to test against, and worth doing only if a device the author
-   cares about has no card slot.
+3. **MTP if it is ever wanted, and it is cheaper than it looks.** The hard
+   part of talking to a USB device from a Mac app is already solved in the
+   author's own `~/git/swift-hakchi2`, whose `USBBridge/src/usb_device.c` is a
+   664-line IOKit implementation of exactly the transport MTP needs: open by
+   vendor and product id, bulk read and write with timeouts, control
+   transfers, clear-halt, reset, multi-interface claiming, and endpoint-to-pipe
+   discovery. It is C, wrapped in Swift actors, and proven against real
+   hardware.
+
+   Two details from it worth carrying over. It opens with `USBDeviceOpen` and
+   falls back to `USBDeviceOpenSeize`, which is what takes a device another
+   driver is already holding. And despite that project's own notes claiming
+   otherwise, it ships **no entitlements file at all** — an unsandboxed Mac app
+   reaches IOKit USB without one. That stops being true the day either app is
+   sandboxed for the App Store.
+
+   What would be left is the protocol itself: PTP container framing and the
+   dozen operations that matter, plus Garmin's per-model product ids. A week,
+   not a quarter. `libmtp` over `libusb` remains the alternative, but vendoring
+   a second USB stack when one already exists in the next repository along
+   would be strange.
 
 **The hardware on hand covers both paths.** The author's zūmo XT3 speaks MTP
 over USB but has a microSD slot, so the card path serves it. A BMW Motorrad
@@ -229,6 +245,14 @@ Stage 2 of `docs/data-architecture.md`, unchanged: Valhalla on device, region
 packs, no macOS build confirmed. Everything under "needs routing" above waits
 on it. The model is already shaped for it — via points and the geometry
 between them are separate — so it drops in rather than rewriting anything.
+
+The remaining unknown is building a large C++ library into a Mac app, and
+there is precedent for that too: `swift-hakchi2` vendors mbedTLS and libssh2
+as source targets and links them into a Swift app. Valhalla is bigger and
+brings its own dependency graph, but the shape of the problem is one the
+author has already solved once. That project builds with Swift Package
+Manager and this one with XcodeGen, so the mechanism differs; the approach
+does not.
 
 ## Order of work
 
