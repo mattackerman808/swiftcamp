@@ -116,6 +116,8 @@ to whichever renderer the platform uses.
 | --- | --- |
 | `MapContainer.swift` | The one place the two backends diverge |
 | `MapStyle.swift` | All cartography: sources, layers, filters, colours |
+| `MapOverlay.swift` | What the map shows, as a value the renderer can be handed |
+| `OverlayGeoJSON.swift` | Library content to GeoJSON, pure and testable |
 | `BasemapSource.swift` | CDN URLs, bundled asset paths, attribution, max zoom |
 | `ShieldCatalog.swift` | **Generated.** Do not edit; see below |
 | `macOS/MapWebView.swift` | macOS host, MapLibre GL JS in a web view |
@@ -152,6 +154,22 @@ python3 scripts/audit_shields.py  # contrast/legibility check over all 108
 (CC0), parsing their `shield_defs.js` for each network's artwork, numeral
 colour and text padding. It regenerates `ShieldCatalog.swift` in the same run
 so colours cannot drift from the sheet they describe.
+
+## The product layer
+
+| Directory | Role |
+| --- | --- |
+| `Swiftcamp/Model/` | Records, and the only copy of the geo math |
+| `Swiftcamp/Store/` | GRDB database, migrations, and the library store |
+| `Swiftcamp/GPX/` | GPX 1.1 and 1.0 reader, GPX 1.1 writer |
+| `Swiftcamp/Views/` | Window shell, sidebar, and the library model |
+| `SwiftcampTests/` | The whole of it, minus the renderer |
+
+A route is via points plus the shaped path between them, and those are
+different things. `RoutePoint.geometry` holds the path; today it is a straight
+line and when Valhalla lands it is the road, with nothing above that column
+changing. Garmin's format draws the same distinction, which is why this is
+also the GPX shape.
 
 ## Hard-won lessons
 

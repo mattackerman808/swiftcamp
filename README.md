@@ -4,7 +4,9 @@ A native macOS and iOS reimagining of Garmin BaseCamp, for planning, sharing and
 managing GPS routes, tracks and waypoints. Focused on motorcycle and auto
 touring: plan a road route, export GPX, load it on a navigator.
 
-Early. The basemap is complete — street detail to z15, terrain and hillshade,
+Early. Routes, tracks and waypoints import from GPX, draw on the map, and
+export back out with their Garmin shaping points intact. Route editing does
+not exist yet. The basemap is complete — street detail to z15, terrain and hillshade,
 buildings, labels, and authentic route shields for all 50 states, streamed from
 our own CDN with an offline tier underneath. The data model, route editing and
 GPX support do not exist yet.
@@ -58,16 +60,28 @@ xcodebuild -project Swiftcamp.xcodeproj -scheme Swiftcamp-macOS \
   -destination 'platform=macOS' test CODE_SIGNING_ALLOWED=NO
 ```
 
-The macOS app takes `-SwiftcampSnapshot <path>` to write a PNG of the map once
-it settles, which works without Screen Recording permission, and
-`-SwiftcampCenter <lon,lat> -SwiftcampZoom <z>` to point it somewhere other
-than the default downtown view first. Together they are how a cartography
-change gets checked against the real renderer.
+### Debug launch arguments
+
+Together these are how a change gets checked against the real renderer rather
+than reasoned about.
+
+| Flag | Effect |
+| --- | --- |
+| `-SwiftcampSnapshot <path>` | Write a PNG once the map settles. Works without Screen Recording permission. |
+| `-SwiftcampCenter <lon,lat>` | Open somewhere other than the default downtown view. |
+| `-SwiftcampZoom <z>` | Open at this zoom. |
+| `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
+| `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \
-  -SwiftcampSnapshot /tmp/rmnp.png -SwiftcampCenter -105.62,40.33 -SwiftcampZoom 11
+  -SwiftcampLibrary /tmp/scratch.sqlite \
+  -SwiftcampImport SwiftcampTests/Fixtures/basecamp-route.gpx \
+  -SwiftcampSnapshot /tmp/route.png -SwiftcampCenter -105.70,40.31 -SwiftcampZoom 10
 ```
+
+Always pass `-SwiftcampLibrary` alongside `-SwiftcampImport`: the import runs
+on every launch, and against the real library that accumulates copies.
 
 ## Data
 

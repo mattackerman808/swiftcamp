@@ -19,14 +19,22 @@
 // Forward console output and errors to Swift. Without this a failure in
 // here is invisible — the web view just shows an empty page and the app
 // has no idea anything went wrong.
+// Every message to Swift is {type: ...}. Console output is one case among
+// several rather than the channel itself: the app used to detect that the
+// map had settled by matching the prefix of a log line, which meant any
+// semantic event had to be smuggled through console.log.
+function post(message) {
+  try {
+    window.webkit.messageHandlers.swiftcamp.postMessage(message);
+  } catch (e) {}
+}
+
 (function () {
+  // Forward console output and errors to Swift. Without this a failure in
+  // here is invisible — the web view just shows an empty page and the app
+  // has no idea anything went wrong.
   function send(level, args) {
-    try {
-      window.webkit.messageHandlers.swiftcamp.postMessage({
-        level: level,
-        text: Array.from(args).map(String).join(' ')
-      });
-    } catch (e) {}
+    post({ type: 'console', level: level, text: Array.from(args).map(String).join(' ') });
   }
   ['log', 'warn', 'error'].forEach(function (level) {
     var original = console[level];
@@ -65,24 +73,79 @@
   var resizeObserver = new ResizeObserver(function () { map.resize(); });
   resizeObserver.observe(document.getElementById('map'));
 
+  // The bridge. Swift reaches the map only through here, and only after the
+  // ready message below — `makeNSView` returns long before the style has
+  // parsed, so a push sent any earlier finds no sources and is lost.
+  window.swiftcamp = {
+    // overlay is {sourceId: geojsonText}. The payload arrives as text and is
+    // parsed here rather than being marshalled as a JS object across the
+    // bridge, because the Swift side compares the encoded strings to decide
+    // whether a push is needed at all.
+    setOverlay: function (overlay) {
+      Object.keys(overlay).forEach(function (id) {
+        var source = map.getSource(id);
+        if (!source) { console.error('no such source: ' + id); return; }
+        try {
+          source.setData(JSON.parse(overlay[id]));
+        } catch (e) {
+          console.error('bad geojson for ' + id + ': ' + e);
+        }
+      });
+    },
+
+    flyTo: function (lon, lat, zoom) {
+      map.flyTo({ center: [lon, lat], zoom: zoom, duration: 600 });
+    },
+
+    fitBounds: function (west, south, east, north) {
+      map.fitBounds([[west, south], [east, north]], { padding: 64, duration: 600 });
+    }
+  };
+
+  // Overlay layers, topmost first, so a click reports the thing the user
+  // thinks they aimed at when a via point sits on its own route line.
+  var PICKABLE = ['via-point', 'waypoint-dot', 'route-line', 'track-line'];
+
+  map.on('click', function (e) {
+    var hits = map.queryRenderedFeatures(e.point, { layers: PICKABLE });
+    var hit = hits.length ? hits[0] : null;
+    post({
+      type: 'click',
+      lon: e.lngLat.lng,
+      lat: e.lngLat.lat,
+      layer: hit ? hit.layer.id : null,
+      id: hit ? (hit.properties.id || null) : null,
+      seq: hit && hit.properties.seq !== undefined ? hit.properties.seq : null
+    });
+  });
+
+  // A cursor that changes is the only affordance saying a dot can be grabbed.
+  map.on('mousemove', function (e) {
+    var hits = map.queryRenderedFeatures(e.point, { layers: PICKABLE });
+    map.getCanvas().style.cursor = hits.length ? 'pointer' : '';
+  });
+
+  map.on('load', function () {
+    // 'load' rather than 'idle' for readiness: the style has parsed and its
+    // sources exist, which is exactly the condition setOverlay needs. Waiting
+    // for 'idle' would also wait on tiles arriving over the network, and an
+    // imported route should draw before the basemap under it finishes.
+    post({ type: 'ready' });
+  });
+
   map.on('idle', function () {
-    // 'idle' rather than 'load': it fires once tiles have actually been
-    // fetched, decoded and drawn, so a non-zero feature count here proves
-    // the range requests reached real data. 'load' only means the style
-    // parsed, which an empty map would also satisfy.
+    // Reported once, for the snapshot harness. 'idle' here rather than
+    // 'load' because it fires after tiles have actually been fetched,
+    // decoded and drawn, so a non-zero feature count proves the range
+    // requests reached real data.
     if (map.__reported) { return; }
     map.__reported = true;
     var features = map.queryRenderedFeatures();
-    var c = map.getCanvas();
     console.log('map idle, ' + map.getStyle().layers.length + ' layers, ' +
                 features.length + ' rendered features');
-    console.log('sizes: innerHeight=' + window.innerHeight +
-                ' bodyH=' + document.body.clientHeight +
-                ' mapH=' + document.getElementById('map').clientHeight +
-                ' canvasCSSH=' + c.style.height +
-                ' canvasPxH=' + c.height +
-                ' dpr=' + window.devicePixelRatio);
+    post({ type: 'idle' });
   });
+
   map.on('error', function (e) { console.error('map error: ' + (e && e.error ? e.error.message : e)); });
 })();
 </script>

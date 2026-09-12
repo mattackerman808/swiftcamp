@@ -11,12 +11,22 @@ import SwiftUI
 /// Everything above this view is shared. Everything below it is a host
 /// for the same style JSON and the same `.pmtiles`. Keep the divergence
 /// confined to this file.
+///
+/// `overlay` is a value rather than an observable object on purpose. A
+/// representable re-renders when a value SwiftUI saw it read changes, not
+/// when an `@Observable` it holds a reference to does — see `MapWebView`.
 struct MapContainer: View {
+    var overlay: MapOverlay = .empty
+    var onClick: ((MapClick) -> Void)?
+
     var body: some View {
         #if os(iOS)
+        // No overlay path on iOS yet. The library, the GPX layer and the
+        // GeoJSON the map consumes are all platform-free, so what is missing
+        // here is the host, not the model.
         MapLibreMapView()
         #else
-        MapWebView()
+        MapWebView(overlay: overlay, onClick: onClick)
         #endif
     }
 }

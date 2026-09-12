@@ -57,7 +57,17 @@ final class AppDatabase {
     /// convention for a directory the system will not reclaim under storage
     /// pressure and iCloud will not back up, and neither pressure exists on
     /// a Mac. Application Support is where a Mac app's own data belongs.
+    /// `-SwiftcampLibrary <path>` points this somewhere else.
+    ///
+    /// Not a user-facing feature. It exists so the snapshot harness can run
+    /// against a scratch file: without it, every automated check of what the
+    /// map draws would write into the developer's real library and leave
+    /// test routes behind in it.
     static func defaultURL() throws -> URL {
+        if let override = UserDefaults.standard.string(forKey: "SwiftcampLibrary") {
+            return URL(fileURLWithPath: override)
+        }
+
         let support = try FileManager.default.url(for: .applicationSupportDirectory,
                                                   in: .userDomainMask,
                                                   appropriateFor: nil,
