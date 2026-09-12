@@ -24,8 +24,8 @@ final class DeviceModel {
     private(set) var browseFiles: [DeviceFile] = []
     private(set) var browseStorage: UInt32?
 
-    /// What each inspected file turned out to hold, keyed by object handle.
-    private(set) var summaries: [UInt32: GPXSummary] = [:]
+    /// What each identified file turned out to hold, keyed by object handle.
+    private(set) var summaries: [UInt32: DeviceService.Identification] = [:]
 
     @ObservationIgnored private let service = DeviceService()
 
@@ -89,31 +89,39 @@ final class DeviceModel {
         }
     }
 
-    /// Reads one file and records what is in it.
-    func inspect(_ file: DeviceFile) {
+    /// Identifies one file from its two ends.
+    func identify(_ file: DeviceFile) {
         run("Reading \(file.name)…") { [service] in
-            let summary = try await service.inspect(file)
-            return { self.summaries[file.handle] = summary; self.status = nil }
+            let result = try await service.identify(file)
+            return { self.summaries[file.handle] = result; self.status = nil }
         }
     }
 
-    /// Inspects every GPX in the folder, one after another.
+    /// Pulls one whole file, for exact counts and distance.
+    func identifyFully(_ file: DeviceFile) {
+        run("Reading all of \(file.name)…") { [service] in
+            let result = try await service.identifyFully(file)
+            return { self.summaries[file.handle] = result; self.status = nil }
+        }
+    }
+
+    /// Identifies every GPX in the folder, one after another.
     ///
     /// Serially, not in parallel. One USB pipe pair carries one transaction,
     /// so concurrency here would not be faster and would interleave replies.
-    func inspectAll() {
+    func identifyAll() {
         let pending = browseFiles.filter {
             !$0.isFolder && $0.name.lowercased().hasSuffix(".gpx") && summaries[$0.handle] == nil
         }
         guard !pending.isEmpty else { return }
 
         run("Reading \(pending.count) files…") { [service] in
-            var found: [UInt32: GPXSummary] = [:]
+            var found: [UInt32: DeviceService.Identification] = [:]
             for file in pending {
                 // One unreadable file must not stop the rest. A device folder
                 // can hold a log the unit was part-way through writing.
-                if let summary = try? await service.inspect(file) {
-                    found[file.handle] = summary
+                if let result = try? await service.identify(file) {
+                    found[file.handle] = result
                 }
             }
             return {
@@ -371,7 +379,7 @@ struct DevicePanel: View {
                     Text("\(model.browseFiles.count) items").foregroundStyle(.secondary)
                 }
                 if gpxCount > 1 {
-                    Button("Identify All") { model.inspectAll() }
+                    Button("Identify All") { model.identifyAll() }
                         .buttonStyle(.link)
                         .disabled(model.isWorking)
                 }
@@ -404,10 +412,19 @@ struct DevicePanel: View {
                     Spacer()
 
                     if !file.isFolder, file.name.lowercased().hasSuffix(".gpx") {
-                        if model.summaries[file.handle] == nil {
-                            Button("Identify") { model.inspect(file) }
+                        switch model.summaries[file.handle]?.depth {
+                        case nil:
+                            Button("Identify") { model.identify(file) }
                                 .controlSize(.small)
                                 .disabled(model.isWorking)
+                        case .ends:
+                            // The cheap answer gave dates. Counts and distance
+                            // need the file, and that is the user's call.
+                            Button("Measure") { model.identifyFully(file) }
+                                .controlSize(.small)
+                                .disabled(model.isWorking)
+                        case .whole:
+                            EmptyView()
                         }
                         // Anywhere on the device, not only in the folder we
                         // opened at. The archived track logs are the rider's
@@ -474,8 +491,9 @@ struct DevicePanel: View {
     private func subtitle(for file: DeviceFile) -> String {
         var parts: [String] = []
 
-        if let summary = model.summaries[file.handle] {
-            parts.append(contentsOf: contents(of: summary))
+        if let identification = model.summaries[file.handle] {
+            let summary = identification.summary
+            parts.append(contentsOf: contents(of: summary, depth: identification.depth))
             if let span = dateSpan(summary) { parts.append(span) }
             if summary.distance > 0 { parts.append(distance(summary.distance)) }
         } else if let modified = file.modified {
@@ -486,11 +504,22 @@ struct DevicePanel: View {
         return parts.joined(separator: " · ")
     }
 
-    private func contents(of summary: GPXSummary) -> [String] {
+    /// Reading the two ends shows *that* a file holds tracks, never how many.
+    /// Saying "1 track" from that evidence would be a guess dressed as a
+    /// fact, so the shallow answer names the kind and leaves the counting to
+    /// the reading that can actually count.
+    private func contents(of summary: GPXSummary, depth: DeviceService.Depth) -> [String] {
         var parts: [String] = []
-        if summary.tracks > 0 { parts.append(count(summary.tracks, "track")) }
-        if summary.routes > 0 { parts.append(count(summary.routes, "route")) }
-        if summary.waypoints > 0 { parts.append(count(summary.waypoints, "waypoint")) }
+        switch depth {
+        case .ends:
+            if summary.tracks > 0 { parts.append("track log") }
+            if summary.routes > 0 { parts.append("routes") }
+            if summary.waypoints > 0 { parts.append("waypoints") }
+        case .whole:
+            if summary.tracks > 0 { parts.append(count(summary.tracks, "track")) }
+            if summary.routes > 0 { parts.append(count(summary.routes, "route")) }
+            if summary.waypoints > 0 { parts.append(count(summary.waypoints, "waypoint")) }
+        }
         if parts.isEmpty { parts.append("empty") }
         return parts
     }

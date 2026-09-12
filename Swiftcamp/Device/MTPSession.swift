@@ -97,7 +97,7 @@ final class MTPSession {
         // bits walks twice as far as it should — which does not fail here.
         // It fails four fields later, as a request to allocate an array of
         // 150,994,944 elements, with nothing pointing back to the cause.
-        _ = try reader.uint16Array()                 // operations supported
+        info.operations = Set(try reader.uint16Array())
         _ = try reader.uint16Array()                 // events supported
         _ = try reader.uint16Array()                 // device properties
         _ = try reader.uint16Array()                 // capture formats
@@ -144,6 +144,15 @@ final class MTPSession {
 
     func object(_ handle: UInt32) throws -> Data {
         try command(.getObject, [handle]).data
+    }
+
+    /// Reads a byte range rather than the whole object.
+    ///
+    /// The difference between answering "what is in this file" in eight
+    /// kilobytes and in twenty-two megabytes. Optional in MTP, so callers
+    /// check `DeviceInfo.supports` first and fall back to reading it all.
+    func partialObject(_ handle: UInt32, offset: UInt32, length: UInt32) throws -> Data {
+        try command(.getPartialObject, [handle, offset, length]).data
     }
 
     func deleteObject(_ handle: UInt32) throws {

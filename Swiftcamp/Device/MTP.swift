@@ -40,6 +40,9 @@ enum MTP {
         case getObjectHandles = 0x1007
         case getObjectInfo = 0x1008
         case getObject = 0x1009
+        /// Reads a byte range. Optional in the standard, which is why every
+        /// caller has to be able to manage without it.
+        case getPartialObject = 0x101B
         case deleteObject = 0x100B
         case sendObjectInfo = 0x100C
         case sendObject = 0x100D
@@ -308,6 +311,17 @@ enum MTP {
         var model = ""
         var deviceVersion = ""
         var serialNumber = ""
+
+        /// What the device says it can do.
+        ///
+        /// Worth keeping rather than skipping past: half the operations in
+        /// MTP are optional, and asking a device for one it does not have
+        /// costs a failed round trip and an error that reads like a bug.
+        var operations: Set<UInt16> = []
+
+        func supports(_ operation: Operation) -> Bool {
+            operations.contains(operation.rawValue)
+        }
     }
 
     struct StorageInfo {

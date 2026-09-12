@@ -98,15 +98,50 @@ actor DeviceService {
         return try browser.contents(of: parent, storage: storage)
     }
 
-    /// Reads a GPX and reports what is in it, without importing anything.
+    /// What identifying a file cost, so the panel can say which answer it has.
+    enum Depth: Sendable {
+        /// Read from the two ends of the file. Dates only, and cheap.
+        case ends
+        /// The whole file. Exact counts and distance.
+        case whole
+    }
+
+    struct Identification: Sendable {
+        var summary: GPXSummary
+        var depth: Depth
+    }
+
+    /// Reports what is in a GPX without importing it.
     ///
-    /// The whole file has to come across to answer the question, so this is
-    /// deliberately something the user asks for rather than something that
-    /// happens when a folder opens. An archive of twenty logs is sixty
-    /// megabytes, and opening a folder should not cost that.
-    func inspect(_ file: DeviceFile) throws -> GPXSummary {
+    /// Reads the two ends when the device supports a byte range, which
+    /// answers the question a rider actually has — when was this ride — for
+    /// about eight kilobytes instead of twenty-two megabytes. Counts and
+    /// distance are not knowable that way, so they stay zero and the panel
+    /// says so rather than guessing.
+    func identify(_ file: DeviceFile) throws -> Identification {
         guard let browser else { throw MTP.Failure.noDevice }
-        return try GPXReader.read(data: browser.read(file)).summary
+
+        if let peek = try? browser.peek(file), !peek.isEmpty {
+            var summary = GPXSummary()
+            summary.start = peek.start
+            summary.end = peek.end
+            // Seen, not counted. A fragment can show that a track is present
+            // and can never show how many there are.
+            summary.tracks = peek.sawTrack ? 1 : 0
+            summary.routes = peek.sawRoute ? 1 : 0
+            summary.waypoints = peek.sawWaypoint ? 1 : 0
+            return Identification(summary: summary, depth: .ends)
+        }
+
+        return Identification(summary: try GPXReader.read(data: browser.read(file)).summary,
+                              depth: .whole)
+    }
+
+    /// Pulls the whole file, for exact counts and distance.
+    func identifyFully(_ file: DeviceFile) throws -> Identification {
+        guard let browser else { throw MTP.Failure.noDevice }
+        return Identification(summary: try GPXReader.read(data: browser.read(file)).summary,
+                              depth: .whole)
     }
 
     /// The GPX folder's handle, which a send may have just created.

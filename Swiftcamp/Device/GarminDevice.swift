@@ -220,6 +220,37 @@ struct GarminBrowser {
         try session.object(file.handle)
     }
 
+    /// Whether the device will read a byte range, which decides whether
+    /// identifying a file costs kilobytes or megabytes.
+    var supportsPartialReads: Bool {
+        (try? session.deviceInfo())?.supports(.getPartialObject) ?? false
+    }
+
+    /// Reads the two ends of a file and reports what they say.
+    ///
+    /// Returns nil when the device cannot do partial reads, so the caller can
+    /// decide whether the whole file is worth pulling.
+    func peek(_ file: DeviceFile) throws -> GPXPeek.Result? {
+        guard supportsPartialReads else { return nil }
+
+        let head = try session.partialObject(file.handle, offset: 0,
+                                             length: min(GPXPeek.headBytes, file.size))
+
+        // A file smaller than the two windows is entirely covered by the
+        // first read, and asking for a range past its end is how a device
+        // gets asked for something that does not exist.
+        var tail = Data()
+        if file.size > GPXPeek.headBytes + GPXPeek.tailBytes {
+            tail = try session.partialObject(file.handle,
+                                             offset: file.size - GPXPeek.tailBytes,
+                                             length: GPXPeek.tailBytes)
+        } else {
+            tail = head
+        }
+
+        return GPXPeek.scan(head: head, tail: tail)
+    }
+
     /// Writes a GPX file into `Garmin/GPX`, replacing one of the same name.
     ///
     /// Replacing rather than adding, unlike library import. A device holds
