@@ -162,7 +162,11 @@ struct DevicePanel: View {
             Divider()
             footer
         }
-        .frame(width: 560, height: 460)
+        // Resizable, and taller by default. A device's archive folder holds
+        // as many track logs as the unit has rotated, and a fixed sheet that
+        // shows four of them is a list the user cannot read.
+        .frame(minWidth: 560, idealWidth: 640, maxWidth: .infinity,
+               minHeight: 460, idealHeight: 680, maxHeight: .infinity)
         .onAppear { model.scan() }
     }
 
@@ -329,7 +333,12 @@ struct DevicePanel: View {
 
             if model.browseFiles.isEmpty {
                 Text("Empty.").font(.caption).foregroundStyle(.secondary)
-            } else {
+            } else if model.browseFiles.count > 8 {
+                Text("\(model.browseFiles.count) items")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if !model.browseFiles.isEmpty {
                 ForEach(model.browseFiles) { file in
                     HStack(spacing: 8) {
                         Image(systemName: file.isFolder ? "folder.fill" : "doc")
