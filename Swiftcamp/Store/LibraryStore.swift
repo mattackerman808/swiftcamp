@@ -283,6 +283,31 @@ struct LibraryStore: Sendable {
         }
     }
 
+    /// Renames a route, track or waypoint.
+    ///
+    /// Header-only, which `save` makes safe; an `INSERT OR REPLACE` here
+    /// would cascade a route's points away.
+    func rename(_ id: String, to name: String) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        try database.writer.write { db in
+            if var route = try Route.fetchOne(db, key: id) {
+                route.name = trimmed
+                route.updatedAt = .now
+                try route.update(db)
+            } else if var track = try Track.fetchOne(db, key: id) {
+                track.name = trimmed
+                track.updatedAt = .now
+                try track.update(db)
+            } else if var waypoint = try Waypoint.fetchOne(db, key: id) {
+                waypoint.name = trimmed
+                waypoint.updatedAt = .now
+                try waypoint.update(db)
+            }
+        }
+    }
+
     // MARK: - Deleting
 
     func deleteRoute(id: String) throws {

@@ -423,6 +423,14 @@ final class LibraryModel {
         }
     }
 
+    /// Renames whatever this id belongs to.
+    ///
+    /// An empty name is ignored rather than accepted. A track called nothing
+    /// is unfindable in a sidebar and exports as a file with no name.
+    func rename(_ id: String, to name: String) {
+        do { try store.rename(id, to: name) } catch { failure = error.localizedDescription }
+    }
+
     func delete(_ id: String) {
         do {
             if routes.contains(where: { $0.route.id == id }) {

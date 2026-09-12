@@ -185,4 +185,56 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertGreaterThan(detail.length, straight * 10,
                              "length must follow the geometry, not the via points")
     }
+
+    // MARK: - Renaming
+
+    func testRenamingWorksForEachKind() throws {
+        let route = Route(name: "Untitled")
+        try store.save(RouteDetail(route: route, points: [
+            RoutePoint(routeID: route.id, seq: 0, lat: 40.0, lon: -105.0),
+            RoutePoint(routeID: route.id, seq: 1, lat: 40.5, lon: -105.5),
+        ]))
+        let track = Track(name: "Track")
+        try store.save(track, points: [
+            TrackPoint(trackID: track.id, seq: 0, segment: 0, lat: 40, lon: -105),
+        ])
+        let waypoint = Waypoint(name: "Waypoint", lat: 40, lon: -105)
+        try store.save(waypoint)
+
+        try store.rename(route.id, to: "Trail Ridge Road")
+        try store.rename(track.id, to: "Sunday ride")
+        try store.rename(waypoint.id, to: "Estes Park")
+
+        XCTAssertEqual(try store.routes().first?.name, "Trail Ridge Road")
+        XCTAssertEqual(try store.tracks().first?.name, "Sunday ride")
+        XCTAssertEqual(try store.waypoints().first?.name, "Estes Park")
+    }
+
+    /// A track called nothing is unfindable in a sidebar and exports as a
+    /// file with no name, so an empty rename is ignored rather than obeyed.
+    func testAnEmptyNameIsRefused() throws {
+        let track = Track(name: "Track")
+        try store.save(track, points: [])
+
+        try store.rename(track.id, to: "   ")
+
+        XCTAssertEqual(try store.tracks().first?.name, "Track")
+    }
+
+    /// Renaming writes the header only. An INSERT OR REPLACE here would
+    /// cascade the route's points away.
+    func testRenamingARouteKeepsItsPoints() throws {
+        let route = Route(name: "Untitled")
+        try store.save(RouteDetail(route: route, points: [
+            RoutePoint(routeID: route.id, seq: 0, lat: 40.0, lon: -105.0,
+                       geometry: [Coordinate(lat: 40.1, lon: -105.1)]),
+            RoutePoint(routeID: route.id, seq: 1, lat: 40.5, lon: -105.5),
+        ]))
+
+        try store.rename(route.id, to: "Trail Ridge Road")
+
+        let read = try XCTUnwrap(try store.routeDetail(id: route.id))
+        XCTAssertEqual(read.points.count, 2)
+        XCTAssertEqual(read.points[0].geometry?.count, 1)
+    }
 }

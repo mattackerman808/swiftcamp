@@ -14,7 +14,6 @@ struct SendPicker: View {
     var send: ([(name: String, data: Data)]) -> Void
 
     @State private var chosen: Set<String> = []
-    @State private var asSeparateFiles = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,7 +33,7 @@ struct SendPicker: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Send to \(storage.name)").font(.headline)
-            Text("Files go in the device's GPX folder.")
+            Text("One file each, in the device's GPX folder.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(12)
@@ -72,25 +71,12 @@ struct SendPicker: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // One file per item by default, because the unit lists what it
-            // finds by filename. Three routes in one Swiftcamp.gpx appear on
-            // the device as a single entry called Swiftcamp, which is no
-            // help at all at a petrol stop.
-            Picker("", selection: $asSeparateFiles) {
-                Text("A file for each").tag(true)
-                Text("One file").tag(false)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            HStack {
-                Text(summary).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Send") { dispatch() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(chosen.isEmpty)
-            }
+        HStack {
+            Text(summary).font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            Button("Send") { dispatch() }
+                .keyboardShortcut(.defaultAction)
+                .disabled(chosen.isEmpty)
         }
         .padding(12)
     }
@@ -130,27 +116,28 @@ struct SendPicker: View {
     }
 
     private var summary: String {
-        let count = chosen.count
-        let noun = count == 1 ? "item" : "items"
-        return asSeparateFiles && count > 1 ? "\(count) \(noun), \(count) files"
-                                            : "\(count) \(noun)"
+        chosen.count == 1 ? "1 file" : "\(chosen.count) files"
     }
 
     // MARK: - Sending
 
+    /// Always one file per item.
+    ///
+    /// There was a choice here between this and a single combined file, and
+    /// it was a choice nobody should have to make. A Garmin lists what it
+    /// finds by filename, so three routes in one Swiftcamp.gpx appear on the
+    /// unit as a single entry called Swiftcamp — which is no help at a petrol
+    /// stop. Anyone who wants one combined file wants it on their Mac, and
+    /// that is what File ▸ Export is for.
     private func dispatch() {
         guard !chosen.isEmpty else { return }
 
-        if asSeparateFiles {
-            let files = chosen.compactMap { id -> (name: String, data: Data)? in
-                guard let document = library.document(for: id) else { return nil }
-                let name = library.name(for: id) ?? "Route"
-                return (DeviceFilename.make(from: name), GPXWriter.data(document))
-            }
-            send(files.sorted { $0.name < $1.name })
-        } else if let document = library.document(for: chosen) {
-            send([(DeviceFilename.make(from: "Swiftcamp"), GPXWriter.data(document))])
+        let files = chosen.compactMap { id -> (name: String, data: Data)? in
+            guard let document = library.document(for: id) else { return nil }
+            return (DeviceFilename.make(from: library.name(for: id) ?? "Route"),
+                    GPXWriter.data(document))
         }
+        send(files.sorted { $0.name < $1.name })
     }
 }
 #endif

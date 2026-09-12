@@ -148,12 +148,18 @@ struct GarminBrowser {
 
     let session: MTPSession
 
+    /// Read once, at connection. Asking the device what it can do before
+    /// every file read is a round trip per file to learn something that
+    /// cannot change while it is plugged in.
+    private let info: MTP.DeviceInfo
+
     init(unit: GarminUnit) throws {
         session = try MTPSession(locationID: unit.locationID)
         try session.open()
+        info = (try? session.deviceInfo()) ?? MTP.DeviceInfo()
     }
 
-    func identify() throws -> MTP.DeviceInfo { try session.deviceInfo() }
+    func identify() throws -> MTP.DeviceInfo { info }
 
     func storages() throws -> [MTP.StorageInfo] {
         try session.storageIDs().compactMap { try? session.storageInfo($0) }
@@ -251,9 +257,7 @@ struct GarminBrowser {
 
     /// Whether the device will read a byte range, which decides whether
     /// identifying a file costs kilobytes or megabytes.
-    var supportsPartialReads: Bool {
-        (try? session.deviceInfo())?.supports(.getPartialObject) ?? false
-    }
+    var supportsPartialReads: Bool { info.supports(.getPartialObject) }
 
     /// Reads the two ends of a file and reports what they say.
     ///

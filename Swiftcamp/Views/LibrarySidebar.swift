@@ -10,6 +10,14 @@ import SwiftUI
 struct LibrarySidebar: View {
     @Bindable var model: LibraryModel
 
+    /// Which row is being renamed, and what has been typed so far.
+    ///
+    /// Inline rather than in a dialog, which is what a Mac sidebar does and
+    /// what makes renaming several things in a row bearable.
+    @State private var renaming: String?
+    @State private var draft = ""
+    @FocusState private var isNaming: Bool
+
     var body: some View {
         // Routed through the model rather than bound straight at
         // `selection`, so the sidebar can frame what it selects while a map
@@ -19,11 +27,13 @@ struct LibrarySidebar: View {
             if !model.routes.isEmpty {
                 Section("Routes") {
                     ForEach(model.routes) { detail in
-                        row(name: detail.route.name,
+                        row(id: detail.route.id,
+                            name: detail.route.name,
                             detail: model.summaries[detail.route.id] ?? "",
                             color: ItemColor.named(detail.route.color))
                         .tag(detail.route.id)
                         .contextMenu {
+                            renameButton(detail.route.id, detail.route.name)
                             colorMenu(for: detail.route.id)
                             Divider()
                             deleteButton(detail.route.id)
@@ -35,11 +45,13 @@ struct LibrarySidebar: View {
             if !model.tracks.isEmpty {
                 Section("Tracks") {
                     ForEach(model.tracks) { detail in
-                        row(name: detail.track.name,
+                        row(id: detail.track.id,
+                            name: detail.track.name,
                             detail: model.summaries[detail.track.id] ?? "",
                             color: ItemColor.named(detail.track.color))
                         .tag(detail.track.id)
                         .contextMenu {
+                            renameButton(detail.track.id, detail.track.name)
                             colorMenu(for: detail.track.id)
                             Divider()
                             deleteButton(detail.track.id)
@@ -54,11 +66,16 @@ struct LibrarySidebar: View {
                         // No swatch. A waypoint's appearance on a Garmin is
                         // its symbol, not a display colour, and offering one
                         // here would promise something GPX cannot carry.
-                        row(name: waypoint.name,
+                        row(id: waypoint.id,
+                            name: waypoint.name,
                             detail: waypoint.symbol ?? coordinate(waypoint.coordinate),
                             symbol: "mappin.circle.fill")
                         .tag(waypoint.id)
-                        .contextMenu { deleteButton(waypoint.id) }
+                        .contextMenu {
+                            renameButton(waypoint.id, waypoint.name)
+                            Divider()
+                            deleteButton(waypoint.id)
+                        }
                     }
                 }
             }
@@ -81,27 +98,56 @@ struct LibrarySidebar: View {
 
     // MARK: - Rows
 
-    private func row(name: String, detail: String, color: ItemColor?) -> some View {
-        row(name: name, detail: detail) { Swatch(color: color) }
+    private func row(id: String, name: String, detail: String, color: ItemColor?) -> some View {
+        row(id: id, name: name, detail: detail) { Swatch(color: color) }
     }
 
-    private func row(name: String, detail: String, symbol: String) -> some View {
-        row(name: name, detail: detail) {
+    private func row(id: String, name: String, detail: String, symbol: String) -> some View {
+        row(id: id, name: name, detail: detail) {
             Image(systemName: symbol)
                 .foregroundStyle(.orange)
                 .frame(width: 13)
         }
     }
 
-    private func row(name: String, detail: String,
+    private func row(id: String, name: String, detail: String,
                      @ViewBuilder leading: () -> some View) -> some View {
         HStack(spacing: 8) {
             leading()
             VStack(alignment: .leading, spacing: 1) {
-                Text(name)
+                if renaming == id {
+                    TextField("Name", text: $draft)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isNaming)
+                        .onSubmit(commitRename)
+                        // Escape and clicking away both mean "leave it alone",
+                        // which is the opposite of what saving on focus loss
+                        // would do to a half-typed name.
+                        .onExitCommand { renaming = nil }
+                        .onChange(of: isNaming) { _, focused in
+                            if !focused { renaming = nil }
+                        }
+                } else {
+                    Text(name)
+                }
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func renameButton(_ id: String, _ name: String) -> some View {
+        Button("Rename…") {
+            draft = name
+            renaming = id
+            // The field does not exist until the row redraws, so focus has to
+            // wait for it.
+            DispatchQueue.main.async { isNaming = true }
+        }
+    }
+
+    private func commitRename() {
+        if let id = renaming { model.rename(id, to: draft) }
+        renaming = nil
     }
 
     // MARK: - Colour
