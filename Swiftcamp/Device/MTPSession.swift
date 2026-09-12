@@ -473,6 +473,33 @@ final class MTPSession {
         do {
             sawStaleReply = false
             return try exchange(operation, id, parameters, sending: payload)
+        } catch where payload != nil && dataFraming == nil {
+            // The framing this device wants, decided by asking it.
+            //
+            // Splitting the data header from its payload is what a zūmo XT3
+            // requires and what libmtp and libgphoto2 say should not work, so
+            // hardcoding either one is a bet on hardware we have not seen.
+            // Split is tried first because it is what our one real device
+            // wants and because it fails fast on a responder that wants the
+            // other: such a device reads the header, finds no payload, and
+            // says so. Joined first would cost a full timeout every session
+            // here, because this device withholds the error until the next
+            // command arrives.
+            dataFraming = .joined
+            transaction &+= 1
+            log.info("retrying the data phase with the header joined to its payload")
+            do {
+                let reply = try exchange(operation, transaction, parameters, sending: payload)
+                log.info("this device wants the data header joined")
+                return reply
+            } catch {
+                // Neither framing worked, so framing is not the problem and
+                // the device is refusing for a reason of its own. Leave the
+                // choice open rather than remembering a wrong answer.
+                dataFraming = nil
+                recover()
+                throw error
+            }
         } catch where sawStaleReply && payload == nil && fixed == nil {
             // The stale reply we stepped over was released *by* this command,
             // and releasing it is all this device did with it. Asking again is
@@ -555,6 +582,7 @@ final class MTPSession {
         guard container.code == MTP.Response.ok.rawValue else {
             throw MTP.Failure.deviceRefused(container.code)
         }
+        if payload != nil, dataFraming == nil { dataFraming = .split }
 
         var reader = MTP.Reader(container.payload)
         while !reader.isAtEnd, let value = try? reader.uint32() {
@@ -605,7 +633,7 @@ final class MTPSession {
         // split succeeds every time, with the file read back byte-identical.
         // Trust the device over the documentation here, and re-measure before
         // assuming it holds for other hardware.
-        if container.kind == .data {
+        if container.kind == .data, dataFraming != .joined {
             try writeAll(writer.data, handle: handle)
             try writeAll(container.payload, handle: handle)
             trace(String(format: "[usb] > wrote %d + %d bytes",
@@ -658,6 +686,13 @@ final class MTPSession {
     ///
     /// Events carry their own numbering and are stepped over here too, which
     /// is cheaper than opening an interrupt endpoint we have no other use for.
+    /// How this device wants a host-to-device data phase framed.
+    ///
+    /// Nil until one has succeeded. See `write(container:)` for what the two
+    /// are and why neither can simply be assumed.
+    enum Framing { case split, joined }
+    private var dataFraming: Framing?
+
     /// Set when a reply belonging to an earlier question had to be stepped
     /// over, which on this device means the question just asked was swallowed.
     private var sawStaleReply = false

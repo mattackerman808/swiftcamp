@@ -26,6 +26,8 @@ final class DeviceModel {
     private(set) var browsePath: [Crumb] = []
     private(set) var browseFiles: [DeviceFile] = []
     private(set) var browseStorage: UInt32?
+    /// What to call the storage being browsed, for the breadcrumb.
+    private(set) var storageName = ""
 
     /// What each identified file turned out to hold, keyed by object handle.
     private(set) var summaries: [UInt32: DeviceService.Identification] = [:]
@@ -106,14 +108,29 @@ final class DeviceModel {
                 // Straight to the files. Connecting and then being asked to
                 // press Browse is a step that exists only because the code is
                 // arranged that way.
-                if let first = snapshot.storages.first { self.open(first) }
+                // One storage opens itself; several get a list, because
+                // picking the first and offering no way back hides a memory
+                // card completely — and a rider who put one in has files on
+                // it. Which storage the device lists first is its choice, so
+                // the one shown would not even reliably be the internal one.
+                if snapshot.storages.count == 1, let only = snapshot.storages.first {
+                    self.open(only)
+                }
             }
         }
+    }
+
+    /// Steps back out to the list of storages.
+    func showStorages() {
+        browseStorage = nil
+        browsePath = []
+        browseFiles = []
     }
 
     /// Opens a storage at its GPX folder, or at the root when it has none.
     func open(_ storage: DeviceService.StorageSummary) {
         browseStorage = storage.id
+        storageName = storage.name
         if let folder = storage.gpxFolder {
             browsePath = [Crumb(name: "GPX", handle: folder)]
             list(storage: storage.id, parent: folder)

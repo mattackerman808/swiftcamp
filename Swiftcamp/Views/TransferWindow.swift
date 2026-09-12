@@ -184,7 +184,11 @@ private struct DevicePane: View {
                         .help("Disconnect")
                 }
                 breadcrumb
-                files
+                if device.browseStorage == nil, hasSeveralStorages {
+                    storageList
+                } else {
+                    files
+                }
             } else if device.isWorking {
                 // Connecting happens on its own when there is one device, so
                 // the first thing the pane shows is usually this rather than
@@ -200,13 +204,31 @@ private struct DevicePane: View {
         }
     }
 
+    /// True when the device has more than one storage, which on a zūmo means
+    /// a memory card is in. Then the storages are a level of their own.
+    private var hasSeveralStorages: Bool {
+        (device.snapshot?.storages.count ?? 0) > 1
+    }
+
     private var path: String {
-        (["Device"] + device.browsePath.map(\.name)).joined(separator: " / ")
+        var parts = ["Device"]
+        if hasSeveralStorages, !device.storageName.isEmpty, device.browseStorage != nil {
+            parts.append(device.storageName)
+        }
+        return (parts + device.browsePath.map(\.name)).joined(separator: " / ")
     }
 
     private var breadcrumb: some View {
         HStack(spacing: 4) {
-            Button("Device") { device.ascend(to: nil) }.buttonStyle(.link)
+            Button("Device") {
+                if hasSeveralStorages { device.showStorages() } else { device.ascend(to: nil) }
+            }
+            .buttonStyle(.link)
+
+            if hasSeveralStorages, device.browseStorage != nil, !device.storageName.isEmpty {
+                Text("/").foregroundStyle(.tertiary)
+                Button(device.storageName) { device.ascend(to: nil) }.buttonStyle(.link)
+            }
             ForEach(Array(device.browsePath.enumerated()), id: \.element.id) { index, crumb in
                 Text("/").foregroundStyle(.tertiary)
                 Button(crumb.name) { device.ascend(to: index) }.buttonStyle(.link)
@@ -216,6 +238,34 @@ private struct DevicePane: View {
         .font(.caption)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
+    }
+
+    /// The storages, when there is a choice to make.
+    private var storageList: some View {
+        List {
+            ForEach(device.snapshot?.storages ?? [], id: \.id) { storage in
+                HStack(spacing: 8) {
+                    Image(systemName: storage.isRemovable ? "sdcard" : "internaldrive")
+                        .foregroundStyle(Color.accentColor)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(storage.name)
+                        Text(free(storage)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { device.open(storage) }
+            }
+        }
+        .listStyle(.inset)
+    }
+
+    private func free(_ storage: DeviceService.StorageSummary) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(storage.freeBytes)) + " free of "
+            + formatter.string(fromByteCount: Int64(storage.capacityBytes))
     }
 
     private var files: some View {

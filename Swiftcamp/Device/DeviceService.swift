@@ -33,6 +33,13 @@ actor DeviceService {
         /// folder yet, which is normal for a fresh memory card and not an
         /// error — the browser then opens at the root instead.
         var gpxFolder: UInt32?
+
+        /// Whether this is a memory card rather than the built-in storage.
+        ///
+        /// MTP numbers storages with the physical unit in the high sixteen
+        /// bits, so the card is the one that is not the first physical store.
+        /// Only used to pick an icon, which is why a wrong guess is harmless.
+        var isRemovable: Bool { (id >> 16) > 1 }
     }
 
     // MARK: - Discovery
