@@ -13,7 +13,7 @@ final class AppDatabaseTests: XCTestCase {
     /// rather than "at least one" is what catches a migration accidentally
     /// deleted or renamed, which the append-only rule forbids and which
     /// nothing else would notice.
-    private let migrationCount = 3
+    private let migrationCount = 4
 
     private func makeLibrary() throws -> AppDatabase {
         try AppDatabase.inMemory()

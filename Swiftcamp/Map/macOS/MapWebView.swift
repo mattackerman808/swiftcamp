@@ -31,6 +31,8 @@ struct MapWebView: NSViewRepresentable {
     var onDrag: ((MapDrag) -> Void)?
     var onKey: ((MapKey) -> Void)?
     var onContextMenu: ((MapClick) -> [MapMenuItem])?
+    /// The view after each move, with its zoom.
+    var onView: ((BoundingBox, Double) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -65,6 +67,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.onDrag = onDrag
         context.coordinator.onKey = onKey
         context.coordinator.onContextMenu = onContextMenu
+        context.coordinator.onView = onView
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
@@ -77,6 +80,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.onDrag = onDrag
         context.coordinator.onKey = onKey
         context.coordinator.onContextMenu = onContextMenu
+        context.coordinator.onView = onView
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
@@ -133,6 +137,7 @@ struct MapWebView: NSViewRepresentable {
         var onDrag: ((MapDrag) -> Void)?
         var onKey: ((MapKey) -> Void)?
         var onContextMenu: ((MapClick) -> [MapMenuItem])?
+        var onView: ((BoundingBox, Double) -> Void)?
 
         /// Nothing can be pushed until the page reports that its style has
         /// parsed and its sources exist. `makeNSView` returns long before
@@ -335,6 +340,13 @@ struct MapWebView: NSViewRepresentable {
 
             case "key":
                 if let key = (body["key"] as? String).flatMap(MapKey.init(rawValue:)) { onKey?(key) }
+
+            case "view":
+                if let west = body["west"] as? Double, let south = body["south"] as? Double,
+                   let east = body["east"] as? Double, let north = body["north"] as? Double,
+                   let zoom = body["zoom"] as? Double {
+                    onView?(BoundingBox(west: west, south: south, east: east, north: north), zoom)
+                }
 
             case "contextmenu":
                 guard let click = Self.click(from: body),

@@ -248,6 +248,11 @@ struct RoutePoint: LibraryRecord, Identifiable, Hashable, Sendable {
     var name: String?
     var symbol: String?
     var isVia: Bool = true
+    /// Stays where it was placed whatever the route's mode: a via point
+    /// made from a waypoint is a campsite or a trailhead, not a spot on
+    /// the road, and the leg runs to the road from there as BaseCamp draws
+    /// it. Every other point moves onto the road its legs landed on.
+    var isPinned: Bool = false
     /// Stored as JSON in one column because nothing ever queries inside it;
     /// the only consumer hands it to the renderer. `Coordinate` encodes as
     /// `[lon, lat]`, so this is compact and already GeoJSON-shaped.

@@ -188,6 +188,33 @@ final class RouteEditingTests: XCTestCase {
         XCTAssertEqual(detail.points[0].geometry?.last, onRoad)
     }
 
+    /// A via point made from a waypoint stays where the waypoint is; its
+    /// leg still reaches the road, and the spur runs from there.
+    func testAPinnedPointNeverSnaps() {
+        var detail = route([a, b])
+        detail.appendVia(nearRoad, isPinned: true, snap: .always, shape: gridRoads)
+
+        XCTAssertEqual(detail.points[2].coordinate, nearRoad)
+        XCTAssertEqual(detail.points[1].geometry?.last, onRoad)
+        XCTAssertTrue(detail.points[2].isPinned)
+    }
+
+    /// Routing now happens after an edit is written, so the model asks
+    /// which legs are still straight and routes only those.
+    func testOnlyStraightLegsAreRoutedAfterAnEdit() {
+        var detail = route([a, b, c], shape: midpoint)
+        detail.insertVia(nearRoad, inLeg: 0)   // straight legs 0 and 1, leg 2 keeps its road
+        XCTAssertEqual(detail.straightLegs, [0, 1])
+
+        detail.reshape(legs: detail.straightLegs, snap: .always, shape: gridRoads)
+        XCTAssertEqual(detail.straightLegs, [])
+        XCTAssertEqual(detail.points[1].coordinate, onRoad)
+        XCTAssertEqual(detail.points[2].geometry, [Coordinate(lat: 40.5, lon: -104.0)], "leg 2 untouched")
+
+        detail.straightenAll()
+        XCTAssertEqual(detail.straightLegs, [0, 1, 2])
+    }
+
     /// A change of mode routes every leg again under the new rule.
     func testReshapingEveryLegAppliesANewRule() {
         var detail = route([a, nearRoad, b])

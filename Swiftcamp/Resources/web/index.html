@@ -526,6 +526,21 @@ function post(message) {
     post({ type: 'ready' });
   });
 
+  // Where the map is looking, after each move settles, so Swift can fetch
+  // the routing tiles under it before a drag asks for them. Debounced:
+  // a fling settles through many moveend-sized steps.
+  var viewTimer = null;
+  function reportView() {
+    var b = map.getBounds();
+    post({ type: 'view', west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth(),
+           zoom: map.getZoom() });
+  }
+  map.on('moveend', function () {
+    if (viewTimer) clearTimeout(viewTimer);
+    viewTimer = setTimeout(reportView, 300);
+  });
+  map.on('load', reportView);
+
   map.on('idle', function () {
     // Reported once: a non-zero feature count here proves the range requests
     // reached real data, and repeating it on every idle would bury the log.

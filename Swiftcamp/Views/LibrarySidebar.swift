@@ -29,7 +29,8 @@ struct LibrarySidebar: View {
                     ForEach(model.routes) { detail in
                         row(id: detail.route.id,
                             name: detail.route.name,
-                            detail: model.summaries[detail.route.id] ?? "",
+                            detail: (model.summaries[detail.route.id] ?? "")
+                                + (model.routing.contains(detail.route.id) ? " · routing…" : ""),
                             color: ItemColor.named(detail.route.color))
                         .tag(detail.route.id)
                         .contextMenu {
@@ -109,6 +110,24 @@ struct LibrarySidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
+            // The background fill of the highway levels, while it runs. A
+            // rider should know why the network light is on, and when a
+            // cross-country leg will stop waiting on it.
+            if let progress = model.prefetch?.progress, !progress.done {
+                Text("Routing data: \(megabytes(progress.fetchedBytes)) of \(megabytes(progress.totalBytes)) MB")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.bar)
+            }
+        }
+    }
+
+    private func megabytes(_ bytes: Int64) -> String {
+        (bytes / 1_000_000).formatted()
     }
 
     // MARK: - Route points

@@ -77,6 +77,32 @@ final class RoutingEngine: @unchecked Sendable {
         try self.init(configJSON: String(decoding: try JSONSerialization.data(withJSONObject: config), as: UTF8.self))
     }
 
+    /// Where the streamed graph's tiles are cached, keyed by the graph's
+    /// name so a new graph gets a fresh folder. Under Caches, so macOS may
+    /// reclaim it; the prefetcher fills it again.
+    static func cacheDirectory(for archive: String) -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Swiftcamp/routing/\(archive)", isDirectory: true)
+    }
+
+    /// How a route's legs get their shape and where its points land, from
+    /// its mode: nil when no engine could be opened, so legs stay straight.
+    /// Direct is straight by choice. Touches `shared`, so call it off the
+    /// main actor: the first call opens the engine.
+    static func shaping(for mode: RoutingMode) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper)? {
+        guard mode != .direct, let engine = shared else { return nil }
+        switch mode {
+        case .road: return (.always, engine.legShaper(for: .road))
+        case .adventure: return (.within(adventureSnap), engine.legShaper(for: .adventure))
+        case .direct: return nil
+        }
+    }
+
+    /// How close a drop must be to a way, in metres, to land on it in
+    /// Adventure. A near miss lands on the track; a deliberate point in the
+    /// scrub stays put, with a straight leg to the nearest way.
+    static let adventureSnap = 50.0
+
     /// Lifts a limit the config generator sets for a public server.
     ///
     /// It caps a motorcycle route at 500 km, a tenth of what it allows a
@@ -94,11 +120,12 @@ final class RoutingEngine: @unchecked Sendable {
         config["service_limits"] = limits
     }
 
-    /// The graph published at `url`, a tar Valhalla reads by byte range:
-    /// the index once, then each tile as a route first needs it, cached
-    /// on disk after that. The same shape as the map's PMTiles, and with
-    /// the same consequence: no download, no region picker, and the first
-    /// route into a fresh area pays for its tiles.
+    /// The graph published under `url`, one gzipped object per tile that
+    /// Valhalla fetches as a route first needs it and caches on disk
+    /// gzipped. The same shape as the map's PMTiles, and with the same
+    /// consequence: no download, no region picker, and the first route
+    /// into a fresh area pays for its tiles, unless `RoutingPrefetch` got
+    /// there first.
     ///
     /// The config is the bundled template with the tar and the cache
     /// filled in. Valhalla wants the whole document, sections it will
@@ -116,12 +143,15 @@ final class RoutingEngine: @unchecked Sendable {
               var mjolnir = config["mjolnir"] as? [String: Any]
         else { throw RoutingError(message: "the routing config template is missing from the bundle") }
 
-        let archive = (url as NSString).lastPathComponent
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Swiftcamp/routing/\(archive)", isDirectory: true)
+        let cache = Self.cacheDirectory(for: (url as NSString).lastPathComponent)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
 
-        mjolnir["tile_url"] = url
+        // `{tilePath}` becomes the tile's path with its `.gph` suffix, and
+        // the pattern's own `.gz` follows it. With `tile_url_gz` the getter
+        // keeps the bytes as served and writes them gzipped beside any the
+        // prefetcher wrote, which names them the same way.
+        mjolnir["tile_url"] = url + "/{tilePath}.gz"
+        mjolnir["tile_url_gz"] = true
         mjolnir["tile_dir"] = cache.path
         config["mjolnir"] = mjolnir
 
@@ -163,7 +193,11 @@ final class RoutingEngine: @unchecked Sendable {
         defer {
             // Left in on purpose: the drag-end cost is what decides whether
             // routing can stay synchronous, and it changes with the graph.
-            NSLog("[Swiftcamp] route %.0f ms", Double((ContinuousClock.now - started).components.attoseconds) / 1e15)
+            // Whole seconds and the fraction both: the first version read
+            // only the fraction and logged a sixteen-second cold route as
+            // 241 ms, which made streaming look faster than it was.
+            let elapsed = (ContinuousClock.now - started).components
+            NSLog("[Swiftcamp] route %.0f ms", Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15)
         }
         let reply: String? = lock.withLock {
             guard let out = valhalla_engine_route(engine, body, &error) else { return nil }

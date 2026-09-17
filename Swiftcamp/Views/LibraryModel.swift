@@ -157,9 +157,31 @@ final class LibraryModel {
     /// Scripted input in flight, for the map to replay. See `MapPageEvent`.
     private(set) var pageEvent: MapPageEvent?
 
+    /// Routes being routed in the background, for the sidebar.
+    private(set) var routing: Set<String> = []
+
+    /// Legs the engine refused, keyed by mode and both ends, so a leg with
+    /// no road between its points is not asked again on every edit.
+    @ObservationIgnored private var refusedLegs: Set<String> = []
+    @ObservationIgnored private var reroutePending: Set<String> = []
+
+    /// Fills the streamed graph's cache ahead of routes. Nil for a
+    /// developer's local graph, and for a scratch run, which should not
+    /// pull a gigabyte to check a click.
+    let prefetch: RoutingPrefetch?
+
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
+        if UserDefaults.standard.string(forKey: "SwiftcampRouting") == nil,
+           UserDefaults.standard.string(forKey: "SwiftcampLibrary") == nil,
+           let base = URL(string: BasemapSource.routingURL) {
+            prefetch = RoutingPrefetch(base: base,
+                                       cache: RoutingEngine.cacheDirectory(for: BasemapSource.routingArchive))
+        } else {
+            prefetch = nil
+        }
         RoutingEngine.warm()
+        prefetch?.fillBackground()
         observe()
         importAtLaunchIfRequested()
         runScriptIfRequested()
@@ -694,21 +716,85 @@ final class LibraryModel {
         RoutingMode(rawValue: UserDefaults.standard.string(forKey: RoutingMode.defaultKey) ?? "") ?? .road
     }
 
-    /// How close a drop must be to a way, in metres, to land on it in
-    /// Adventure. A near miss lands on the track; a deliberate point in the
-    /// scrub stays put, with a straight leg to the nearest way.
-    private static let adventureSnap = 50.0
+    /// The map moved. From zoom 9 the local tiles under it are worth
+    /// having before a drag asks for them.
+    func viewChanged(_ box: BoundingBox, zoom: Double) {
+        guard zoom >= 9 else { return }
+        prefetch?.warm(box)
+    }
 
-    /// How a route's legs get their shape and where its points land, from
-    /// its mode: the road when a routing graph is loaded, a straight line
-    /// otherwise, and straight lines by choice in Direct.
-    private func shaping(for route: Route) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper) {
-        guard let engine = RoutingEngine.shared else { return (.never, RouteEditing.straight) }
-        switch route.mode {
-        case .road: return (.always, engine.legShaper(for: .road))
-        case .adventure: return (.within(Self.adventureSnap), engine.legShaper(for: .adventure))
-        case .direct: return (.never, RouteEditing.straight)
+    // MARK: - Routing after an edit
+
+    /// Routes whatever legs of a route are still straight, away from the
+    /// main actor, and writes the roads back when they arrive.
+    ///
+    /// An edit writes straight legs at once and returns; the road is a
+    /// derivation that follows, like the summaries. That is what keeps a
+    /// click from freezing the window: a cross-country leg over a cold
+    /// cache is twenty seconds of fetching, and it used to happen inside
+    /// the click. The written road carries no undo entry of its own, so
+    /// undo restores the edit's straight legs and this routes them again,
+    /// warm. A leg the engine refuses stays straight and is not asked
+    /// again until one of its ends moves.
+    private func routeStraightLegs(of routeID: String) {
+        guard let detail = routes.first(where: { $0.route.id == routeID }),
+              detail.route.mode != .direct else { return }
+        let legs = detail.straightLegs.filter { !refusedLegs.contains(Self.legKey(detail, $0)) }
+        guard !legs.isEmpty else { return }
+        guard !routing.contains(routeID) else {
+            // One pass per route at a time; the pass that lands starts the next.
+            reroutePending.insert(routeID)
+            return
         }
+        routing.insert(routeID)
+        let signature = Self.signature(of: detail)
+        let mode = detail.route.mode
+
+        Task {
+            let routed = await Task.detached(priority: .userInitiated) { () -> [RoutePoint]? in
+                guard let shaping = RoutingEngine.shaping(for: mode) else { return nil }
+                var working = detail
+                working.reshape(legs: legs, snap: shaping.snap, shape: shaping.shape)
+                return working.points
+            }.value
+            routing.remove(routeID)
+            defer {
+                if reroutePending.remove(routeID) != nil { routeStraightLegs(of: routeID) }
+            }
+
+            // An edit that landed meanwhile makes this answer stale; its
+            // own write asked for a fresh pass.
+            guard let routed, let i = routes.firstIndex(where: { $0.route.id == routeID }),
+                  Self.signature(of: routes[i]) == signature else { return }
+
+            var after = routes[i]
+            after.points = routed
+            for leg in legs where after.points[leg].geometry == nil {
+                refusedLegs.insert(Self.legKey(after, leg))
+            }
+            guard routed != routes[i].points else { return }
+
+            do {
+                try store.replacePoints(routeID: routeID, with: routed)
+            } catch {
+                failure = error.localizedDescription
+                return
+            }
+            routes[i].points = routed
+            rebuildOverlay()
+        }
+    }
+
+    /// What an edit changes that would make a routing answer stale.
+    private static func signature(of detail: RouteDetail) -> String {
+        detail.route.mode.rawValue + detail.points.map {
+            "|\($0.seq):\($0.lat),\($0.lon),\($0.isVia),\($0.isPinned)"
+        }.joined()
+    }
+
+    private static func legKey(_ detail: RouteDetail, _ leg: Int) -> String {
+        let a = detail.points[leg], b = detail.points[leg + 1]
+        return "\(detail.route.mode.rawValue):\(a.lat),\(a.lon)->\(b.lat),\(b.lon)"
     }
 
     /// The route being edited, as the editor sees it.
@@ -723,11 +809,9 @@ final class LibraryModel {
     private func edit(with click: MapClick) -> Bool {
         guard var detail = editingDetail else { return false }
 
-        let shaping = shaping(for: detail.route)
-
         switch click.target {
         case .ground:
-            detail.appendVia(click.coordinate, snap: shaping.snap, shape: shaping.shape)
+            detail.appendVia(click.coordinate)
             commit(detail, actionName: "Add Point")
             return true
 
@@ -738,13 +822,13 @@ final class LibraryModel {
             // position whatever the mode: a campsite is where it is, and
             // the leg runs to the road from there, as BaseCamp draws it.
             guard let waypoint = waypoints.first(where: { $0.id == id }) else { return false }
-            detail.appendVia(waypoint.coordinate, name: waypoint.name, snap: .never, shape: shaping.shape)
+            detail.appendVia(waypoint.coordinate, name: waypoint.name, isPinned: true)
             commit(detail, actionName: "Add Point")
             return true
 
         case .routeLine(let routeID) where routeID == detail.route.id:
             guard let leg = detail.nearestLeg(to: click.coordinate) else { return false }
-            detail.insertVia(click.coordinate, inLeg: leg, snap: shaping.snap, shape: shaping.shape)
+            detail.insertVia(click.coordinate, inLeg: leg)
             commit(detail, actionName: "Insert Point")
             return true
 
@@ -805,9 +889,8 @@ final class LibraryModel {
                 // final mousemove and the mouseup.
                 detail.points = drag.points
             } else {
-                let shaping = shaping(for: detail.route)
                 detail.points = drag.base
-                detail.moveVia(at: drag.seq, to: event.coordinate, snap: shaping.snap, shape: shaping.shape)
+                detail.moveVia(at: drag.seq, to: event.coordinate)
             }
             commit(detail, actionName: drag.inserted ? "Insert Point" : "Move Point")
         }
@@ -829,10 +912,11 @@ final class LibraryModel {
         var base = detail
         base.points = drag.base
         let seq = drag.seq
-        let shaping = shaping(for: detail.route)
+        let mode = detail.route.mode
         Task {
             let points = await Task.detached(priority: .userInitiated) { () -> [RoutePoint] in
                 var working = base
+                let shaping = RoutingEngine.shaping(for: mode) ?? (snap: .never, shape: RouteEditing.straight)
                 working.moveVia(at: seq, to: target, snap: shaping.snap, shape: shaping.shape)
                 return working.points
             }.value
@@ -875,8 +959,7 @@ final class LibraryModel {
     func deleteViaPoint(routeID: String, seq: Int) {
         guard var detail = routes.first(where: { $0.route.id == routeID }),
               detail.points.indices.contains(seq) else { return }
-        let shaping = shaping(for: detail.route)
-        detail.removeVia(at: seq, snap: shaping.snap, shape: shaping.shape)
+        detail.removeVia(at: seq)
         selection.remove(OverlayGeoJSON.handle(routeID, seq))
         commit(detail, actionName: "Delete Point")
     }
@@ -890,8 +973,7 @@ final class LibraryModel {
         let before = (mode: routes[i].route.mode, points: routes[i].points)
         var detail = routes[i]
         detail.route.mode = mode
-        let shaping = shaping(for: detail.route)
-        detail.reshapeAll(snap: shaping.snap, shape: shaping.shape)
+        detail.straightenAll()
         apply(mode: mode, points: detail.points, to: id, undoing: before, actionName: "Change Routing")
     }
 
@@ -908,6 +990,7 @@ final class LibraryModel {
             routes[i].route.mode = mode
             routes[i].points = points
             rebuildOverlay()
+            routeStraightLegs(of: routeID)
         }
         registerUndo(actionName) { model in
             model.apply(mode: before.mode, points: before.points, to: routeID,
@@ -990,6 +1073,7 @@ final class LibraryModel {
         if let i = routes.firstIndex(where: { $0.route.id == routeID }) {
             routes[i].points = points
             rebuildOverlay()
+            routeStraightLegs(of: routeID)
         }
 
         registerUndo(actionName) { model in

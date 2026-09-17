@@ -52,10 +52,12 @@ extension RouteDetail {
     mutating func appendVia(_ coordinate: Coordinate,
                             name: String? = nil,
                             isVia: Bool = true,
+                            isPinned: Bool = false,
                             snap: RouteEditing.Snap = .never,
                             shape: RouteEditing.LegShaper = RouteEditing.straight) {
         points.append(RoutePoint(routeID: route.id, seq: points.count,
-                                 lat: coordinate.lat, lon: coordinate.lon, name: name, isVia: isVia))
+                                 lat: coordinate.lat, lon: coordinate.lon, name: name,
+                                 isVia: isVia, isPinned: isPinned))
         resequence()
         reshape(leg: points.count - 2, snap: snap, shape)
     }
@@ -101,9 +103,27 @@ extension RouteDetail {
     /// whose mode says another is a lie.
     mutating func reshapeAll(snap: RouteEditing.Snap, shape: RouteEditing.LegShaper) {
         guard points.count > 1 else { return }
-        for leg in 0..<(points.count - 1) {
+        reshape(legs: Array(0..<(points.count - 1)), snap: snap, shape: shape)
+    }
+
+    /// Routes the legs named, in order.
+    mutating func reshape(legs: [Int], snap: RouteEditing.Snap, shape: RouteEditing.LegShaper) {
+        for leg in legs {
             reshape(leg: leg, snap: snap, shape)
         }
+    }
+
+    /// The legs that are straight lines: not yet routed, or routed and
+    /// refused. The last point leads nowhere and is never a leg.
+    var straightLegs: [Int] {
+        guard points.count > 1 else { return [] }
+        return (0..<(points.count - 1)).filter { points[$0].geometry == nil }
+    }
+
+    /// Drops every leg's road, leaving straight lines, for a change of
+    /// mode: the roads are found again under the new one.
+    mutating func straightenAll() {
+        for i in points.indices { points[i].geometry = nil }
     }
 
     /// Makes point `index` a via point or a shaping point.
@@ -217,7 +237,7 @@ extension RouteDetail {
     /// from the point would put a duplicate on every junction.
     private mutating func land(_ index: Int, on landing: Coordinate, _ snap: RouteEditing.Snap) -> Bool {
         let metres = GeoMath.distance(points[index].coordinate, landing)
-        guard metres < 1 || snap.allows(metres) else { return false }
+        guard metres < 1 || (snap.allows(metres) && !points[index].isPinned) else { return false }
         points[index].lat = landing.lat
         points[index].lon = landing.lon
         return true

@@ -51,6 +51,15 @@ struct BoundingBox: Equatable, Sendable {
     var east: Double
     var north: Double
 
+    /// Spelled out because the failable initializer below suppresses the
+    /// synthesized one, and the map reports its view as four edges.
+    init(west: Double, south: Double, east: Double, north: Double) {
+        self.west = west
+        self.south = south
+        self.east = east
+        self.north = north
+    }
+
     init?(_ coordinates: some Collection<Coordinate>) {
         guard let first = coordinates.first else { return nil }
         west = first.lon; east = first.lon

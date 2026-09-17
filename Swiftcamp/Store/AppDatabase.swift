@@ -232,6 +232,16 @@ final class AppDatabase: Sendable {
             }
         }
 
+        // A via point made from a waypoint keeps the waypoint's position
+        // through every re-route; see RoutePoint.isPinned. Routing now
+        // happens after the edit is written, so the exception has to be
+        // on the row rather than in the call that made the point.
+        m.registerMigration("v4_pinned_points") { db in
+            try db.alter(table: "route_points") { t in
+                t.add(column: "is_pinned", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return m
     }
 

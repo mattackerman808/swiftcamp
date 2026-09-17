@@ -68,13 +68,16 @@ enum BasemapSource {
     /// works identically on both platforms.
     static var terrainURL: String { "pmtiles://\(cdnBase)/\(terrainArchive)" }
 
-    /// The Valhalla routing graph, one tar read by byte range exactly as the
-    /// PMTiles archives are: Valhalla fetches the tar's index once and then
-    /// each tile as a route needs it, caching them on disk. Dated for the
+    /// The Valhalla routing graph: one gzipped object per tile under a
+    /// dated prefix, plus `index.json` listing them. Valhalla fetches each
+    /// tile as a route first needs it and caches it on disk; the prefetcher
+    /// fills the highway levels ahead of time. Gzipped, a tile is a third
+    /// of the size, and `.gz` is a type Cloudflare caches at the edge by
+    /// default, which the earlier single tar was too big for. Dated for the
     /// same reason as the archives, and doubly so here: the reader records
-    /// the tar's build id beside its cache and refuses to mix tiles from a
-    /// rebuilt one, so a new graph must be a new name.
-    static let routingArchive = "graph-us-20260917.tar"
+    /// the graph's build id beside its cache and refuses to mix tiles from
+    /// a rebuilt one, so a new graph must be a new name.
+    static let routingArchive = "graph-us-20260917"
 
     static var routingURL: String { "\(cdnBase)/\(routingArchive)" }
 

@@ -67,7 +67,8 @@ Stood up 2026-09-11. Bucket `swiftcamp-tiles`, Standard class, fronted by `cdn.s
 | --- | --- | --- |
 | `street-20260910.pmtiles` | 8.2 GB | MVT, z0–14, CONUS, 3.7M tiles |
 | `terrain-20260910.pmtiles` | 17.3 GB | Terrarium WebP, z0–12, CONUS, 239k tiles |
-| `graph-us-20260917.tar` | 21 GB | Valhalla graph for the US, read by byte range |
+| `graph-us-20260917/` | 7.4 GB, 17,177 objects | Valhalla graph for the US, one gzipped tile per object plus `index.json`; edge-cached |
+| `graph-us-20260917.tar` | 21 GB | The same graph as one tar, read by byte range; superseded, kept until nothing points at it |
 | `manifest.json` | — | names, bounds, attribution |
 
 26 GB at $0.015/GB over the 10 GB free tier is about **$0.24/month**, egress free. Class B reads are the only meter that grows with usage: 10M/month free, then $0.36/M.

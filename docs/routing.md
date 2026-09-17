@@ -59,24 +59,64 @@ Settings.
 
 ## Streaming the graph
 
-The graph is not bundled and not downloaded. It is one tar on the CDN,
-read by byte range exactly as the PMTiles archives are: Valhalla's graph
-reader accepts a `mjolnir.tile_url` that names a tar whose first entry is
-`index.bin`, fetches that index once, then fetches each tile by byte range
-as a route first needs it and caches it in `mjolnir.tile_dir`. It records
-the tar's build id beside the cache and refuses to mix tiles from a
-rebuilt tar, which is why a graph is published under a dated name and
-never overwritten, the same rule as the archives. It uses curl rather than
-a browser, so the CORS lesson that bit the map does not apply here.
+The graph is not bundled and not downloaded up front. It is one gzipped
+object per tile on the CDN under a dated prefix, `graph-us-20260917/`,
+plus an `index.json` listing the tiles per level. Valhalla's graph reader
+accepts a `mjolnir.tile_url` with a `{tilePath}` pattern, fetches each
+tile as a route first needs it and caches it in `mjolnir.tile_dir`; with
+`tile_url_gz` it keeps the bytes as served and writes them gzipped, which
+is a third of the size on disk too. It records the graph's build id beside
+the cache and refuses to mix tiles from a rebuilt graph, which is why a
+graph is published under a dated name and never overwritten, the same rule
+as the archives. It uses curl rather than a browser, so the CORS lesson
+that bit the map does not apply here.
+
+The first cut was a single 21 GB tar read by byte range, which the reader
+also supports and which matched the map exactly. It lost to per-tile
+objects on two counts: the tar holds tiles uncompressed, and a
+cross-country leg fetched 361 MB of them; and a 21 GB object is past
+Cloudflare's per-object cache limit, where a 700 KB `.gz` is on its
+default list of cacheable types and comes from the edge on the second
+request. `scripts/build-graph.sh` still packs the tar, since Valhalla's
+own extract tool wants one; the gzipped tree is made beside it with
+`gzip -6` per tile and `index.json` from the result.
 
 `RoutingEngine.init(streaming:)` fills the bundled config template,
 `Resources/routing/valhalla.json`, with `BasemapSource.routingURL` and a
-cache folder under Caches keyed by the archive's name. The template is
+cache folder under Caches keyed by the graph's name. The template is
 `valhalla_build_config`'s output with the extract keys removed, because a
-`tile_extract` makes the reader treat the tar as the whole graph and ignore
+`tile_extract` makes the reader treat it as the whole graph and ignore
 `tile_dir`. `-SwiftcampRouting <valhalla.json>` remains the developer
 override for a graph on local disk, and the macOS scheme lists it
 unchecked.
+
+### Ahead of the route
+
+The engine fetches one tile at a time, the moment a search needs it, and
+a cold cross-country leg was sixty-one of them in series. `RoutingPrefetch`
+gets there first: after launch it fills the highway and arterial levels for
+the whole graph, 102 and 1,044 tiles, about a gigabyte compressed, twelve
+at a time, with progress in the sidebar's footer; and after each map move
+from zoom 9 it fetches the local tiles under the view, a screenful at
+most. Both write into the engine's own cache with the engine's own names,
+`RoutingTiles` doing the id-to-path arithmetic ported from
+`GraphTile::FileSuffix`, so a launch that finds the tiles on disk costs a
+listing. Measured 2026-09-17 on the M3 Ultra's connection: the whole fill
+in 18 seconds. A scratch run does neither: a click check should not pull
+a gigabyte.
+
+### After the edit
+
+Routing is a derivation that follows the write, not part of it. An edit
+writes straight legs and returns at once; `LibraryModel.routeStraightLegs`
+then routes whatever is straight off the main actor and writes the roads
+back, with no undo entry of their own, so undo restores the edit's straight
+legs and they are routed again, warm. The sidebar says "routing…" beside
+the route meanwhile. A leg the engine refuses stays straight and is not
+asked again until one of its ends moves. This is what ended the beachball:
+a cross-country click over a cold cache used to run twenty seconds of
+fetching inside the click, and now the click returns with a straight leg
+and the road follows.
 
 `scripts/build-graph.sh <geofabrik-path> <name>` downloads an extract,
 builds the tiles with the planet admin and timezone databases, packs the
@@ -252,17 +292,11 @@ actor the way drags already do is the fix, listed under Next.
 
 ## Next
 
-- Route an appended via point off the main actor, drawing the leg
-  straight until the road arrives, as a drag already does. A cold
-  cross-country leg is nineteen seconds and the window is frozen for it.
-
-- Prefetch the local-level tiles under the visible map while the user
-  pans, so the first drag into an area is warm.
-- Measure a cold route on a slow connection; if the uncompressed tar
-  hurts, publish gzipped per-tile objects instead, which Valhalla reads
-  with `tile_url_gz`.
-- Region packs as "keep this area for offline": pre-fill the same cache
-  from the tar.
 - Package libvalhalla and its dependencies as an XCFramework so the app
   builds on a machine without the sibling checkout.
 - Decide what `access=permit` should mean.
+- Region packs as "keep this area for offline": pre-fill the same cache
+  with a region's local tiles, the way the prefetcher fills the highway
+  levels.
+- A Cache Rule on the graph prefix would keep tiles at the edge longer
+  than the default four hours.

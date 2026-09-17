@@ -358,6 +358,17 @@ implements them; this is the index.
   therefore reported never, and the harness sends press, contextmenu,
   release exactly as the OS does. Read from the bundled `maplibre-gl.js`
   after one wrong guess, which is the renderer lesson yet again.
+- **A timer that reads only the fraction of a second logs 16 s as 241 ms.**
+  `Duration.components` is whole seconds plus attoseconds, and the route
+  timer read the second half alone, so a cold cross-country route looked
+  sixty times faster than the download timestamps around it said. Check a
+  logged number against a second source once before trusting it.
+- **WebKit stops rendering a window it cannot see.** A second copy of the
+  app opened exactly under the first, fully covered, and its map never drew
+  a frame, never fired `load`, and logged one line in two minutes; the
+  main thread was idle in its run loop the whole time, which `sample`
+  showed in a second after two runs were lost to reasoning. A scripted run
+  floats its window.
 - **Valhalla's generated config is for a public server, not a planner.**
   Its motorcycle limit is 500 km per leg, a tenth of the car's, and a leg
   from California to Colorado was refused and drawn straight, which looked
