@@ -20,6 +20,8 @@ MapLibre Native has a PMTiles v3 reader compiled into the shipped iOS binary (ve
 
 Valhalla cannot work this way. It needs the graph on local disk, which is exactly why local routing feels instant and a hosted API does not.
 
+**Correction, 2026-09-16.** "Cannot stream" is too strong. Valhalla's graph reader has a `mjolnir.tile_url` setting: a tile missing from `tile_dir` is fetched over HTTP and cached there, so the graph can live on R2 as one object per tile and arrive on demand, the same shape as the map. A route search touches the tiles along its corridor rather than the whole region, and Colorado's 599 tiles average under a megabyte. That makes a region pack an optional "keep this for offline" rather than the price of basic routing. It needs libvalhalla built with `ENABLE_HTTP=ON` and the first route into a fresh area pays the fetch; measuring that latency is the open question. `docs/routing.md` has the build.
+
 ## Three tiers of data
 
 1. **Bundled in the app.** A world basemap at roughly z0–6, about 60 MB. Guarantees a map on first paint with no network and no blank screen. Precedent: `Tachbase/Offline/BundledBasemap.swift`.

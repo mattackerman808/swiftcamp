@@ -96,7 +96,131 @@ targets:
         # USB interfaces do not exist on iOS, where the same .c compiles to
         # stubs.
         SWIFT_OBJC_BRIDGING_HEADER: Swiftcamp/Device/Swiftcamp-Bridging-Header.h
-        HEADER_SEARCH_PATHS: $(SRCROOT)/Swiftcamp/Device
+        # Valhalla, the routing engine, linked statically from a sibling
+        # checkout built with CMake: see docs/routing.md. A developer-machine
+        # dependency for now, like the fetched basemap; packaging it as an
+        # XCFramework is the step after the spike.
+        CLANG_CXX_LANGUAGE_STANDARD: c++20
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Swiftcamp/Device
+          - $(SRCROOT)/Swiftcamp/Routing
+          - $(HOME)/git/valhalla
+          - $(HOME)/git/valhalla/build
+          - $(HOME)/git/valhalla/build/src
+          - $(HOME)/git/valhalla/third_party/rapidjson/include
+          - $(HOME)/git/valhalla/third_party/date/include
+          - $(HOME)/git/valhalla/third_party/unordered_dense/include
+          - /opt/homebrew/include
+        LIBRARY_SEARCH_PATHS:
+          - $(HOME)/git/valhalla/build/src
+          - $(HOME)/git/valhalla/build/src/tyr
+          - $(HOME)/git/valhalla/build/src/loki
+          - $(HOME)/git/valhalla/build/src/thor
+          - $(HOME)/git/valhalla/build/src/odin
+          - $(HOME)/git/valhalla/build/src/sif
+          - $(HOME)/git/valhalla/build/src/meili
+          - $(HOME)/git/valhalla/build/src/skadi
+          - $(HOME)/git/valhalla/build/src/baldr
+          - $(HOME)/git/valhalla/build/src/midgard
+          - $(HOME)/git/valhalla/build/src/valhalla/proto
+          - /opt/homebrew/lib
+        OTHER_LDFLAGS:
+          - -lvalhalla
+          - -lvalhalla-tyr
+          - -lvalhalla-loki
+          - -lvalhalla-thor
+          - -lvalhalla-odin
+          - -lvalhalla-sif
+          - -lvalhalla-meili
+          - -lvalhalla-skadi
+          - -lvalhalla-baldr
+          - -lvalhalla-midgard
+          - -lvalhalla-proto
+          - -lprotobuf
+          # protobuf's own dependencies, from `pkg-config --libs protobuf`.
+          - -labsl_base
+          - -labsl_base_cpu_detect
+          - -labsl_city
+          - -labsl_civil_time
+          - -labsl_cord
+          - -labsl_cord_internal
+          - -labsl_cordz_functions
+          - -labsl_cordz_handle
+          - -labsl_cordz_info
+          - -labsl_crc_cord_state
+          - -labsl_crc_internal
+          - -labsl_crc32c
+          - -labsl_debugging_internal
+          - -labsl_decode_rust_punycode
+          - -labsl_demangle_internal
+          - -labsl_demangle_rust
+          - -labsl_die_if_null
+          - -labsl_examine_stack
+          - -labsl_exponential_biased
+          - -labsl_flags_commandlineflag
+          - -labsl_flags_commandlineflag_internal
+          - -labsl_flags_config
+          - -labsl_flags_internal
+          - -labsl_flags_marshalling
+          - -labsl_flags_private_handle_accessor
+          - -labsl_flags_program_name
+          - -labsl_flags_reflection
+          - -labsl_graphcycles_internal
+          - -labsl_hardening
+          - -labsl_hash
+          - -labsl_hashtablez_sampler
+          - -labsl_int128
+          - -labsl_kernel_timeout_internal
+          - -labsl_leak_check
+          - -labsl_log_entry
+          - -labsl_log_globals
+          - -labsl_log_initialize
+          - -labsl_log_internal_check_op
+          - -labsl_log_internal_conditions
+          - -labsl_log_internal_fnmatch
+          - -labsl_log_internal_format
+          - -labsl_log_internal_globals
+          - -labsl_log_internal_log_sink_set
+          - -labsl_log_internal_message
+          - -labsl_log_internal_nullguard
+          - -labsl_log_internal_proto
+          - -labsl_log_internal_structured_proto
+          - -labsl_log_severity
+          - -labsl_log_sink
+          - -labsl_malloc_internal
+          - -labsl_random_distributions
+          - -labsl_random_internal_entropy_pool
+          - -labsl_random_internal_platform
+          - -labsl_random_internal_randen
+          - -labsl_random_internal_randen_hwaes
+          - -labsl_random_internal_randen_hwaes_impl
+          - -labsl_random_internal_randen_slow
+          - -labsl_random_internal_seed_material
+          - -labsl_random_seed_gen_exception
+          - -labsl_random_seed_sequences
+          - -labsl_raw_hash_set
+          - -labsl_raw_logging_internal
+          - -labsl_source_location
+          - -labsl_spinlock_wait
+          - -labsl_stacktrace
+          - -labsl_status
+          - -labsl_statusor
+          - -labsl_str_format_internal
+          - -labsl_strerror
+          - -labsl_strings
+          - -labsl_strings_internal
+          - -labsl_symbolize
+          - -labsl_synchronization
+          - -labsl_throw_delegate
+          - -labsl_time
+          - -labsl_time_zone
+          - -labsl_tracing_internal
+          - -labsl_utf8_for_code_point
+          - -labsl_vlog_config_internal
+          - -lutf8_range
+          - -lutf8_validity
+          - -lz
+          - -llz4
     # Deliberately NO MapLibre dependency. The distributed XCFramework has
     # only ios-arm64 and ios-arm64_x86_64-simulator slices, so linking it
     # here would not build. macOS renders through MapLibre GL JS instead —

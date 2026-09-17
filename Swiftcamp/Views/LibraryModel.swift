@@ -615,6 +615,12 @@ final class LibraryModel {
         }
     }
 
+    /// How legs get their shape: the road, when a routing graph is loaded,
+    /// and a straight line otherwise. Resolved once; the engine is a
+    /// process-wide singleton and the choice does not change mid-session.
+    @ObservationIgnored private lazy var shape: RouteEditing.LegShaper =
+        RoutingEngine.shared?.legShaper ?? RouteEditing.straight
+
     /// The route being edited, as the editor sees it.
     private var editingDetail: RouteDetail? {
         guard let editingRouteID else { return nil }
@@ -629,7 +635,7 @@ final class LibraryModel {
 
         switch click.target {
         case .ground:
-            detail.appendVia(click.coordinate)
+            detail.appendVia(click.coordinate, shape: shape)
             commit(detail, actionName: "Add Point")
             return true
 
@@ -638,13 +644,13 @@ final class LibraryModel {
             // first, then a route that visits them. The via point takes the
             // waypoint's exact position and its name.
             guard let waypoint = waypoints.first(where: { $0.id == id }) else { return false }
-            detail.appendVia(waypoint.coordinate, name: waypoint.name)
+            detail.appendVia(waypoint.coordinate, name: waypoint.name, shape: shape)
             commit(detail, actionName: "Add Point")
             return true
 
         case .routeLine(let routeID) where routeID == detail.route.id:
             guard let leg = detail.nearestLeg(to: click.coordinate) else { return false }
-            detail.insertVia(click.coordinate, inLeg: leg)
+            detail.insertVia(click.coordinate, inLeg: leg, shape: shape)
             commit(detail, actionName: "Insert Point")
             return true
 
@@ -661,14 +667,17 @@ final class LibraryModel {
         guard var detail = editingDetail, drag.routeID == detail.route.id else { return }
         if let dragged { detail.points = dragged }
 
-        detail.moveVia(at: drag.seq, to: drag.coordinate)
-
         switch drag.phase {
         case .move:
+            // Straight legs while the mouse is down. Routing runs tens of
+            // milliseconds per leg and a drag reports every frame; the road
+            // is computed once, on release.
+            detail.moveVia(at: drag.seq, to: drag.coordinate)
             dragged = detail.points
             rebuildOverlay()
         case .end:
             dragged = nil
+            detail.moveVia(at: drag.seq, to: drag.coordinate, shape: shape)
             commit(detail, actionName: "Move Point")
         }
     }
@@ -678,7 +687,7 @@ final class LibraryModel {
         guard var detail = editingDetail,
               let seq = selection.compactMap(OverlayGeoJSON.parseHandle).first(where: { $0.routeID == detail.route.id })?.seq
         else { return }
-        detail.removeVia(at: seq)
+        detail.removeVia(at: seq, shape: shape)
         selection.remove(OverlayGeoJSON.handle(detail.route.id, seq))
         commit(detail, actionName: "Delete Point")
     }
