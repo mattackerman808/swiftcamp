@@ -40,6 +40,13 @@ enum GPX {
     /// shaping points, display colour, and waypoint display mode.
     static let garminExtensions = "http://www.garmin.com/xmlschemas/GpxExtensions/v3"
 
+    /// Garmin's `TripExtensions`. It says which route points are stops and
+    /// which only shape the road: a `trp:ViaPoint` is announced by the
+    /// device, a `trp:ShapingPoint` is passed in silence. BaseCamp writes
+    /// one or the other into every `<rtept>`, and a route exported without
+    /// them arrives with every bend announced as a destination.
+    static let garminTripExtensions = "http://www.garmin.com/xmlschemas/TripExtensions/v1"
+
     /// Garmin's `TrackPointExtension`, for per-point sensor data.
     ///
     /// Recognised so the reader can skip it knowingly rather than trip over

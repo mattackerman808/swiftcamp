@@ -12,7 +12,8 @@ enum GPXWriter {
         out += #"<?xml version="1.0" encoding="UTF-8"?>"# + "\n"
         out += "<gpx version=\"1.1\" creator=\"\(escape(document.creator))\"\n"
         out += "     xmlns=\"\(GPX.namespace)\"\n"
-        out += "     xmlns:gpxx=\"\(GPX.garminExtensions)\">\n"
+        out += "     xmlns:gpxx=\"\(GPX.garminExtensions)\"\n"
+        out += "     xmlns:trp=\"\(GPX.garminTripExtensions)\">\n"
 
         out += metadata(document)
         // Order is fixed by the schema: metadata, then every wpt, then every
@@ -81,27 +82,43 @@ enum GPXWriter {
         return out
     }
 
-    /// A via point, carrying the road that leads away from it.
+    /// A route point, carrying the road that leads away from it and whether
+    /// it is a stop.
     ///
     /// The `gpxx:rpt` list is the whole reason this file format is worth
     /// getting exactly right. Without it a Garmin unit re-routes between via
     /// points using its own map and its own preferences, and the rider ends
     /// up somewhere other than where the route was planned. With it, the
     /// device follows the shape it was given.
+    ///
+    /// The `trp` element says what kind of point this is, in the exact
+    /// shape BaseCamp writes: a shaping point is an empty element, a via
+    /// point carries the two modes BaseCamp always gives it. Written for
+    /// every point, because a unit reading a file with neither treats the
+    /// point as a stop, and a shaping point that is announced as a
+    /// destination is the bug this distinction exists to prevent.
     private static func routePoint(_ p: RoutePoint) -> String {
         var out = "    <rtept lat=\"\(number(p.lat))\" lon=\"\(number(p.lon))\">\n"
         out += element("name", p.name, indent: 6)
         out += element("sym", p.symbol, indent: 6)
 
+        out += "      <extensions>\n"
+        if p.isVia {
+            out += "        <trp:ViaPoint>\n"
+            out += "          <trp:CalculationMode>FasterTime</trp:CalculationMode>\n"
+            out += "          <trp:ElevationMode>Standard</trp:ElevationMode>\n"
+            out += "        </trp:ViaPoint>\n"
+        } else {
+            out += "        <trp:ShapingPoint/>\n"
+        }
         if let geometry = p.geometry, !geometry.isEmpty {
-            out += "      <extensions>\n"
             out += "        <gpxx:RoutePointExtension>\n"
             for c in geometry {
                 out += "          <gpxx:rpt lat=\"\(number(c.lat))\" lon=\"\(number(c.lon))\"/>\n"
             }
             out += "        </gpxx:RoutePointExtension>\n"
-            out += "      </extensions>\n"
         }
+        out += "      </extensions>\n"
 
         out += "    </rtept>\n"
         return out

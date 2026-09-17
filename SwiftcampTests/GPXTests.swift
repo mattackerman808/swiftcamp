@@ -225,6 +225,47 @@ final class GPXTests: XCTestCase {
                        "all six shaping points, across both via points")
     }
 
+    /// Which points are stops and which only shape the road has to survive
+    /// the file, in the exact shape BaseCamp writes, or a device announces
+    /// every bend as a destination.
+    func testShapingPointsAreMarkedAndReadBack() throws {
+        let route = Route(name: "Peak to Peak")
+        var document = GPXDocument()
+        document.routes = [RouteDetail(route: route, points: [
+            RoutePoint(routeID: route.id, seq: 0, lat: 40.3772, lon: -105.5217, name: "Estes Park"),
+            RoutePoint(routeID: route.id, seq: 1, lat: 40.2, lon: -105.5, isVia: false),
+            RoutePoint(routeID: route.id, seq: 2, lat: 39.96, lon: -105.51, name: "Nederland"),
+        ])]
+
+        let text = GPXWriter.write(document)
+        XCTAssertTrue(text.contains(#"xmlns:trp="http://www.garmin.com/xmlschemas/TripExtensions/v1""#))
+        XCTAssertEqual(text.components(separatedBy: "<trp:ShapingPoint/>").count - 1, 1)
+        XCTAssertEqual(text.components(separatedBy: "<trp:ViaPoint>").count - 1, 2)
+        XCTAssertTrue(text.contains("<trp:CalculationMode>FasterTime</trp:CalculationMode>"))
+
+        let back = try GPXReader.read(data: Data(text.utf8))
+        XCTAssertEqual(back.routes.first?.points.map(\.isVia), [true, false, true])
+        XCTAssertEqual(back.routes.first?.points.map(\.name), ["Estes Park", nil, "Nederland"])
+    }
+
+    /// The marker is named by its namespace, not its prefix, like everything
+    /// else Garmin. A point marked neither way is a stop, as a device assumes.
+    func testShapingPointIsMatchedOnNamespaceNotPrefix() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"
+             xmlns:t="http://www.garmin.com/xmlschemas/TripExtensions/v1">
+          <rte><name>R</name>
+            <rtept lat="40.0" lon="-105.0"><extensions><t:ViaPoint><t:CalculationMode>FasterTime</t:CalculationMode></t:ViaPoint></extensions></rtept>
+            <rtept lat="40.1" lon="-105.1"><extensions><t:ShapingPoint/></extensions></rtept>
+            <rtept lat="40.2" lon="-105.2"/>
+          </rte>
+        </gpx>
+        """
+        let document = try GPXReader.read(data: Data(xml.utf8))
+        XCTAssertEqual(document.routes.first?.points.map(\.isVia), [true, false, true])
+    }
+
     func testWrittenFileDeclaresGPX11AndTheGarminNamespace() throws {
         let text = GPXWriter.write(try read("basecamp-route"))
 

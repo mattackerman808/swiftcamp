@@ -93,6 +93,10 @@ extension GPXReader: XMLParserDelegate {
             startGarminElement(element, attributes: attributes)
             return
         }
+        if namespaceURI == GPX.garminTripExtensions {
+            startTripElement(element)
+            return
+        }
 
         // Anything from a namespace we do not handle is skipped whole,
         // children included. Garmin's TrackPointExtension lands here, as does
@@ -164,6 +168,7 @@ extension GPXReader: XMLParserDelegate {
             endGarminElement(element)
             return
         }
+        if namespaceURI == GPX.garminTripExtensions { return }
         guard GPX.isGPXNamespace(namespaceURI) else { return }
 
         defer {
@@ -284,6 +289,20 @@ extension GPXReader: XMLParserDelegate {
         // Garmin's vocabulary, and a colour we do not recognise today should
         // still come back out of the file unchanged.
         if route != nil { route?.color = value } else if track != nil { track?.color = value }
+    }
+
+    /// Whether the current route point is a stop or only shapes the road.
+    ///
+    /// Matched on namespace like everything else, so a file that binds the
+    /// trip extensions to some other prefix still reads. A point marked
+    /// neither way stays a via point, which is what a device assumes too.
+    private func startTripElement(_ element: String) {
+        guard routePoint != nil else { return }
+        switch element {
+        case "ShapingPoint": routePoint?.isVia = false
+        case "ViaPoint": routePoint?.isVia = true
+        default: break
+        }
     }
 
     // MARK: - Helpers
