@@ -358,6 +358,12 @@ implements them; this is the index.
   therefore reported never, and the harness sends press, contextmenu,
   release exactly as the OS does. Read from the bundled `maplibre-gl.js`
   after one wrong guess, which is the renderer lesson yet again.
+- **Valhalla's generated config is for a public server, not a planner.**
+  Its motorcycle limit is 500 km per leg, a tenth of the car's, and a leg
+  from California to Colorado was refused and drawn straight, which looked
+  exactly like routing being off. `RoutingEngine.raiseLimits` is the fix;
+  the lesson is that a straight leg must log its reason, which is how this
+  one was read off `valhalla_service` in a minute.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

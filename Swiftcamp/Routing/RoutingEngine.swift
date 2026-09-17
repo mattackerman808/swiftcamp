@@ -71,7 +71,27 @@ final class RoutingEngine: @unchecked Sendable {
 
     /// A developer's own graph on local disk, from its config file.
     convenience init(configURL: URL) throws {
-        try self.init(configJSON: try String(contentsOf: configURL, encoding: .utf8))
+        guard var config = try JSONSerialization.jsonObject(with: Data(contentsOf: configURL)) as? [String: Any]
+        else { throw RoutingError(message: "the routing config is not a JSON object") }
+        Self.raiseLimits(&config)
+        try self.init(configJSON: String(decoding: try JSONSerialization.data(withJSONObject: config), as: UTF8.self))
+    }
+
+    /// Lifts a limit the config generator sets for a public server.
+    ///
+    /// It caps a motorcycle route at 500 km, a tenth of what it allows a
+    /// car, and a leg from California to Colorado is three times that. The
+    /// engine refuses the leg with "exceeds the max distance limit" and the
+    /// planner draws it straight, which looks exactly like routing being
+    /// off. A planner is not a public server: one user, one route at a
+    /// time, and a leg the length of the country is a ride someone means
+    /// to take. Matched to the car limit, 5,000 km.
+    private static func raiseLimits(_ config: inout [String: Any]) {
+        var limits = config["service_limits"] as? [String: Any] ?? [:]
+        var motorcycle = limits["motorcycle"] as? [String: Any] ?? [:]
+        motorcycle["max_distance"] = 5_000_000.0
+        limits["motorcycle"] = motorcycle
+        config["service_limits"] = limits
     }
 
     /// The graph published at `url`, a tar Valhalla reads by byte range:
@@ -115,6 +135,7 @@ final class RoutingEngine: @unchecked Sendable {
         var loki = config["loki"] as? [String: Any] ?? [:]
         loki["use_connectivity"] = false
         config["loki"] = loki
+        Self.raiseLimits(&config)
         let json = String(decoding: try JSONSerialization.data(withJSONObject: config), as: UTF8.self)
         try self.init(configJSON: json)
         NSLog("[Swiftcamp] routing graph %@, cache %@", url, cache.path)

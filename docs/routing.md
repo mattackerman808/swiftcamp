@@ -238,7 +238,23 @@ make deliberately, not a bug in the spike: Valhalla's `graph.lua` decides
 what `permit` means, and the seasonal closure needs a `date_time` on the
 request to be honoured at all.
 
+**The config generator's service limits apply to a planner.** They are
+written for a public server: a motorcycle route may be 500 km, a tenth of
+what a car gets, and a leg from California to Colorado is three times
+that. The engine refuses it with "exceeds the max distance limit" and the
+planner draws the leg straight, which looks exactly like routing being
+off. `RoutingEngine.raiseLimits` lifts it to the car's 5,000 km on both
+config paths. Measured through `valhalla_service` on the streamed US
+graph: Sacramento to Denver, 1,169 miles, 61 tiles and 361 MB fetched,
+18.8 s cold. A click that appends a via point routes on the main actor,
+so that first cross-country leg is a stall; routing appends off the main
+actor the way drags already do is the fix, listed under Next.
+
 ## Next
+
+- Route an appended via point off the main actor, drawing the leg
+  straight until the road arrives, as a drag already does. A cold
+  cross-country leg is nineteen seconds and the window is frozen for it.
 
 - Prefetch the local-level tiles under the visible map while the user
   pans, so the first drag into an area is warm.
