@@ -72,6 +72,7 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `click`, `drag`, `key`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \
@@ -82,6 +83,31 @@ Swiftcamp.app/Contents/MacOS/Swiftcamp \
 
 Always pass `-SwiftcampLibrary` alongside `-SwiftcampImport`: the import runs
 on every launch, and against the real library that accumulates copies.
+
+`-SwiftcampScript` exists because route editing is clicks and drags, and
+nothing can script those against a real window without Accessibility
+permission. The page dispatches DOM events on its own canvas instead, so
+everything from MapLibre's hit test onward is the real path. `probe` logs
+what the renderer has at a coordinate, which is the first thing to ask when a
+click did not do what it should. `dump` writes the routes as JSON for a check
+to read.
+
+```json
+[
+  {"action": "wait", "seconds": 4},
+  {"action": "newRoute"},
+  {"action": "click", "lon": -105.75, "lat": 40.35},
+  {"action": "click", "lon": -105.60, "lat": 40.35},
+  {"action": "wait", "seconds": 1},
+  {"action": "drag", "lon": -105.60, "lat": 40.35, "toLon": -105.65, "toLat": 40.42},
+  {"action": "probe", "lon": -105.65, "lat": 40.42},
+  {"action": "dump", "path": "/tmp/routes.json"}
+]
+```
+
+Leave a second between an edit and anything that clicks what it drew. The
+overlay reaches the renderer asynchronously and a hit test before it lands
+reports empty ground.
 
 ## Data
 

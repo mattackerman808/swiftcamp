@@ -92,3 +92,45 @@ struct MapClick: Equatable, Sendable {
     var coordinate: Coordinate
     var target: Target
 }
+
+/// A via point being dragged on the map.
+///
+/// `.move` arrives continuously and only updates what is drawn; `.end`
+/// arrives once and is the edit. Writing the library on every mouse move
+/// would make a single drag hundreds of transactions and hundreds of
+/// observation deliveries, each of which re-renders the sidebar.
+struct MapDrag: Equatable, Sendable {
+    enum Phase: Equatable, Sendable { case move, end }
+
+    var routeID: String
+    var seq: Int
+    var coordinate: Coordinate
+    var phase: Phase
+}
+
+/// A key the page saw and handed back, because the web view is first
+/// responder whenever the mouse is over the map and SwiftUI's
+/// `onDeleteCommand` never hears it.
+enum MapKey: String, Sendable {
+    case delete, escape
+}
+
+/// Synthetic input for the page, from `-SwiftcampScript`.
+///
+/// Debug affordance only. Nothing can drive a real click through a script
+/// without Accessibility permission, so the harness dispatches DOM events
+/// on the map canvas instead. They run through MapLibre's own hit testing
+/// and the same handlers a real mouse reaches, which is what makes the
+/// check worth anything; see `CLAUDE.md` on synthetic checks.
+///
+/// Carries an `id` for the same reason `MapCameraRequest` does: two
+/// identical clicks in a row are two clicks.
+struct MapPageEvent: Equatable, Sendable {
+    var id: Int
+    var kind: String
+    var lon: Double = 0
+    var lat: Double = 0
+    var toLon: Double = 0
+    var toLat: Double = 0
+    var key: String = ""
+}

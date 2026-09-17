@@ -21,16 +21,21 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 
 ## Current state
 
-**The macOS basemap is done. The product is not started.**
+**The map, the library, GPX and the device are built. The planner is in
+progress.**
 
-Working: street detail to z15 and terrain streamed from our own CDN,
-ground cover coloured by kind, hypsometric elevation tint, hillshade,
-buildings, place and street labels, and authentic route shields for all 50
-states. Both platforms render, though only macOS is being actively worked
-on.
+Working: street detail to z15 and terrain streamed from our own CDN, ground
+cover, hypsometric tint, hillshade, buildings, labels, and authentic route
+shields for all 50 states. A GRDB library with waypoints, tracks and routes.
+GPX 1.0 and 1.1 in, 1.1 with Garmin extensions out. MTP transfer over USB to
+a zūmo XT3, both directions. Route editing on the map: click to add, drag to
+move, click the line to insert, Delete to remove, reverse, undo and redo.
+Legs are straight lines until Valhalla lands.
 
-Not started: any data model, waypoints, tracks, routes, GPX import or
-export, or route editing. There is a map and nothing to put on it.
+Not started: waypoint creation and editing, lists, search and sort, GDB
+import, routing. `docs/basecamp-parity.md` has the full inventory.
+
+Only macOS is being actively worked on. iOS builds but has no overlay path.
 
 ## Where this is going
 
@@ -316,6 +321,23 @@ implements them; this is the index.
   recursed between `graphDidChange` and `scenesDidChange` until the stack blew.
   The crash has no frame of ours in it. `LibraryModel.hasContent` is one flag
   that flips twice a session instead.
+- **A synthetic mouse must release where it pressed.** The scripted-input
+  harness sent its `mouseup` to the document, and MapLibre never reset its
+  drag state, so the next hover panned the map by the distance to the last
+  press and every later click landed somewhere else. Each click was reported
+  at a plausible pixel, which is why it looked like a hit-test bug. The
+  camera log per event found it; the event sequence now matches a real
+  mouse exactly, and `probe` in the script asks the renderer what is under
+  a coordinate.
+- **An `UndoManager` left to group by run-loop event grouped a whole session
+  into one undo.** Edits arrive as main-queue blocks, from web-view messages
+  and awaited steps, and can run back to back without the run loop sleeping
+  between them. `LibraryModel` opens and closes a group around every
+  registration itself.
+- **Scripted clicks need Accessibility permission, which a terminal does not
+  have.** `osascript` and CGEvent posting both fail silently or prompt the
+  user. `-SwiftcampScript` dispatches DOM events on the map canvas instead,
+  which runs MapLibre's own hit testing and every handler after it.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

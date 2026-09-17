@@ -99,6 +99,14 @@ enum OverlayGeoJSON {
     /// is not stable across a save, which rewrites every point.
     static func handle(_ routeID: String, _ seq: Int) -> String { "\(routeID)#\(seq)" }
 
+    /// The inverse, for a selection that holds a handle. Route ids are
+    /// UUIDs and never contain `#`, so the last one is the separator.
+    static func parseHandle(_ id: String) -> (routeID: String, seq: Int)? {
+        guard let hash = id.lastIndex(of: "#"),
+              let seq = Int(id[id.index(after: hash)...]) else { return nil }
+        return (String(id[..<hash]), seq)
+    }
+
     // MARK: - Types
 
     struct FeatureCollection: Codable, Equatable {

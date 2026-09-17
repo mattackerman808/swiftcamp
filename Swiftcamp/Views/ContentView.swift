@@ -36,7 +36,9 @@ struct ContentView: View {
     }
 
     private var map: some View {
-        MapContainer(overlay: model.overlay, camera: model.camera, onClick: model.select)
+        MapContainer(overlay: model.overlay, camera: model.camera,
+                     editingRouteID: model.editingRouteID, pageEvent: model.pageEvent,
+                     onClick: model.select, onDrag: model.drag, onKey: model.key)
             #if os(iOS)
             // Edge to edge under the status bar and home indicator.
             //
@@ -60,7 +62,9 @@ struct ContentView: View {
                     .padding(8)
             }
             .overlay(alignment: .top) {
-                if model.isBusy {
+                if model.editingRouteID != nil {
+                    editBar
+                } else if model.isBusy {
                     Label("Reading…", systemImage: "clock")
                         .font(.callout)
                         .padding(.horizontal, 12)
@@ -81,9 +85,29 @@ struct ContentView: View {
             }
     }
 
+    /// What editing means, said once, where the cursor is. The map gives
+    /// no other hint that clicking it now does something.
+    private var editBar: some View {
+        HStack(spacing: 12) {
+            Label("Click the map to add a point. Drag a point to move it. Click the line to insert one.",
+                  systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                .font(.callout)
+            Button("Done") { model.finishEditing() }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
+            Button { model.newRoute() } label: {
+                Label("New Route", systemImage: "plus")
+            }
+            .help("Start a route and place its points by clicking the map")
             Button { openWindow(id: TransferWindow.id) } label: {
                 Label("Transfer", systemImage: "arrow.left.arrow.right")
             }

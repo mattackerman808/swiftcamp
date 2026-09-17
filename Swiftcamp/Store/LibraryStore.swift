@@ -144,6 +144,37 @@ struct LibraryStore: Sendable {
         }
     }
 
+    /// Creates a route with no points yet. Editing fills it in.
+    func insert(_ route: Route) throws {
+        var route = route
+        route.createdAt = .now
+        route.updatedAt = .now
+        try database.writer.write { db in try route.insert(db) }
+    }
+
+    /// Replaces a route's points and leaves its header alone.
+    ///
+    /// This is what every edit of the line goes through. The editor works
+    /// on an in-memory copy of the points while the sidebar may be renaming
+    /// or recolouring the same route, and `save(_ detail:)` would write the
+    /// editor's stale copy of the header over that change.
+    func replacePoints(routeID: String, with points: [RoutePoint]) throws {
+        try database.writer.write { db in
+            guard var route = try Route.fetchOne(db, key: routeID) else { return }
+            route.updatedAt = .now
+            try route.update(db)
+
+            try RoutePoint.filter(Column("route_id") == routeID).deleteAll(db)
+            for (index, point) in points.enumerated() {
+                var point = point
+                point.id = nil
+                point.routeID = routeID
+                point.seq = index
+                try point.insert(db)
+            }
+        }
+    }
+
     /// Writes a track and replaces its points, in one transaction.
     func save(_ track: Track, points: [TrackPoint]) throws {
         var track = track

@@ -26,6 +26,25 @@ struct SwiftcampApp: App {
         // far too small to lay a route out on.
         .defaultSize(width: 1280, height: 860)
         .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("New Route") { model.newRoute() }
+                    .keyboardShortcut("n")
+            }
+            // Undo and redo go to the model's own manager rather than the
+            // responder chain's. The web view is first responder whenever
+            // the mouse is over the map, and its undo manager is for text
+            // fields in the page, of which there are none — so the stock
+            // items would undo nothing while looking enabled.
+            //
+            // Always enabled, on purpose. Disabling on `canUndo` would read
+            // observable state from a `Scene`, which rebuilds the app graph
+            // on every edit; see `hasContent`.
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { model.undoManager.undo() }
+                    .keyboardShortcut("z")
+                Button("Redo") { model.undoManager.redo() }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
             // GPX belongs in the File menu with a keyboard shortcut, not
             // only in the toolbar. Command-O is what someone reaches for
             // first, and a Mac app that answers it with nothing feels

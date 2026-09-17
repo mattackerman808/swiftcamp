@@ -72,6 +72,41 @@ final class LibraryModel {
     /// reason rather than a silent no-op.
     var failure: String?
 
+    /// The route being edited, if any. While set, a click on empty map adds
+    /// a via point to it and its handles can be dragged.
+    private(set) var editingRouteID: String?
+
+    /// The editor's copy of the route's points while a drag is in flight.
+    ///
+    /// The library is written once, when the drag ends. Between mouse
+    /// moves this is what the overlay draws, so the line follows the
+    /// pointer without a transaction and an observation delivery per frame.
+    @ObservationIgnored private var dragged: [RoutePoint]?
+
+    /// Undo and redo for edits. Owned here rather than taken from the
+    /// window, because the web view is first responder whenever the mouse
+    /// is over the map and the responder chain's undo manager is then the
+    /// web view's own, which knows nothing about routes.
+    let undoManager: UndoManager = {
+        // One group per edit, opened and closed by hand. Automatic grouping
+        // closes a group when the run loop goes to sleep, and edits that
+        // arrive as main-queue blocks — every message from the web view,
+        // every awaited step — can run back to back without it waking, so
+        // a whole session of clicks undid as one.
+        let manager = UndoManager()
+        manager.groupsByEvent = false
+        return manager
+    }()
+
+    private func registerUndo(_ actionName: String, _ handler: @escaping @MainActor (LibraryModel) -> Void) {
+        undoManager.beginUndoGrouping()
+        undoManager.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated { handler(model) }
+        }
+        undoManager.setActionName(actionName)
+        undoManager.endUndoGrouping()
+    }
+
     private let store: LibraryStore
     @ObservationIgnored private var cancellables: [AnyDatabaseCancellable] = []
     @ObservationIgnored private var overlayTask: Task<Void, Never>?
@@ -81,10 +116,86 @@ final class LibraryModel {
     /// separate events, so the ids are known before the geometry is.
     @ObservationIgnored private var pendingFocus: Set<String> = []
 
+    /// Scripted input in flight, for the map to replay. See `MapPageEvent`.
+    private(set) var pageEvent: MapPageEvent?
+
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
         observe()
         importAtLaunchIfRequested()
+        runScriptIfRequested()
+    }
+
+    // MARK: - Scripted checks
+
+    /// `-SwiftcampScript <path>` replays a list of editing actions at launch.
+    ///
+    /// Debug affordance, the companion of `-SwiftcampSnapshot`. Route editing
+    /// is clicks and drags, and nothing can script those against a real
+    /// window without Accessibility permission, so the check goes in through
+    /// the front door instead: the page dispatches DOM events on its own
+    /// canvas and everything from MapLibre's hit test onward is the real
+    /// path. Actions are `newRoute`, `click`, `drag`, `key`, `undo`, `redo`,
+    /// `done`, `wait` and `dump`, as JSON objects with an `action` key.
+    private func runScriptIfRequested() {
+        guard let path = UserDefaults.standard.string(forKey: "SwiftcampScript"),
+              let data = FileManager.default.contents(atPath: path),
+              let steps = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+        else { return }
+
+        Task { await run(steps) }
+    }
+
+    private func run(_ steps: [[String: Any]]) async {
+        func number(_ key: String, _ step: [String: Any]) -> Double { (step[key] as? Double) ?? 0 }
+
+        for step in steps {
+            // Long enough for a click to cross the bridge, be written, come
+            // back through the observation and reach the renderer.
+            try? await Task.sleep(for: .milliseconds(500))
+
+            switch step["action"] as? String {
+            case "wait":
+                try? await Task.sleep(for: .seconds(number("seconds", step)))
+            case "newRoute":
+                newRoute()
+            case "undo":
+                undoManager.undo()
+            case "redo":
+                undoManager.redo()
+            case "done":
+                finishEditing()
+            case "click", "drag", "key", "probe":
+                pageEvent = MapPageEvent(id: (pageEvent?.id ?? 0) + 1,
+                                         kind: step["action"] as! String,
+                                         lon: number("lon", step), lat: number("lat", step),
+                                         toLon: number("toLon", step), toLat: number("toLat", step),
+                                         key: step["key"] as? String ?? "")
+            case "dump":
+                if let path = step["path"] as? String { dump(to: path) }
+            default:
+                NSLog("[Swiftcamp] script: unknown step %@", String(describing: step))
+            }
+        }
+    }
+
+    /// The library's routes as JSON, for a script to assert against.
+    private func dump(to path: String) {
+        let routes = self.routes.map { detail -> [String: Any] in
+            ["name": detail.route.name,
+             "editing": detail.route.id == editingRouteID,
+             "points": detail.points.map { p -> [String: Any] in
+                 ["seq": p.seq, "lat": p.lat, "lon": p.lon,
+                  "name": p.name ?? "", "geometry": p.geometry?.count ?? 0]
+             }]
+        }
+        let payload: [String: Any] = ["routes": routes,
+                                      "selection": Array(selection).sorted(),
+                                      "canUndo": undoManager.canUndo,
+                                      "canRedo": undoManager.canRedo]
+        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path))
+        }
     }
 
     /// `-SwiftcampImport <path>` loads a GPX file at launch.
@@ -176,7 +287,11 @@ final class LibraryModel {
     /// long ride into a frozen window. Publishing unconditionally is what
     /// turns a redundant rebuild into another round of view invalidation.
     private func rebuildOverlay() {
-        let routes = self.routes
+        var routes = self.routes
+        if let editingRouteID, let dragged,
+           let i = routes.firstIndex(where: { $0.route.id == editingRouteID }) {
+            routes[i].points = dragged
+        }
         let tracks = self.tracks
         let waypoints = self.waypoints
         let selection = self.selection
@@ -426,6 +541,8 @@ final class LibraryModel {
     }
 
     func select(_ click: MapClick) {
+        if editingRouteID != nil, edit(with: click) { return }
+
         switch click.target {
         case .viaPoint(let routeID, let seq):
             selection = [OverlayGeoJSON.handle(routeID, seq), routeID]
@@ -437,6 +554,178 @@ final class LibraryModel {
             selection = [id]
         case .ground:
             selection = []
+        }
+    }
+
+    // MARK: - Route editing
+
+    /// Starts a new, empty route and begins editing it.
+    ///
+    /// Written to the library at once rather than held until the first
+    /// click, so it appears in the sidebar and can be named while the map
+    /// is still being aimed. An empty route left behind on Done is deleted.
+    func newRoute() {
+        finishEditing()
+
+        let taken = Set(routes.map(\.route.name))
+        var n = routes.count + 1
+        while taken.contains("Route \(n)") { n += 1 }
+
+        let route = Route(name: "Route \(n)",
+                          color: ItemColor.default(for: routes.count + tracks.count).name)
+        do {
+            try store.insert(route)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        // Undoing the creation removes the route, points and all. Redo
+        // cannot bring the points back — but there were none when this was
+        // registered, and every later edit sits above it on the stack.
+        registerUndo("New Route") { model in
+            model.finishEditing()
+            model.delete(route.id)
+        }
+
+        // In the editor's view of the library at once. The observation
+        // delivers the same row a moment later, but a fast first click
+        // would otherwise find no route to add to.
+        routes.append(RouteDetail(route: route, points: []))
+        refreshHasContent()
+        editingRouteID = route.id
+        selection = [route.id]
+    }
+
+    func editRoute(_ id: String) {
+        guard routes.contains(where: { $0.route.id == id }) else { return }
+        finishEditing()
+        editingRouteID = id
+        selection = [id]
+    }
+
+    /// Leaves editing mode. A route with no points is not a route and is
+    /// removed rather than left as an empty row.
+    func finishEditing() {
+        guard let id = editingRouteID else { return }
+        editingRouteID = nil
+        dragged = nil
+        if let detail = routes.first(where: { $0.route.id == id }), detail.points.isEmpty {
+            do { try store.deleteRoute(id: id) } catch { failure = error.localizedDescription }
+            selection.remove(id)
+        }
+    }
+
+    /// The route being edited, as the editor sees it.
+    private var editingDetail: RouteDetail? {
+        guard let editingRouteID else { return nil }
+        return routes.first { $0.route.id == editingRouteID }
+    }
+
+    /// A click while editing. Returns false when the click means what it
+    /// would have meant outside editing, so the caller falls through to
+    /// selection.
+    private func edit(with click: MapClick) -> Bool {
+        guard var detail = editingDetail else { return false }
+
+        switch click.target {
+        case .ground:
+            detail.appendVia(click.coordinate)
+            commit(detail, actionName: "Add Point")
+            return true
+
+        case .waypoint(let id):
+            // Routing through a waypoint is how BaseCamp users plan: pins
+            // first, then a route that visits them. The via point takes the
+            // waypoint's exact position and its name.
+            guard let waypoint = waypoints.first(where: { $0.id == id }) else { return false }
+            detail.appendVia(waypoint.coordinate, name: waypoint.name)
+            commit(detail, actionName: "Add Point")
+            return true
+
+        case .routeLine(let routeID) where routeID == detail.route.id:
+            guard let leg = detail.nearestLeg(to: click.coordinate) else { return false }
+            detail.insertVia(click.coordinate, inLeg: leg)
+            commit(detail, actionName: "Insert Point")
+            return true
+
+        case .viaPoint(let routeID, _) where routeID == detail.route.id:
+            return false    // selects the handle, so Delete knows which
+
+        case .viaPoint, .routeLine, .track:
+            return false
+        }
+    }
+
+    /// A via point being dragged. Moves redraw; the end is the edit.
+    func drag(_ drag: MapDrag) {
+        guard var detail = editingDetail, drag.routeID == detail.route.id else { return }
+        if let dragged { detail.points = dragged }
+
+        detail.moveVia(at: drag.seq, to: drag.coordinate)
+
+        switch drag.phase {
+        case .move:
+            dragged = detail.points
+            rebuildOverlay()
+        case .end:
+            dragged = nil
+            commit(detail, actionName: "Move Point")
+        }
+    }
+
+    /// Removes the selected via point of the route being edited.
+    func deleteSelectedViaPoint() {
+        guard var detail = editingDetail,
+              let seq = selection.compactMap(OverlayGeoJSON.parseHandle).first(where: { $0.routeID == detail.route.id })?.seq
+        else { return }
+        detail.removeVia(at: seq)
+        selection.remove(OverlayGeoJSON.handle(detail.route.id, seq))
+        commit(detail, actionName: "Delete Point")
+    }
+
+    func reverseRoute(_ id: String) {
+        guard var detail = routes.first(where: { $0.route.id == id }) else { return }
+        detail.reverse()
+        commit(detail, actionName: "Reverse Route")
+    }
+
+    func key(_ key: MapKey) {
+        switch key {
+        case .delete: deleteSelectedViaPoint()
+        case .escape: finishEditing()
+        }
+    }
+
+    /// Writes an edit and makes it undoable.
+    ///
+    /// Header-only changes made meanwhile in the sidebar survive, because
+    /// only the points are written. The previous points are captured for
+    /// undo and the new ones for redo, so the stack is a list of snapshots
+    /// rather than of inverse operations, which is fewer things to get
+    /// wrong for routes this small.
+    private func commit(_ detail: RouteDetail, actionName: String) {
+        let before = routes.first { $0.route.id == detail.route.id }?.points ?? []
+        write(detail.route.id, points: detail.points, undoing: before, actionName: actionName)
+    }
+
+    private func write(_ routeID: String, points: [RoutePoint], undoing before: [RoutePoint], actionName: String) {
+        do {
+            try store.replacePoints(routeID: routeID, with: points)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+
+        // Applied to the in-memory routes at once rather than waiting for
+        // the observation, so two quick clicks each build on the other.
+        // The observation delivers the same rows a moment later.
+        if let i = routes.firstIndex(where: { $0.route.id == routeID }) {
+            routes[i].points = points
+            rebuildOverlay()
+        }
+
+        registerUndo(actionName) { model in
+            model.write(routeID, points: before, undoing: points, actionName: actionName)
         }
     }
 
@@ -466,6 +755,10 @@ final class LibraryModel {
     }
 
     func delete(_ id: String) {
+        if id == editingRouteID {
+            editingRouteID = nil
+            dragged = nil
+        }
         do {
             if routes.contains(where: { $0.route.id == id }) {
                 try store.deleteRoute(id: id)

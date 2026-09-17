@@ -33,6 +33,9 @@ struct LibrarySidebar: View {
                             color: ItemColor.named(detail.route.color))
                         .tag(detail.route.id)
                         .contextMenu {
+                            Button("Edit Route") { model.editRoute(detail.route.id) }
+                            Button("Reverse Route") { model.reverseRoute(detail.route.id) }
+                            Divider()
                             renameButton(detail.route.id, detail.route.name)
                             colorMenu(for: detail.route.id)
                             Divider()
@@ -89,6 +92,7 @@ struct LibrarySidebar: View {
                 } description: {
                     Text("Import a GPX file to get started.")
                 } actions: {
+                    Button("New Route") { model.newRoute() }
                     Button("Import GPX…") { model.isImporting = true }
                 }
             }

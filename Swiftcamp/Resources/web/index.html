@@ -99,8 +99,75 @@ function post(message) {
 
     fitBounds: function (west, south, east, north) {
       map.fitBounds([[west, south], [east, north]], { padding: 64, duration: 600 });
+    },
+
+    // Which route's via points can be dragged, or null. Known here and not
+    // only in Swift because a drag begins by cancelling the map's own pan
+    // on mousedown, and cancelling it for a dot that will not move leaves a
+    // map that refuses to pan whenever the cursor is over one.
+    setEditing: function (id) {
+      editing = id || null;
+      map.getCanvas().style.cursor = editing ? 'crosshair' : '';
+    },
+
+    // Scripted input for the -SwiftcampScript harness. Real DOM events on
+    // the real canvas, so they run through MapLibre's hit testing and the
+    // handlers above exactly as a mouse would. mousedown goes to the canvas
+    // and the rest to the document, which is where MapLibre listens for a
+    // drag that leaves the map.
+    synthesize: function (kind, lon, lat, toLon, toLat, key) {
+      var canvas = map.getCanvas();
+      var rect = canvas.getBoundingClientRect();
+      function at(lng, lt) {
+        var p = map.project([lng, lt]);
+        return { x: rect.left + p.x, y: rect.top + p.y };
+      }
+      // Exactly the sequence a mouse produces: a hover with no button
+      // down, the press and release on the canvas, then the click. The
+      // release must bubble from the canvas: MapLibre resets its drag
+      // state on the release it sees, and one that starts anywhere else
+      // leaves it believing the button is still down, after which the next
+      // hover pans the map by the distance to the last press.
+      function mouse(type, target, pt, buttons) {
+        target.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, view: window,
+          clientX: pt.x, clientY: pt.y, screenX: pt.x, screenY: pt.y,
+          button: 0, buttons: buttons
+        }));
+      }
+      if (kind === 'click') {
+        var p = at(lon, lat);
+        mouse('mousemove', canvas, p, 0);
+        mouse('mousedown', canvas, p, 1);
+        mouse('mouseup', canvas, p, 0);
+        mouse('click', canvas, p, 0);
+      } else if (kind === 'drag') {
+        var a = at(lon, lat), b = at(toLon, toLat);
+        mouse('mousemove', canvas, a, 0);
+        mouse('mousedown', canvas, a, 1);
+        for (var i = 1; i <= 8; i++) {
+          var t = i / 8;
+          mouse('mousemove', canvas, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, 1);
+        }
+        mouse('mouseup', canvas, b, 0);
+      } else if (kind === 'probe') {
+        // What the renderer has at this spot. The answer to "why did that
+        // click not hit" is here, never in reasoning about it.
+        var q = at(lon, lat);
+        var pt = [q.x - rect.left, q.y - rect.top];
+        var hits = map.queryRenderedFeatures(pt, { layers: PICKABLE });
+        console.log('probe ' + lon + ',' + lat + ' px ' + pt.map(Math.round) +
+                    ' zoom ' + map.getZoom().toFixed(2) + ' hits ' +
+                    hits.map(function (h) { return h.layer.id + ':' + JSON.stringify(h.properties); }).join(' | '));
+      } else if (kind === 'key') {
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: key === 'delete' ? 'Backspace' : 'Escape', bubbles: true, cancelable: true
+        }));
+      }
     }
   };
+
+  var editing = null;
 
   // Overlay layers, topmost first, so a click reports the thing the user
   // thinks they aimed at when a via point sits on its own route line.
@@ -120,9 +187,83 @@ function post(message) {
   });
 
   // A cursor that changes is the only affordance saying a dot can be grabbed.
+  // While editing, empty map is a crosshair: clicking it places a point.
   map.on('mousemove', function (e) {
+    if (dragging) return;
     var hits = map.queryRenderedFeatures(e.point, { layers: PICKABLE });
-    map.getCanvas().style.cursor = hits.length ? 'pointer' : '';
+    var hit = hits.length ? hits[0] : null;
+    var cursor = '';
+    if (hit && hit.layer.id === 'via-point' && editing && hit.properties.id === editing) {
+      cursor = 'grab';
+    } else if (hit) {
+      cursor = 'pointer';
+    } else if (editing) {
+      cursor = 'crosshair';
+    }
+    map.getCanvas().style.cursor = cursor;
+  });
+
+  // Dragging a via point. The standard MapLibre GL JS pattern: on mousedown
+  // over the handle, preventDefault stops the map panning, then mousemove
+  // follows the pointer until mouseup. Only the route being edited is
+  // draggable, so a dot on any other route still lets the map pan under it.
+  //
+  // Moves are reported to Swift, which redraws the line from an in-memory
+  // copy; the write happens once, on 'end'. Nothing is drawn from here
+  // directly, so the page never holds a copy of the route that could
+  // disagree with the library.
+  var dragging = null;
+
+  map.on('mousedown', 'via-point', function (e) {
+    if (!editing) return;
+    var feature = e.features && e.features[0];
+    if (!feature || feature.properties.id !== editing) return;
+    e.preventDefault();
+
+    dragging = { id: feature.properties.id, seq: feature.properties.seq, moved: false, pending: null };
+    map.getCanvas().style.cursor = 'grabbing';
+
+    function report(phase, lngLat) {
+      post({ type: 'drag', phase: phase, id: dragging.id, seq: dragging.seq,
+             lon: lngLat.lng, lat: lngLat.lat });
+    }
+
+    // One report per frame, not per event. The pointer can raise several
+    // mousemoves between frames and each report is an overlay rebuild.
+    function onMove(ev) {
+      dragging.moved = true;
+      dragging.pending = ev.lngLat;
+      if (dragging.frame) return;
+      dragging.frame = requestAnimationFrame(function () {
+        dragging.frame = null;
+        if (dragging.pending) report('move', dragging.pending);
+      });
+    }
+
+    function onUp(ev) {
+      map.off('mousemove', onMove);
+      if (dragging.frame) cancelAnimationFrame(dragging.frame);
+      // A press with no movement is a click, and the click handler already
+      // reports it. Reporting an 'end' here too would write a no-op edit
+      // onto the undo stack.
+      if (dragging.moved) report('end', ev.lngLat);
+      dragging = null;
+      map.getCanvas().style.cursor = 'grab';
+    }
+
+    map.on('mousemove', onMove);
+    map.once('mouseup', onUp);
+  });
+
+  // Keys the app cares about, forwarded because the web view is first
+  // responder while the mouse is over the map, so SwiftUI never sees them.
+  document.addEventListener('keydown', function (e) {
+    var key = null;
+    if (e.key === 'Backspace' || e.key === 'Delete') key = 'delete';
+    else if (e.key === 'Escape') key = 'escape';
+    if (!key) return;
+    e.preventDefault();
+    post({ type: 'key', key: key });
   });
 
   map.on('load', function () {

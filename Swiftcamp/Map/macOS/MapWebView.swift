@@ -25,7 +25,11 @@ import WebKit
 struct MapWebView: NSViewRepresentable {
     var overlay: MapOverlay
     var camera: MapCameraRequest?
+    var editingRouteID: String?
+    var pageEvent: MapPageEvent?
     var onClick: ((MapClick) -> Void)?
+    var onDrag: ((MapDrag) -> Void)?
+    var onKey: ((MapKey) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -57,15 +61,23 @@ struct MapWebView: NSViewRepresentable {
 
         context.coordinator.webView = view
         context.coordinator.onClick = onClick
+        context.coordinator.onDrag = onDrag
+        context.coordinator.onKey = onKey
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
+        context.coordinator.edit(editingRouteID)
+        context.coordinator.synthesize(pageEvent)
         return view
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
         context.coordinator.onClick = onClick
+        context.coordinator.onDrag = onDrag
+        context.coordinator.onKey = onKey
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
+        context.coordinator.edit(editingRouteID)
+        context.coordinator.synthesize(pageEvent)
     }
 
     /// Camera override from `-SwiftcampCenter <lon,lat> -SwiftcampZoom <z>`.
@@ -115,6 +127,8 @@ struct MapWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKScriptMessageHandler {
         weak var webView: WKWebView?
         var onClick: ((MapClick) -> Void)?
+        var onDrag: ((MapDrag) -> Void)?
+        var onKey: ((MapKey) -> Void)?
 
         /// Nothing can be pushed until the page reports that its style has
         /// parsed and its sources exist. `makeNSView` returns long before
@@ -129,6 +143,10 @@ struct MapWebView: NSViewRepresentable {
         /// value so selecting the same route twice frames it twice.
         private var appliedCameraID = 0
         private var pendingCamera: MapCameraRequest?
+
+        /// What the page believes is editable. Sent only on change, since
+        /// `updateNSView` runs on every invalidation.
+        private var appliedEditingID: String??
 
         // MARK: - Pushing
 
@@ -187,6 +205,43 @@ struct MapWebView: NSViewRepresentable {
             }
         }
 
+        // MARK: - Editing
+
+        /// Tells the page which route's via points may be dragged.
+        ///
+        /// The page has to know, not just Swift. A drag starts by
+        /// cancelling the map's own pan on mousedown, and doing that for a
+        /// point that then refuses to move is a map that will not pan when
+        /// the cursor happens to be over a dot.
+        ///
+        /// Remembered whether or not the page is ready, and sent only when
+        /// it differs from what the page already has: `updateNSView` runs
+        /// on every invalidation.
+        func edit(_ routeID: String?) {
+            editingRouteID = routeID
+            guard isReady, appliedEditingID != .some(routeID) else { return }
+            appliedEditingID = .some(routeID)
+
+            webView?.callAsyncJavaScript("window.swiftcamp.setEditing(id);",
+                                         arguments: ["id": routeID.map { $0 as Any } ?? NSNull()],
+                                         in: nil, in: .page, completionHandler: Self.report)
+        }
+
+        private var editingRouteID: String?
+
+        /// Replays scripted input on the page. Debug only; see `MapPageEvent`.
+        private var appliedPageEventID = 0
+
+        func synthesize(_ event: MapPageEvent?) {
+            guard let event, isReady, event.id != appliedPageEventID else { return }
+            appliedPageEventID = event.id
+            webView?.callAsyncJavaScript(
+                "window.swiftcamp.synthesize(kind, lon, lat, toLon, toLat, key);",
+                arguments: ["kind": event.kind, "lon": event.lon, "lat": event.lat,
+                            "toLon": event.toLon, "toLat": event.toLat, "key": event.key],
+                in: nil, in: .page, completionHandler: Self.report)
+        }
+
         @MainActor @Sendable
         private static func report(_ result: Result<Any, any Error>) {
             if case .failure(let error) = result {
@@ -218,12 +273,19 @@ struct MapWebView: NSViewRepresentable {
                     pendingCamera = nil
                     move(request)
                 }
+                edit(editingRouteID)
 
             case "idle":
                 snapshotIfRequested()
 
             case "click":
                 if let click = Self.click(from: body) { onClick?(click) }
+
+            case "drag":
+                if let drag = Self.drag(from: body) { onDrag?(drag) }
+
+            case "key":
+                if let key = (body["key"] as? String).flatMap(MapKey.init(rawValue:)) { onKey?(key) }
 
             default:
                 break
@@ -259,6 +321,15 @@ struct MapWebView: NSViewRepresentable {
             }
 
             return MapClick(coordinate: Coordinate(lat: lat, lon: lon), target: target)
+        }
+
+        private static func drag(from body: [String: Any]) -> MapDrag? {
+            guard let lon = body["lon"] as? Double, let lat = body["lat"] as? Double,
+                  let id = body["id"] as? String, let seq = body["seq"] as? Int,
+                  let phase = body["phase"] as? String else { return nil }
+            return MapDrag(routeID: id, seq: seq,
+                           coordinate: Coordinate(lat: lat, lon: lon),
+                           phase: phase == "end" ? .end : .move)
         }
 
         /// Writes a PNG of the web view when launched with

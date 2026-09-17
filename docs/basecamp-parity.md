@@ -66,7 +66,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Sort and filter by type, name, date, length | **Build** |
 | Multiple databases | **Build**, low priority |
 | Backup and restore | **Build** — `VACUUM INTO` makes this nearly free |
-| Undo and redo | **Build** — nothing has it today |
+| Undo and redo | **Partial** — route edits and route creation; nothing else yet |
 
 ### Import and export
 
@@ -76,6 +76,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | GPX export with shaping points | **Have** |
 | GPX 1.0 read | **Have** |
 | **GDB import** | **Build** — see below, this is the migration blocker |
+| **Restore from BaseCamp's own files** | **Build** — its on-disk library and its backups, read in place; see below |
 | GDB export | **Build**, low priority |
 | KML/KMZ export, "view in Google Earth" | **Build**, low priority |
 | Loc, TCX, FIT | **Build**, low priority |
@@ -98,12 +99,12 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 
 | Feature | Status |
 | --- | --- |
-| Create a route by clicking the map | **Build** — next up |
-| Drag a point to move it | **Build** |
-| Insert a point into a leg | **Build** |
-| Delete a point | **Build** |
+| Create a route by clicking the map | **Have** — straight legs until routing lands |
+| Drag a point to move it | **Have** |
+| Insert a point into a leg | **Have** |
+| Delete a point | **Have** |
 | Via points versus shaping points | **Partial** — the model distinguishes them, the writer does not honour it |
-| Reverse a route | **Build**, trivial |
+| Reverse a route | **Have** |
 | Route from a track | **Build** |
 | Track from a route | **Build** — this is how riders defeat device re-routing |
 | Activity profiles: motorcycling, driving, walking | **Build**, needs routing |
@@ -160,16 +161,23 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Feature | Status |
 | --- | --- |
 | Send and receive via a memory card | **Build** — small, see below |
-| Send and receive over MTP | **Build** — large, and possibly unnecessary |
+| Send and receive over MTP | **Have** — built against a zūmo XT3, see below |
 | Strip shaping points on transfer | **Build** |
 | Simplify tracks to a device point limit | **Build** |
-| Browse device contents | **Build** |
+| Browse device contents | **Have** |
 
 ## The three hard problems
 
 Everything above is ordinary work except these.
 
 ### 1. Device transfer on macOS
+
+**Update:** MTP was built anyway, in two days, on the `swift-hakchi2` USB
+transport described below, and works against the zūmo XT3 in both
+directions. The reasoning that follows is kept because it is why the card
+path is still worth building for units without MTP, and because it was
+right about the cost: the transport was the hard half and it already existed.
+The lessons the protocol taught are indexed in `CLAUDE.md`.
 
 Smaller than it first looked, because the memory card sidesteps the hard part.
 
@@ -239,6 +247,15 @@ decide whether someone actually switches.
 
 **This deserves to be earlier than its glamour suggests.**
 
+Alongside it: **restore from BaseCamp's own files, in place.** BaseCamp on
+the Mac keeps its library under `~/Library/Application Support/Garmin/
+BaseCamp/Database/<version>/`, and its Backup command writes a bundle of the
+same database plus settings. Once GDB reads, both of those are a file to
+find rather than a format to learn, and reading them directly means a user
+never has to open BaseCamp to leave it — which matters most on the day
+BaseCamp stops launching. What the settings half should carry over (activity
+profiles, avoidances, display preferences) is a separate, smaller question.
+
 ### 3. Routing
 
 Stage 2 of `docs/data-architecture.md`, unchanged: Valhalla on device, region
@@ -265,17 +282,16 @@ editing. Reverse a route, route from track, track from route. Lists in the
 sidebar with drag and drop. Search and sort. *At the end of this, someone can
 plan a ride and hand it to a device by hand.*
 
-**Stage B — migration.** GDB import. Backup and restore. Rename and duplicate.
-Track split, join, filter. Elevation profiles and real statistics. *At the end
-of this, a BaseCamp user can move their library across and not lose anything.*
+**Stage B — migration.** GDB import, and restoring straight from BaseCamp's
+own database and backup files. Backup and restore of our own. Rename and
+duplicate. Track split, join, filter. Elevation profiles and real statistics.
+*At the end of this, a BaseCamp user can move their library across and not
+lose anything.*
 
-**Stage C — the device.** Memory-card and mass-storage transfer, which are the
-same code and cover every unit with a card slot. Shaping-point stripping and
-track simplification on the way out. MTP only if a device that matters turns
-out to need it. *At the end of this, Swiftcamp replaces BaseCamp.*
-
-This stage got much cheaper once the card path was understood, and it could
-reasonably move ahead of Stage B.
+**Stage C — the device.** MTP is done. Left: memory-card and mass-storage
+transfer, which are the same code and cover every unit with a card slot;
+shaping-point stripping and track simplification on the way out. *At the end
+of this, Swiftcamp replaces BaseCamp.*
 
 **Stage D — routing.** Valhalla, region packs, activity profiles, avoidances,
 snapping and recalculation on drag. *At the end of this, Swiftcamp is better
@@ -289,9 +305,8 @@ sits after Stage D because it is built on the same road data as snapping.
 
 ## Open questions
 
-- **Is MTP ever needed?** Answered for now: no. The zūmo XT3 has a card slot
-  and the Navigator VI mounts as a volume, so both devices on hand are served
-  without it. It becomes a question again only for a unit with no card slot.
+- **Is MTP ever needed?** Overtaken: it was built, and it is the path the
+  zūmo XT3 uses. The card path remains for units that mount as a volume.
 - **Address search needs a geocoder.** Self-hosting Nominatim is a real
   service with real cost, and every hosted option has terms. This is the first
   feature that would put a vendor back in the serving path, which

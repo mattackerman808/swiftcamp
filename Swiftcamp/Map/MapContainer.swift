@@ -18,7 +18,12 @@ import SwiftUI
 struct MapContainer: View {
     var overlay: MapOverlay = .empty
     var camera: MapCameraRequest?
+    /// The route whose via points can be dragged, if one is being edited.
+    var editingRouteID: String?
+    var pageEvent: MapPageEvent?
     var onClick: ((MapClick) -> Void)?
+    var onDrag: ((MapDrag) -> Void)?
+    var onKey: ((MapKey) -> Void)?
 
     var body: some View {
         #if os(iOS)
@@ -27,7 +32,8 @@ struct MapContainer: View {
         // here is the host, not the model.
         MapLibreMapView()
         #else
-        MapWebView(overlay: overlay, camera: camera, onClick: onClick)
+        MapWebView(overlay: overlay, camera: camera, editingRouteID: editingRouteID,
+                   pageEvent: pageEvent, onClick: onClick, onDrag: onDrag, onKey: onKey)
         #endif
     }
 }
