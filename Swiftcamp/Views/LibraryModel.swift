@@ -159,6 +159,7 @@ final class LibraryModel {
 
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
+        RoutingEngine.warm()
         observe()
         importAtLaunchIfRequested()
         runScriptIfRequested()

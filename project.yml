@@ -51,6 +51,8 @@ targets:
         type: folder
       - path: Swiftcamp/Resources/sprites
         type: folder
+      - path: Swiftcamp/Resources/routing
+        type: folder
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app
@@ -82,6 +84,9 @@ targets:
       - path: Swiftcamp/Resources/glyphs
         type: folder
       - path: Swiftcamp/Resources/sprites
+        type: folder
+      # The Valhalla config template; see RoutingEngine.init(streaming:).
+      - path: Swiftcamp/Resources/routing
         type: folder
     settings:
       base:
@@ -221,6 +226,9 @@ targets:
           - -lutf8_validity
           - -lz
           - -llz4
+          # libvalhalla is built with ENABLE_HTTP=ON so the graph can stream
+          # from the CDN, which brings the system libcurl.
+          - -lcurl
     # Deliberately NO MapLibre dependency. The distributed XCFramework has
     # only ios-arm64 and ios-arm64_x86_64-simulator slices, so linking it
     # here would not build. macOS renders through MapLibre GL JS instead —
@@ -278,13 +286,13 @@ schemes:
         Swiftcamp-macOS: all
     run:
       config: Debug
-      # Road snapping needs a graph on disk, and docs/routing.md builds one
-      # at this path. A developer-machine dependency in the same spirit as
-      # the sibling Valhalla checkout above: without the file the engine logs
-      # once at launch and every leg stays a straight line. Xcode passes the
+      # The developer override: a graph on local disk instead of the one
+      # streamed from the CDN, which docs/routing.md builds at this path.
+      # Listed but unchecked, so Run streams like a user's copy and the
+      # override is one checkbox away in Edit Scheme. Xcode passes the
       # argument verbatim, so RoutingEngine expands the tilde itself.
       commandLineArguments:
-        "-SwiftcampRouting ~/valhalla-data/colorado/valhalla.json": true
+        "-SwiftcampRouting ~/valhalla-data/colorado/valhalla.json": false
     test:
       config: Debug
       targets:

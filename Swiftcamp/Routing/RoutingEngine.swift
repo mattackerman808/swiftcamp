@@ -12,21 +12,35 @@ import Foundation
 /// a tile cache worth keeping warm, so requests are serialised here rather
 /// than by giving every caller its own engine.
 final class RoutingEngine: @unchecked Sendable {
-    /// The engine, if a graph was configured, else nil and legs stay
-    /// straight. `-SwiftcampRouting <valhalla.json>` names the config for
-    /// now; the region-pack manifest will, once packs download.
+    /// The engine on the graph the CDN publishes, or on a developer's own
+    /// graph when `-SwiftcampRouting <valhalla.json>` names one. Nil, and
+    /// legs stay straight, only if neither can be opened.
+    ///
+    /// Opening the streamed graph fetches the tar's index, one network
+    /// round trip, so `warm()` touches this off the main actor at launch
+    /// rather than letting the first drag pay for it.
     static let shared: RoutingEngine? = {
-        guard let path = UserDefaults.standard.string(forKey: "SwiftcampRouting") else { return nil }
         do {
-            // The Xcode scheme passes `~/valhalla-data/...`, and launch
-            // arguments arrive verbatim: there is no shell between Xcode and
-            // the process to expand a tilde.
-            return try RoutingEngine(configURL: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+            if let path = UserDefaults.standard.string(forKey: "SwiftcampRouting") {
+                // The Xcode scheme passes `~/valhalla-data/...`, and launch
+                // arguments arrive verbatim: there is no shell between Xcode
+                // and the process to expand a tilde.
+                return try RoutingEngine(configURL: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+            }
+            return try RoutingEngine(streaming: BasemapSource.routingURL)
         } catch {
             NSLog("[Swiftcamp] routing engine unavailable: %@", error.localizedDescription)
             return nil
         }
     }()
+
+    /// Starts opening the engine away from the main actor. A `static let`
+    /// initialises once whoever touches it first, and blocks anyone else
+    /// until it is done, so this costs a launch nothing and saves the first
+    /// edit a stall.
+    static func warm() {
+        Task.detached(priority: .utility) { _ = RoutingEngine.shared }
+    }
 
     private let engine: OpaquePointer
     private let lock = NSLock()
@@ -46,13 +60,64 @@ final class RoutingEngine: @unchecked Sendable {
         }
     }
 
-    init(configURL: URL) throws {
-        let config = try String(contentsOf: configURL, encoding: .utf8)
+    /// Opens Valhalla on a configuration document.
+    init(configJSON: String) throws {
         var error: UnsafeMutablePointer<CChar>?
-        guard let engine = valhalla_engine_open(config, &error) else {
+        guard let engine = valhalla_engine_open(configJSON, &error) else {
             throw RoutingError(message: Self.take(error) ?? "could not open the routing engine")
         }
         self.engine = engine
+    }
+
+    /// A developer's own graph on local disk, from its config file.
+    convenience init(configURL: URL) throws {
+        try self.init(configJSON: try String(contentsOf: configURL, encoding: .utf8))
+    }
+
+    /// The graph published at `url`, a tar Valhalla reads by byte range:
+    /// the index once, then each tile as a route first needs it, cached
+    /// on disk after that. The same shape as the map's PMTiles, and with
+    /// the same consequence: no download, no region picker, and the first
+    /// route into a fresh area pays for its tiles.
+    ///
+    /// The config is the bundled template with the tar and the cache
+    /// filled in. Valhalla wants the whole document, sections it will
+    /// never use included, and `valhalla_build_config` is the only thing
+    /// that knows the current shape of it, so the template is its output
+    /// rather than a hand-written subset that rots.
+    ///
+    /// The cache lives under Caches, keyed by the archive's name: macOS
+    /// may reclaim it, and a new graph gets a fresh folder rather than a
+    /// refusal from Valhalla, which records the tar's build id beside the
+    /// tiles it cached and will not mix two builds.
+    convenience init(streaming url: String) throws {
+        guard let templateURL = Bundle.main.url(forResource: "valhalla", withExtension: "json", subdirectory: "routing"),
+              var config = try JSONSerialization.jsonObject(with: Data(contentsOf: templateURL)) as? [String: Any],
+              var mjolnir = config["mjolnir"] as? [String: Any]
+        else { throw RoutingError(message: "the routing config template is missing from the bundle") }
+
+        let archive = (url as NSString).lastPathComponent
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Swiftcamp/routing/\(archive)", isDirectory: true)
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+
+        mjolnir["tile_url"] = url
+        mjolnir["tile_dir"] = cache.path
+        config["mjolnir"] = mjolnir
+
+        // Loki's connectivity map colours the graph by the tiles it can
+        // enumerate, which is the cache on disk and not the tar's index,
+        // so with a fresh cache every pair of locations is "in unconnected
+        // regions" and no route is ever attempted. The check exists to
+        // refuse impossible requests cheaply; a streamed graph cannot know
+        // what is impossible until it has fetched the tiles, so the search
+        // itself has to be the judge.
+        var loki = config["loki"] as? [String: Any] ?? [:]
+        loki["use_connectivity"] = false
+        config["loki"] = loki
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: config), as: UTF8.self)
+        try self.init(configJSON: json)
+        NSLog("[Swiftcamp] routing graph %@, cache %@", url, cache.path)
     }
 
     deinit { valhalla_engine_close(engine) }

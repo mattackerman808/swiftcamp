@@ -68,6 +68,16 @@ enum BasemapSource {
     /// works identically on both platforms.
     static var terrainURL: String { "pmtiles://\(cdnBase)/\(terrainArchive)" }
 
+    /// The Valhalla routing graph, one tar read by byte range exactly as the
+    /// PMTiles archives are: Valhalla fetches the tar's index once and then
+    /// each tile as a route needs it, caching them on disk. Dated for the
+    /// same reason as the archives, and doubly so here: the reader records
+    /// the tar's build id beside its cache and refuses to mix tiles from a
+    /// rebuilt one, so a new graph must be a new name.
+    static let routingArchive = "graph-us-20260917.tar"
+
+    static var routingURL: String { "\(cdnBase)/\(routingArchive)" }
+
     /// ODbL obligation, not decoration. Must stay visible on the map.
     static let attribution = "© OpenStreetMap"
 

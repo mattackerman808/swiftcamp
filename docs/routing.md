@@ -57,6 +57,33 @@ Direct is `Direct`; which of the first two it was is written in our own
 namespace so a re-import keeps it. New routes take their mode from
 Settings.
 
+## Streaming the graph
+
+The graph is not bundled and not downloaded. It is one tar on the CDN,
+read by byte range exactly as the PMTiles archives are: Valhalla's graph
+reader accepts a `mjolnir.tile_url` that names a tar whose first entry is
+`index.bin`, fetches that index once, then fetches each tile by byte range
+as a route first needs it and caches it in `mjolnir.tile_dir`. It records
+the tar's build id beside the cache and refuses to mix tiles from a
+rebuilt tar, which is why a graph is published under a dated name and
+never overwritten, the same rule as the archives. It uses curl rather than
+a browser, so the CORS lesson that bit the map does not apply here.
+
+`RoutingEngine.init(streaming:)` fills the bundled config template,
+`Resources/routing/valhalla.json`, with `BasemapSource.routingURL` and a
+cache folder under Caches keyed by the archive's name. The template is
+`valhalla_build_config`'s output with the extract keys removed, because a
+`tile_extract` makes the reader treat the tar as the whole graph and ignore
+`tile_dir`. `-SwiftcampRouting <valhalla.json>` remains the developer
+override for a graph on local disk, and the macOS scheme lists it
+unchecked.
+
+`scripts/build-graph.sh <geofabrik-path> <name>` downloads an extract,
+builds the tiles with the planet admin and timezone databases, packs the
+tar and prints the `rclone` line that publishes it. Building libvalhalla
+with `ENABLE_HTTP=ON` is what makes the fetch possible and adds the system
+libcurl to the link.
+
 ## Building libvalhalla for the Mac
 
 There is no Homebrew formula and the `valhalla-mobile` Swift package targets
@@ -73,7 +100,7 @@ cd valhalla
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIBRARY_MODULES=ON \
   -DENABLE_SERVICES=OFF -DENABLE_PYTHON_BINDINGS=OFF -DENABLE_TESTS=OFF \
-  -DENABLE_HTTP=OFF -DENABLE_GEOTIFF=OFF -DENABLE_CCACHE=OFF \
+  -DENABLE_HTTP=ON -DENABLE_GEOTIFF=OFF -DENABLE_CCACHE=OFF \
   -DENABLE_TOOLS=ON -DENABLE_DATA_TOOLS=ON -DENABLE_SINGLE_FILES_WERROR=OFF \
   -DCMAKE_PREFIX_PATH="/opt/homebrew;/opt/homebrew/opt/openssl@3" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
@@ -94,9 +121,10 @@ and links protobuf and its abseil dependencies from Homebrew. The abseil
 list came from `pkg-config --libs protobuf`; regenerate it if protobuf is
 upgraded, because abseil's library names carry its release date.
 
-Services, Python bindings and HTTP are off because the app needs none of
-them and each brings a dependency (prime_server, nanobind, curl). Data tools
-are on so the same build produces `valhalla_build_tiles`.
+Services and Python bindings are off because the app needs neither and
+each brings a dependency (prime_server, nanobind). HTTP is on: it is how
+the graph streams, and its dependency is the libcurl macOS already has.
+Data tools are on so the same build produces `valhalla_build_tiles`.
 
 ## Building a region's graph
 
@@ -116,13 +144,35 @@ database, is in `docs/data-architecture.md`. Delete the `tile_extract` and
 `traffic_extract` keys from the generated config, or the engine warns about
 a missing tar on every launch.
 
+`scripts/build-graph.sh` is the same recipe with both databases filled in.
+The timezone database has to be built by the same Valhalla that builds the
+tiles: `scripts/valhalla_build_timezones` in the checkout. An older one
+named `Pacific/Midway`, which this version resolves only through the
+merged "1970" zone set, and the US build aborted on Midway Atoll's two
+tiles ten minutes in, after parsing the whole country in eight. Colorado
+never noticed because Colorado has no Midway.
+
 Measured 2026-09-16 on an M5 Max: 22 seconds, 599 tiles, 534 MB on disk.
 
-The M3 Ultra builds with the planet admin database and the timezone
-database from the earlier admin work instead, both under
-`~/swiftcamp-build` (see `docs/data-architecture.md` for why only a planet
-build yields a usable one). Measured 2026-09-17: 31 seconds, 599 tiles,
+The M3 Ultra builds with the planet admin database from the earlier admin
+work under `~/swiftcamp-build` (see `docs/data-architecture.md` for why
+only a planet build yields a usable one) and a timezone database built by
+this checkout. Measured 2026-09-17: Colorado in 31 seconds, 599 tiles,
 522 MB on disk, so admin data costs nothing at rest.
+
+The whole United States, same machine, same day, 28 threads:
+
+| | |
+| --- | --- |
+| Extract | 12.15 GB from Geofabrik, about an hour to download |
+| Parse | 8 minutes |
+| Tile build, validate, clean up | 21 minutes |
+| Tiles | 17,177: level 0 0.8 GB, level 1 2.3 GB, level 2 19 GB |
+| Tar for streaming | 21 GB, packed in under a minute |
+| Scratch during the build | about 50 GB of intermediates, deleted at the end |
+
+Nearly twice the 14 GB the Colorado ratios predicted, so road density per
+megabyte of extract is not constant across states.
 
 ## Running the app against it
 
@@ -150,6 +200,25 @@ First spike, 2026-09-16, Colorado graph on local disk:
 | Next route, tiles warm | 3 ms |
 | Shape points on that leg | 5,724 |
 
+Streamed from R2, 2026-09-17, Colorado tar, empty cache, Estes Park to
+Grand Lake and on to Granby:
+
+| | |
+| --- | --- |
+| Opening the engine, index fetch | one round trip at launch, off the main actor |
+| First route, tiles fetched on demand | 823 ms |
+| Next routes, tiles cached | 28 ms, 1 ms |
+| Tiles fetched for the session | 20, of which 16 local-level |
+| Cache after the session | 99 MB |
+
+The cache number is the one to watch. The Colorado average is under a
+megabyte per tile, but the Front Range's local tiles run to several, and a
+first route pays for every tile along its corridor uncompressed. On a fast
+connection it is a sub-second stall once; on a tethered phone it is not.
+Gzipped per-tile objects would cut the bytes about threefold at the cost
+of the single-file layout, and prefetching under the visible map would
+hide most of it. Both are listed under Next.
+
 Fast enough to route on every mouse move, which is what a drag does;
 `RoutingEngine.route` logs every call so a regression shows up in the
 console rather than as a stutter. A drag is two legs per pass, and passes
@@ -171,9 +240,13 @@ request to be honoured at all.
 
 ## Next
 
-- Rebuild with `ENABLE_HTTP=ON` and try `mjolnir.tile_url` against tiles on
-  R2 with an empty local cache, and measure the first route. That is the
-  streaming model discussed in `docs/data-architecture.md`.
+- Prefetch the local-level tiles under the visible map while the user
+  pans, so the first drag into an area is warm.
+- Measure a cold route on a slow connection; if the uncompressed tar
+  hurts, publish gzipped per-tile objects instead, which Valhalla reads
+  with `tile_url_gz`.
+- Region packs as "keep this area for offline": pre-fill the same cache
+  from the tar.
 - Package libvalhalla and its dependencies as an XCFramework so the app
   builds on a machine without the sibling checkout.
 - Decide what `access=permit` should mean.

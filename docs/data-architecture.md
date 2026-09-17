@@ -67,6 +67,7 @@ Stood up 2026-09-11. Bucket `swiftcamp-tiles`, Standard class, fronted by `cdn.s
 | --- | --- | --- |
 | `street-20260910.pmtiles` | 8.2 GB | MVT, z0–14, CONUS, 3.7M tiles |
 | `terrain-20260910.pmtiles` | 17.3 GB | Terrarium WebP, z0–12, CONUS, 239k tiles |
+| `graph-us-20260917.tar` | 21 GB | Valhalla graph for the US, read by byte range |
 | `manifest.json` | — | names, bounds, attribution |
 
 26 GB at $0.015/GB over the 10 GB free tier is about **$0.24/month**, egress free. Class B reads are the only meter that grows with usage: 10M/month free, then $0.36/M.
@@ -95,8 +96,9 @@ Extraction from the upstream planets took 77 seconds (street) and about 2 minute
 
 ```
 basemap.pmtiles                     # streamed, full detail
+graph-<region>-<date>.tar           # streamed routing graph, one tile per range request
 regions/<region>.pmtiles            # offline map for one region
-regions/<region>-routing.tar.zst    # Valhalla graph for one region
+regions/<region>-routing.tar.zst    # Valhalla graph for one region, offline
 manifest.json                       # region list, sizes, sha256, build date
 ```
 
@@ -159,7 +161,7 @@ Extrapolating those ratios by PBF size. Rough, since road density per megabyte v
 | Colorado | 145 MB (measured) | 467 MB (measured) |
 | California | ~480 MB | ~1.5 GB |
 | US West | ~1.3 GB | ~4.1 GB |
-| United States | ~4.5 GB | ~14 GB |
+| United States | ~4.5 GB | **22 GB (measured 2026-09-17)**, 17,177 tiles; the ratio underestimates by a third |
 | North America | ~7.2 GB | ~23 GB |
 
 This retrospectively explains the "15 to 20 GB for North America" figure quoted by secondary sources: it describes on-disk size, not download size.
