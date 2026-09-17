@@ -35,6 +35,7 @@ struct LibrarySidebar: View {
                         .contextMenu {
                             Button("Edit Route") { model.editRoute(detail.route.id) }
                             Button("Reverse Route") { model.reverseRoute(detail.route.id) }
+                            routingMenu(for: detail)
                             Divider()
                             renameButton(detail.route.id, detail.route.name)
                             colorMenu(for: detail.route.id)
@@ -208,6 +209,20 @@ struct LibrarySidebar: View {
             }
         }
         renaming = nil
+    }
+
+    // MARK: - Routing
+
+    /// Garmin's activity profile: which ways the legs may use and whether
+    /// a dropped point lands on one. Changing it routes the whole route
+    /// again, which is what BaseCamp does on a profile change.
+    private func routingMenu(for detail: RouteDetail) -> some View {
+        Picker("Routing", selection: Binding(get: { detail.route.mode },
+                                             set: { model.setMode($0, forRoute: detail.route.id) })) {
+            ForEach(RoutingMode.allCases, id: \.self) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
     }
 
     // MARK: - Colour

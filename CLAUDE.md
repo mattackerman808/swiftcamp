@@ -33,7 +33,9 @@ move it, drag the line to insert a shaping point, click it to insert a via
 point, right-click to convert or remove, reverse, undo and redo, all on any
 route without a mode, and grabbing a route selects it. Editing mode is only
 for adding via points by clicking empty map. The sidebar lists a selected
-route's points, and via points are named there. With a Valhalla graph loaded, legs follow roads and re-route live
+route's points, and via points are named there. Each route has a routing
+mode, Road, Adventure or Direct, which decides which ways its legs may use
+and whether a dropped point lands on one; `docs/routing.md` has the table. With a Valhalla graph loaded, legs follow roads and re-route live
 while dragging; without one they are straight lines. `docs/routing.md`.
 
 Not started: waypoint creation and editing, lists, search and sort, GDB

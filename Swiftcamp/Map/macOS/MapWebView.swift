@@ -285,6 +285,7 @@ struct MapWebView: NSViewRepresentable {
                 let action = MenuAction(item.action)
                 entry.target = action
                 entry.representedObject = action
+                entry.state = item.isChecked ? .on : .off
                 menu.addItem(entry)
             }
             menu.popUp(positioning: nil, at: point, in: webView)

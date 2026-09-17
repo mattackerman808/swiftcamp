@@ -174,9 +174,9 @@ final class LibraryModel {
     /// the front door instead: the page dispatches DOM events on its own
     /// canvas and everything from MapLibre's hit test onward is the real
     /// path. Actions are `newRoute`, `click`, `drag`, `hover`, `key`, `menu`,
-    /// `undo`, `redo`, `done`, `wait`, `probe` and `dump`, as JSON objects
-    /// with an `action` key. `menu` right-clicks and chooses the item named
-    /// in `choose`.
+    /// `mode`, `undo`, `redo`, `done`, `wait`, `probe` and `dump`, as JSON
+    /// objects with an `action` key. `menu` right-clicks and chooses the
+    /// item named in `choose`; `mode` sets the routing mode in `value`.
     private func runScriptIfRequested() {
         guard let path = UserDefaults.standard.string(forKey: "SwiftcampScript"),
               let data = FileManager.default.contents(atPath: path),
@@ -205,6 +205,12 @@ final class LibraryModel {
                 undoManager.redo()
             case "done":
                 finishEditing()
+            case "mode":
+                // On the route being edited, else the selected one.
+                if let mode = (step["value"] as? String).flatMap(RoutingMode.init(rawValue:)),
+                   let id = editingRouteID ?? routes.first(where: { selection.contains($0.route.id) })?.route.id {
+                    setMode(mode, forRoute: id)
+                }
             case "click", "drag", "key", "probe", "menu", "hover":
                 pageEvent = MapPageEvent(id: (pageEvent?.id ?? 0) + 1,
                                          kind: step["action"] as! String,
@@ -367,7 +373,9 @@ final class LibraryModel {
             let shaping = detail.points.count - vias
             var summary = "\(vias) via point\(vias == 1 ? "" : "s")"
             if shaping > 0 { summary += ", \(shaping) shaping" }
-            out[detail.route.id] = summary + " · \(Self.miles(detail.length))"
+            summary += " · \(Self.miles(detail.length))"
+            if detail.route.mode != .road { summary += " · \(detail.route.mode.title)" }
+            out[detail.route.id] = summary
 
             for (seq, metres) in detail.distancesFromStart() {
                 points[OverlayGeoJSON.handle(detail.route.id, seq)] = Self.miles(metres)
@@ -636,7 +644,8 @@ final class LibraryModel {
         while taken.contains("Route \(n)") { n += 1 }
 
         let route = Route(name: "Route \(n)",
-                          color: ItemColor.default(for: routes.count + tracks.count).name)
+                          color: ItemColor.default(for: routes.count + tracks.count).name,
+                          mode: Self.defaultMode)
         do {
             try store.insert(route)
         } catch {
@@ -679,11 +688,27 @@ final class LibraryModel {
         }
     }
 
-    /// How legs get their shape: the road, when a routing graph is loaded,
-    /// and a straight line otherwise. Resolved once; the engine is a
-    /// process-wide singleton and the choice does not change mid-session.
-    @ObservationIgnored private lazy var shape: RouteEditing.LegShaper =
-        RoutingEngine.shared?.legShaper ?? RouteEditing.straight
+    /// The mode a new route starts in, from Settings.
+    static var defaultMode: RoutingMode {
+        RoutingMode(rawValue: UserDefaults.standard.string(forKey: RoutingMode.defaultKey) ?? "") ?? .road
+    }
+
+    /// How close a drop must be to a way, in metres, to land on it in
+    /// Adventure. A near miss lands on the track; a deliberate point in the
+    /// scrub stays put, with a straight leg to the nearest way.
+    private static let adventureSnap = 50.0
+
+    /// How a route's legs get their shape and where its points land, from
+    /// its mode: the road when a routing graph is loaded, a straight line
+    /// otherwise, and straight lines by choice in Direct.
+    private func shaping(for route: Route) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper) {
+        guard let engine = RoutingEngine.shared else { return (.never, RouteEditing.straight) }
+        switch route.mode {
+        case .road: return (.always, engine.legShaper(for: .road))
+        case .adventure: return (.within(Self.adventureSnap), engine.legShaper(for: .adventure))
+        case .direct: return (.never, RouteEditing.straight)
+        }
+    }
 
     /// The route being edited, as the editor sees it.
     private var editingDetail: RouteDetail? {
@@ -697,24 +722,28 @@ final class LibraryModel {
     private func edit(with click: MapClick) -> Bool {
         guard var detail = editingDetail else { return false }
 
+        let shaping = shaping(for: detail.route)
+
         switch click.target {
         case .ground:
-            detail.appendVia(click.coordinate, shape: shape)
+            detail.appendVia(click.coordinate, snap: shaping.snap, shape: shaping.shape)
             commit(detail, actionName: "Add Point")
             return true
 
         case .waypoint(let id):
             // Routing through a waypoint is how BaseCamp users plan: pins
             // first, then a route that visits them. The via point takes the
-            // waypoint's exact position and its name.
+            // waypoint's exact position and its name, and keeps the
+            // position whatever the mode: a campsite is where it is, and
+            // the leg runs to the road from there, as BaseCamp draws it.
             guard let waypoint = waypoints.first(where: { $0.id == id }) else { return false }
-            detail.appendVia(waypoint.coordinate, name: waypoint.name, shape: shape)
+            detail.appendVia(waypoint.coordinate, name: waypoint.name, snap: .never, shape: shaping.shape)
             commit(detail, actionName: "Add Point")
             return true
 
         case .routeLine(let routeID) where routeID == detail.route.id:
             guard let leg = detail.nearestLeg(to: click.coordinate) else { return false }
-            detail.insertVia(click.coordinate, inLeg: leg, shape: shape)
+            detail.insertVia(click.coordinate, inLeg: leg, snap: shaping.snap, shape: shaping.shape)
             commit(detail, actionName: "Insert Point")
             return true
 
@@ -775,8 +804,9 @@ final class LibraryModel {
                 // final mousemove and the mouseup.
                 detail.points = drag.points
             } else {
+                let shaping = shaping(for: detail.route)
                 detail.points = drag.base
-                detail.moveVia(at: drag.seq, to: event.coordinate, shape: shape)
+                detail.moveVia(at: drag.seq, to: event.coordinate, snap: shaping.snap, shape: shaping.shape)
             }
             commit(detail, actionName: drag.inserted ? "Insert Point" : "Move Point")
         }
@@ -798,11 +828,11 @@ final class LibraryModel {
         var base = detail
         base.points = drag.base
         let seq = drag.seq
-        let shape = self.shape
+        let shaping = shaping(for: detail.route)
         Task {
             let points = await Task.detached(priority: .userInitiated) { () -> [RoutePoint] in
                 var working = base
-                working.moveVia(at: seq, to: target, shape: shape)
+                working.moveVia(at: seq, to: target, snap: shaping.snap, shape: shaping.shape)
                 return working.points
             }.value
 
@@ -844,9 +874,44 @@ final class LibraryModel {
     func deleteViaPoint(routeID: String, seq: Int) {
         guard var detail = routes.first(where: { $0.route.id == routeID }),
               detail.points.indices.contains(seq) else { return }
-        detail.removeVia(at: seq, shape: shape)
+        let shaping = shaping(for: detail.route)
+        detail.removeVia(at: seq, snap: shaping.snap, shape: shaping.shape)
         selection.remove(OverlayGeoJSON.handle(routeID, seq))
         commit(detail, actionName: "Delete Point")
+    }
+
+    /// Changes how a route is routed, and routes every leg again to match.
+    /// Undo restores the legs exactly as they were, not a re-route in the
+    /// old mode: a point that Road snapped onto the pavement would stay
+    /// there under Adventure, and the rider's off-road drop would be gone.
+    func setMode(_ mode: RoutingMode, forRoute id: String) {
+        guard let i = routes.firstIndex(where: { $0.route.id == id }), routes[i].route.mode != mode else { return }
+        let before = (mode: routes[i].route.mode, points: routes[i].points)
+        var detail = routes[i]
+        detail.route.mode = mode
+        let shaping = shaping(for: detail.route)
+        detail.reshapeAll(snap: shaping.snap, shape: shaping.shape)
+        apply(mode: mode, points: detail.points, to: id, undoing: before, actionName: "Change Routing")
+    }
+
+    private func apply(mode: RoutingMode, points: [RoutePoint], to routeID: String,
+                       undoing before: (mode: RoutingMode, points: [RoutePoint]), actionName: String) {
+        do {
+            try store.setMode(mode, forRoute: routeID)
+            try store.replacePoints(routeID: routeID, with: points)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        if let i = routes.firstIndex(where: { $0.route.id == routeID }) {
+            routes[i].route.mode = mode
+            routes[i].points = points
+            rebuildOverlay()
+        }
+        registerUndo(actionName) { model in
+            model.apply(mode: before.mode, points: before.points, to: routeID,
+                        undoing: (mode, points), actionName: actionName)
+        }
     }
 
     // MARK: - Context menu
@@ -869,11 +934,16 @@ final class LibraryModel {
 
         case .routeLine(let routeID):
             let editing = routeID == editingRouteID
+            let current = routes.first { $0.route.id == routeID }?.route.mode ?? .road
             return [
                 editing ? MapMenuItem(title: "Done Editing") { self.finishEditing() }
                         : MapMenuItem(title: "Edit Route") { self.editRoute(routeID) },
                 MapMenuItem(title: "Reverse Route") { self.reverseRoute(routeID) },
-            ]
+            ] + RoutingMode.allCases.map { mode in
+                MapMenuItem(title: "\(mode.title) Routing", isChecked: mode == current) {
+                    self.setMode(mode, forRoute: routeID)
+                }
+            }
 
         case .waypoint, .track, .ground:
             return []

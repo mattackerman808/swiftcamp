@@ -27,6 +27,36 @@ on the line inserts a via point instead, and the right-click menu converts
 either way. Any route can be grabbed, and grabbing selects it; no editing
 mode is needed. `LibraryModel.Drag` has the mechanics.
 
+## Modes
+
+Each route has a routing mode, Garmin's activity profile by another name.
+It lives on the route because a library holds both kinds of ride, and it
+travels in the file as the trip's transportation mode so the device
+recalculates the way the planner did. `RoutingMode` in `Library.swift`.
+
+| Mode | Legs follow | A dropped point |
+| --- | --- | --- |
+| Road | Paved ways the map knows: `exclude_unpaved`, no tracks or trails | Moves onto the nearest one, however far |
+| Adventure | Any way the map knows, unpaved and tracks included | Moves onto a way within 50 m; otherwise stays, with a straight leg to the nearest way |
+| Direct | Straight lines, no routing | Stays |
+
+Road cannot promise a *named* way, only a known one: the router knows
+paved from unpaved and road from track, not whether a road has a name.
+
+Snapping is `RouteEditing.Snap`. The shaper returns the routed path with
+both landings, and each end moves onto its landing when the rule allows;
+an end that stays keeps its landing as the first vertex of the leg, so the
+spur from the point runs to exactly where the road begins. A via point
+made from a waypoint never snaps in any mode: a campsite is where it is.
+Changing a route's mode routes every leg again, and undo restores the legs
+exactly rather than re-routing in the old mode, because a point Road
+snapped onto the pavement would otherwise stay there under Adventure.
+
+In the file, Road and Adventure are both `Motorcycling` to Garmin, and
+Direct is `Direct`; which of the first two it was is written in our own
+namespace so a re-import keeps it. New routes take their mode from
+Settings.
+
 ## Building libvalhalla for the Mac
 
 There is no Homebrew formula and the `valhalla-mobile` Swift package targets
@@ -146,6 +176,4 @@ request to be honoured at all.
   streaming model discussed in `docs/data-architecture.md`.
 - Package libvalhalla and its dependencies as an XCFramework so the app
   builds on a machine without the sibling checkout.
-- Snap via points to the road: the shape's first and last vertex are the
-  snapped ends, and the via point currently stays where it was clicked.
 - Decide what `access=permit` should mean.

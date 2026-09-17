@@ -14,11 +14,34 @@ import Foundation
 /// holds because `LibraryStore.save` assigns `seq` from array order, so a
 /// route read back from the store is already in this shape.
 enum RouteEditing {
-    /// The path between two consecutive via points, exclusive of both ends.
+    /// The path between two consecutive points as routed, inclusive of
+    /// both ends. The first and last vertex are where each point landed on
+    /// the road, which is not always where it was dropped; `Snap` decides
+    /// whether the point follows. Empty means a straight line, on which
+    /// nothing lands anywhere.
     typealias LegShaper = (Coordinate, Coordinate) -> [Coordinate]
 
     /// A straight line, which is a leg with no interior points at all.
     static let straight: LegShaper = { _, _ in [] }
+
+    /// Whether a point moves to where its leg landed on the road.
+    enum Snap: Equatable, Sendable {
+        /// However far. BaseCamp's rule: a road route wants its stops on
+        /// the road, and a drop in a field meant the road beside it.
+        case always
+        /// Only when the landing is this close, in metres. A near miss
+        /// lands on the track; a deliberate point in the scrub stays put.
+        case within(Double)
+        case never
+
+        func allows(_ metres: Double) -> Bool {
+            switch self {
+            case .always: true
+            case .within(let limit): metres <= limit
+            case .never: false
+            }
+        }
+    }
 }
 
 extension RouteDetail {
@@ -29,11 +52,12 @@ extension RouteDetail {
     mutating func appendVia(_ coordinate: Coordinate,
                             name: String? = nil,
                             isVia: Bool = true,
+                            snap: RouteEditing.Snap = .never,
                             shape: RouteEditing.LegShaper = RouteEditing.straight) {
         points.append(RoutePoint(routeID: route.id, seq: points.count,
                                  lat: coordinate.lat, lon: coordinate.lon, name: name, isVia: isVia))
         resequence()
-        reshape(leg: points.count - 2, shape)
+        reshape(leg: points.count - 2, snap: snap, shape)
     }
 
     /// Splits leg `leg`, which runs from via point `leg` to `leg + 1`, with
@@ -46,28 +70,40 @@ extension RouteDetail {
     mutating func insertVia(_ coordinate: Coordinate,
                             inLeg leg: Int,
                             isVia: Bool = true,
+                            snap: RouteEditing.Snap = .never,
                             shape: RouteEditing.LegShaper = RouteEditing.straight) {
         guard leg >= 0, leg < points.count - 1 else {
-            appendVia(coordinate, isVia: isVia, shape: shape)
+            appendVia(coordinate, isVia: isVia, snap: snap, shape: shape)
             return
         }
         points.insert(RoutePoint(routeID: route.id, seq: leg + 1,
                                  lat: coordinate.lat, lon: coordinate.lon, isVia: isVia),
                       at: leg + 1)
         resequence()
-        reshape(leg: leg, shape)
-        reshape(leg: leg + 1, shape)
+        reshape(leg: leg, snap: snap, shape)
+        reshape(leg: leg + 1, snap: snap, shape)
     }
 
     /// Moves via point `index`, reshaping the leg into it and the leg out of it.
     mutating func moveVia(at index: Int,
                           to coordinate: Coordinate,
+                          snap: RouteEditing.Snap = .never,
                           shape: RouteEditing.LegShaper = RouteEditing.straight) {
         guard points.indices.contains(index) else { return }
         points[index].lat = coordinate.lat
         points[index].lon = coordinate.lon
-        reshape(leg: index - 1, shape)
-        reshape(leg: index, shape)
+        reshape(leg: index - 1, snap: snap, shape)
+        reshape(leg: index, snap: snap, shape)
+    }
+
+    /// Routes every leg afresh, for a change of mode. BaseCamp recalculates
+    /// on a profile change too: a route whose legs were found one way and
+    /// whose mode says another is a lie.
+    mutating func reshapeAll(snap: RouteEditing.Snap, shape: RouteEditing.LegShaper) {
+        guard points.count > 1 else { return }
+        for leg in 0..<(points.count - 1) {
+            reshape(leg: leg, snap: snap, shape)
+        }
     }
 
     /// Makes point `index` a via point or a shaping point.
@@ -91,11 +127,12 @@ extension RouteDetail {
 
     /// Removes via point `index`. Its neighbours are joined by a fresh leg.
     mutating func removeVia(at index: Int,
+                            snap: RouteEditing.Snap = .never,
                             shape: RouteEditing.LegShaper = RouteEditing.straight) {
         guard points.indices.contains(index) else { return }
         points.remove(at: index)
         resequence()
-        reshape(leg: index - 1, shape)
+        reshape(leg: index - 1, snap: snap, shape)
     }
 
     /// Turns the route around.
@@ -150,16 +187,40 @@ extension RouteDetail {
         for i in points.indices { points[i].seq = i }
     }
 
-    /// Recomputes the geometry stored on via point `leg`, which is the path
-    /// to `leg + 1`. The last point leads nowhere and carries none.
-    private mutating func reshape(leg: Int, _ shape: RouteEditing.LegShaper) {
+    /// Recomputes the geometry stored on point `leg`, which is the path to
+    /// `leg + 1`, and moves either end onto the road it landed on when the
+    /// snap rule allows. The last point leads nowhere and carries none.
+    ///
+    /// An end that does not move keeps its landing as the first or last
+    /// vertex of the leg, so the line still reaches the road and the spur
+    /// from the point runs to exactly where the routing began.
+    private mutating func reshape(leg: Int, snap: RouteEditing.Snap, _ shape: RouteEditing.LegShaper) {
         guard points.indices.contains(leg) else { return }
         guard leg < points.count - 1 else {
             points[leg].geometry = nil
             return
         }
         let path = shape(points[leg].coordinate, points[leg + 1].coordinate)
-        points[leg].geometry = path.isEmpty ? nil : path
+        guard let start = path.first, let end = path.last, path.count >= 2 else {
+            points[leg].geometry = nil
+            return
+        }
+
+        var geometry = Array(path.dropFirst().dropLast())
+        if !land(leg, on: start, snap) { geometry.insert(start, at: 0) }
+        if !land(leg + 1, on: end, snap) { geometry.append(end) }
+        points[leg].geometry = geometry.isEmpty ? nil : geometry
+    }
+
+    /// Moves point `index` onto `landing` if the rule allows, and says so.
+    /// A point already there counts as moved: keeping a vertex a metre
+    /// from the point would put a duplicate on every junction.
+    private mutating func land(_ index: Int, on landing: Coordinate, _ snap: RouteEditing.Snap) -> Bool {
+        let metres = GeoMath.distance(points[index].coordinate, landing)
+        guard metres < 1 || snap.allows(metres) else { return false }
+        points[index].lat = landing.lat
+        points[index].lon = landing.lon
+        return true
     }
 }
 

@@ -305,6 +305,15 @@ struct LibraryStore: Sendable {
         }
     }
 
+    func setMode(_ mode: RoutingMode, forRoute id: String) throws {
+        try database.writer.write { db in
+            guard var route = try Route.fetchOne(db, key: id) else { return }
+            route.mode = mode
+            route.updatedAt = .now
+            try route.update(db)
+        }
+    }
+
     func setColor(_ color: ItemColor, forTrack id: String) throws {
         try database.writer.write { db in
             guard var track = try Track.fetchOne(db, key: id) else { return }

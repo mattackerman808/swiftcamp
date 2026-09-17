@@ -120,6 +120,8 @@ struct MapDrag: Equatable, Sendable {
 /// like a web page in a Mac app.
 struct MapMenuItem {
     var title: String
+    /// Ticked, for one of a set of choices.
+    var isChecked = false
     var action: @MainActor () -> Void
 }
 

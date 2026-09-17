@@ -31,9 +31,20 @@ final class RoutingEngine: @unchecked Sendable {
     private let engine: OpaquePointer
     private let lock = NSLock()
 
-    /// Valhalla's costing model. Motorcycle rather than auto: it is the
-    /// product's use case, and it differs in what it avoids and prefers.
-    var costing = "motorcycle"
+    /// Valhalla's costing options for a mode. Motorcycle either way, since
+    /// that is the product; the modes differ in which ways they will take.
+    ///
+    /// `exclude_unpaved` refuses to turn onto unpaved from paved, so a road
+    /// route that starts on gravel can still get out, and tracks and trails
+    /// are off entirely. Adventure opens all three: any way the map knows
+    /// is a way a dual-sport can ride.
+    private static func costingOptions(for mode: RoutingMode) -> [String: Any] {
+        switch mode {
+        case .road: ["exclude_unpaved": true, "use_tracks": 0, "use_trails": 0]
+        case .adventure: ["exclude_unpaved": false, "use_tracks": 1, "use_trails": 1]
+        case .direct: [:]   // never routed; here so the switch is total
+        }
+    }
 
     init(configURL: URL) throws {
         let config = try String(contentsOf: configURL, encoding: .utf8)
@@ -49,10 +60,11 @@ final class RoutingEngine: @unchecked Sendable {
     /// The road between two points, as the full polyline including both
     /// snapped ends. Throws when Valhalla finds no path, which is the
     /// caller's cue to fall back to a straight leg and say so.
-    func route(from a: Coordinate, to b: Coordinate) throws -> [Coordinate] {
+    func route(from a: Coordinate, to b: Coordinate, mode: RoutingMode = .road) throws -> [Coordinate] {
         let request: [String: Any] = [
             "locations": [["lat": a.lat, "lon": a.lon], ["lat": b.lat, "lon": b.lon]],
-            "costing": costing,
+            "costing": "motorcycle",
+            "costing_options": ["motorcycle": Self.costingOptions(for: mode)],
             // No turn-by-turn narrative: the caller wants the shape only,
             // and generating maneuvers is a measurable share of the time.
             "directions_type": "none",
@@ -85,12 +97,22 @@ final class RoutingEngine: @unchecked Sendable {
         return Polyline.decode(shape)
     }
 
-    /// The engine as a `LegShaper`: the road's interior points, or a
-    /// straight leg when there is no road, so an edit never fails outright.
-    var legShaper: RouteEditing.LegShaper {
+    /// The engine as a `LegShaper` for a mode: the routed path with both
+    /// landings, or a straight leg when there is no road, so an edit never
+    /// fails outright.
+    func legShaper(for mode: RoutingMode) -> RouteEditing.LegShaper {
         { [self] a, b in
-            guard let path = try? route(from: a, to: b), path.count > 2 else { return [] }
-            return Array(path.dropFirst().dropLast())
+            do {
+                let path = try route(from: a, to: b, mode: mode)
+                return path.count >= 2 ? path : []
+            } catch {
+                // Said, not swallowed. A straight leg that should have been
+                // a road is the failure a user sees, and the reason is
+                // only ever here: no path, a tile that would not download,
+                // a graph that would not open.
+                NSLog("[Swiftcamp] leg fell back to a straight line: %@", error.localizedDescription)
+                return []
+            }
         }
     }
 

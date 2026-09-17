@@ -107,9 +107,9 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Reverse a route | **Have** |
 | Route from a track | **Build** |
 | Track from a route | **Build** — this is how riders defeat device re-routing |
-| Activity profiles: motorcycling, driving, walking | **Build**, needs routing |
+| Activity profiles: motorcycling, driving, walking | **Partial** — Road, Adventure and Direct per route, written as Garmin's transportation mode; driving and walking to come |
 | Routing preferences: faster time, shorter distance | **Build**, needs routing |
-| Avoidances: tolls, ferries, unpaved, highways | **Build**, needs routing |
+| Avoidances: tolls, ferries, unpaved, highways | **Partial** — unpaved and tracks through the mode; tolls, ferries and highways to come |
 | Road snapping and recalculation on drag | **Partial** — live against a local Valhalla graph; region packs and streaming to come |
 | Trip planner with departure and arrival times | **Build**, later |
 

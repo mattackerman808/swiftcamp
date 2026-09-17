@@ -15,10 +15,25 @@ final class RouteEditingTests: XCTestCase {
     private let d = Coordinate(lat: 41.0, lon: -105.0)
 
     /// A shaper that is easy to recognise in the output: one interior point
-    /// at the midpoint of each leg.
+    /// at the midpoint of each leg, and each end landing on itself.
     private let midpoint: RouteEditing.LegShaper = { from, to in
-        [Coordinate(lat: (from.lat + to.lat) / 2, lon: (from.lon + to.lon) / 2)]
+        [from, Coordinate(lat: (from.lat + to.lat) / 2, lon: (from.lon + to.lon) / 2), to]
     }
+
+    /// A router whose roads run north–south every hundredth of a degree,
+    /// about 850 m apart here: each end lands on the nearest one, and a
+    /// point already on a road lands on itself, as with a real router.
+    private let gridRoads: RouteEditing.LegShaper = { from, to in
+        func land(_ c: Coordinate) -> Coordinate {
+            Coordinate(lat: c.lat, lon: (c.lon * 100).rounded() / 100)
+        }
+        let a = land(from), b = land(to)
+        return [a, Coordinate(lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2), b]
+    }
+
+    /// About sixty metres east of the grid road at -104.5.
+    private let nearRoad = Coordinate(lat: 40.5, lon: -104.5007)
+    private let onRoad = Coordinate(lat: 40.5, lon: -104.5)
 
     private func route(_ coordinates: [Coordinate], shape: RouteEditing.LegShaper = RouteEditing.straight) -> RouteDetail {
         var detail = RouteDetail(route: Route(name: "Test"), points: [])
@@ -137,6 +152,58 @@ final class RouteEditingTests: XCTestCase {
         XCTAssertNil(detail.points[0].name)
     }
 
+    // MARK: - Snapping
+
+    /// A road route wants its points on the road, however far the drop.
+    func testSnappingAlwaysMovesADropOntoTheRoad() {
+        var detail = route([a, b])
+        detail.insertVia(nearRoad, inLeg: 0, snap: .always, shape: gridRoads)
+
+        XCTAssertEqual(detail.points[1].coordinate, onRoad)
+        XCTAssertEqual(detail.points[0].coordinate, a, "a point on a road lands on itself")
+        XCTAssertEqual(detail.points[0].geometry?.count, 1, "the landing is the point now, not geometry")
+    }
+
+    /// Sixty metres off a track is a choice under a tight limit and a near
+    /// miss under a looser one. Either way the leg reaches the road, and
+    /// an unmoved point keeps the landing so its spur runs to the road.
+    func testSnappingWithinALimitKeepsADeliberateOffRoadPoint() {
+        var detail = route([a, b])
+        detail.insertVia(nearRoad, inLeg: 0, snap: .within(50), shape: gridRoads)
+
+        XCTAssertEqual(detail.points[1].coordinate, nearRoad)
+        XCTAssertEqual(detail.points[0].geometry?.last, onRoad, "leg in ends on the road")
+        XCTAssertEqual(detail.points[1].geometry?.first, onRoad, "leg out starts on the road")
+
+        detail.moveVia(at: 1, to: nearRoad, snap: .within(100), shape: gridRoads)
+        XCTAssertEqual(detail.points[1].coordinate, onRoad)
+        XCTAssertEqual(detail.points[0].geometry?.count, 1, "moved, so the landing is no longer geometry")
+    }
+
+    func testNeverSnappingKeepsTheDropAndTheLanding() {
+        var detail = route([a, b])
+        detail.insertVia(nearRoad, inLeg: 0, snap: .never, shape: gridRoads)
+
+        XCTAssertEqual(detail.points[1].coordinate, nearRoad)
+        XCTAssertEqual(detail.points[0].geometry?.last, onRoad)
+    }
+
+    /// A change of mode routes every leg again under the new rule.
+    func testReshapingEveryLegAppliesANewRule() {
+        var detail = route([a, nearRoad, b])
+        XCTAssertTrue(detail.points.allSatisfy { $0.geometry == nil }, "straight until reshaped")
+
+        detail.reshapeAll(snap: .always, shape: gridRoads)
+        XCTAssertEqual(detail.points.map(\.coordinate), [a, onRoad, b])
+        XCTAssertEqual(detail.points[0].geometry?.count, 1)
+        XCTAssertEqual(detail.points[1].geometry?.count, 1)
+        XCTAssertNil(detail.points[2].geometry)
+
+        detail.reshapeAll(snap: .never, shape: RouteEditing.straight)
+        XCTAssertTrue(detail.points.allSatisfy { $0.geometry == nil }, "direct drops the road shapes")
+        XCTAssertEqual(detail.points.map(\.coordinate), [a, onRoad, b], "and moves nothing")
+    }
+
     // MARK: - Remove
 
     func testRemovingJoinsTheNeighbours() {
@@ -215,8 +282,8 @@ final class RouteEditingTests: XCTestCase {
     /// land on that leg.
     func testNearestLegMeasuresTheShapedPathNotTheChord() {
         // Leg a→b bulges north to latitude 40.5; leg b→c is straight.
-        let bulge = [Coordinate(lat: 40.5, lon: -104.5)]
-        var detail = route([a, b], shape: { _, _ in bulge })
+        let bulge = Coordinate(lat: 40.5, lon: -104.5)
+        var detail = route([a, b], shape: { from, to in [from, bulge, to] })
         detail.appendVia(c, shape: RouteEditing.straight)
 
         // Near the bulge, far from the a→b chord, and nearer the b→c chord

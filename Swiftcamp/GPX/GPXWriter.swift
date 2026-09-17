@@ -13,7 +13,8 @@ enum GPXWriter {
         out += "<gpx version=\"1.1\" creator=\"\(escape(document.creator))\"\n"
         out += "     xmlns=\"\(GPX.namespace)\"\n"
         out += "     xmlns:gpxx=\"\(GPX.garminExtensions)\"\n"
-        out += "     xmlns:trp=\"\(GPX.garminTripExtensions)\">\n"
+        out += "     xmlns:trp=\"\(GPX.garminTripExtensions)\"\n"
+        out += "     xmlns:sc=\"\(GPX.swiftcampExtensions)\">\n"
 
         out += metadata(document)
         // Order is fixed by the schema: metadata, then every wpt, then every
@@ -63,8 +64,8 @@ enum GPXWriter {
         out += element("cmt", detail.route.comment, indent: 4)
 
         // rteType puts extensions before the first rtept.
+        out += "    <extensions>\n"
         if let color = detail.route.color {
-            out += "    <extensions>\n"
             out += "      <gpxx:RouteExtension>\n"
             // BaseCamp writes IsAutoNamed and some readers expect the element
             // to exist. False is the honest answer: these names came from a
@@ -72,8 +73,20 @@ enum GPXWriter {
             out += "        <gpxx:IsAutoNamed>false</gpxx:IsAutoNamed>\n"
             out += element("gpxx:DisplayColor", color, indent: 8)
             out += "      </gpxx:RouteExtension>\n"
-            out += "    </extensions>\n"
         }
+        // The activity profile, in Garmin's vocabulary: Motorcycling for a
+        // road or adventure route, Direct for straight lines. Which of the
+        // first two it was is ours to remember, in our own namespace, so a
+        // re-import does not turn an adventure route back into a road one
+        // at its next edit.
+        let mode = detail.route.mode
+        out += "      <trp:Trip>\n"
+        out += "        <trp:TransportationMode>\(mode == .direct ? "Direct" : "Motorcycling")</trp:TransportationMode>\n"
+        out += "      </trp:Trip>\n"
+        if mode == .adventure {
+            out += "      <sc:RoutingMode>\(mode.rawValue)</sc:RoutingMode>\n"
+        }
+        out += "    </extensions>\n"
 
         for point in detail.points.sorted(by: { $0.seq < $1.seq }) {
             out += routePoint(point)

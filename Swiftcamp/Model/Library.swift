@@ -190,8 +190,40 @@ struct Route: LibraryRecord, Identifiable, Hashable, Sendable {
     /// `Waypoint.symbol`: a name from their vocabulary, carried verbatim.
     var color: String?
     var comment: String?
+    var mode: RoutingMode = .road
     var createdAt: Date = .now
     var updatedAt: Date = .now
+}
+
+/// How a route's legs are found, and where a dropped point lands.
+///
+/// Garmin's activity profile by another name. It lives on the route rather
+/// than in a setting because a library holds both kinds of ride, and it
+/// travels in the file as the trip's transportation mode so a device
+/// recalculates the way the planner did rather than the way it feels like.
+enum RoutingMode: String, Codable, CaseIterable, Sendable {
+    /// Paved ways the map knows, and a dropped point moves onto the
+    /// nearest one however far. What BaseCamp and Google Maps do.
+    case road
+    /// Any way the map knows, unpaved and tracks included. A dropped point
+    /// moves onto a way only when one is close, so a near miss lands on
+    /// the track and a deliberate point in the scrub stays put with a
+    /// straight leg to the nearest way.
+    case adventure
+    /// Straight lines between points and no routing at all: Garmin's
+    /// off-road profile, for a trail no map knows.
+    case direct
+
+    var title: String {
+        switch self {
+        case .road: "Road"
+        case .adventure: "Adventure"
+        case .direct: "Direct"
+        }
+    }
+
+    /// The `UserDefaults` key for the mode a new route starts in.
+    static let defaultKey = "defaultRoutingMode"
 }
 
 /// A point along a route.

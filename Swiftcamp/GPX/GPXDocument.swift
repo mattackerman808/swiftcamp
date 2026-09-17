@@ -47,6 +47,13 @@ enum GPX {
     /// them arrives with every bend announced as a destination.
     static let garminTripExtensions = "http://www.garmin.com/xmlschemas/TripExtensions/v1"
 
+    /// Swiftcamp's own, for what Garmin's vocabulary cannot say. Today that
+    /// is one word: whether a motorcycling route is road or adventure,
+    /// which the trip's transportation mode does not distinguish. A device
+    /// or BaseCamp skips it as a namespace it does not know, exactly as
+    /// this reader skips theirs.
+    static let swiftcampExtensions = "http://swiftcamp.app/xmlschemas/GpxExtensions/v1"
+
     /// Garmin's `TrackPointExtension`, for per-point sensor data.
     ///
     /// Recognised so the reader can skip it knowingly rather than trip over

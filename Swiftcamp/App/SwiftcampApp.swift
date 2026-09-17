@@ -14,8 +14,19 @@ struct SwiftcampApp: App {
         mainWindow
         #if os(macOS)
         transferWindow
+        settings
         #endif
     }
+
+    #if os(macOS)
+    /// One preference so far: the routing mode a new route starts in. A
+    /// route's own mode is on the route, in its context menu; this is only
+    /// the default, so a rider who plans mostly adventure routes need not
+    /// change every new one.
+    private var settings: some Scene {
+        Settings { SettingsView() }
+    }
+    #endif
 
     private var mainWindow: some Scene {
         WindowGroup {

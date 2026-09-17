@@ -221,6 +221,17 @@ final class AppDatabase: Sendable {
             }
         }
 
+        // Garmin's activity profile, per route: which ways its legs may use
+        // and whether a dropped point moves onto one. Text rather than an
+        // integer so a database opened in a debugger reads as words, and so
+        // adding a mode never renumbers the others. Every existing route is
+        // a road route, which is what it was routed as.
+        m.registerMigration("v3_route_mode") { db in
+            try db.alter(table: "routes") { t in
+                t.add(column: "mode", .text).notNull().defaults(to: "road")
+            }
+        }
+
         return m
     }
 

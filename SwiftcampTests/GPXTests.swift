@@ -266,6 +266,50 @@ final class GPXTests: XCTestCase {
         XCTAssertEqual(document.routes.first?.points.map(\.isVia), [true, false, true])
     }
 
+    /// The routing mode travels with the route: Garmin's transportation
+    /// mode for the device, which cannot tell road from adventure, and our
+    /// own element for that one distinction.
+    func testRoutingModeSurvivesTheFile() throws {
+        for mode in RoutingMode.allCases {
+            var route = Route(name: "Loop")
+            route.mode = mode
+            var document = GPXDocument()
+            document.routes = [RouteDetail(route: route, points: [
+                RoutePoint(routeID: route.id, seq: 0, lat: 40.0, lon: -105.0),
+                RoutePoint(routeID: route.id, seq: 1, lat: 40.1, lon: -105.1),
+            ])]
+
+            let text = GPXWriter.write(document)
+            let garmin = mode == .direct ? "Direct" : "Motorcycling"
+            XCTAssertTrue(text.contains("<trp:TransportationMode>\(garmin)</trp:TransportationMode>"), "\(mode)")
+            XCTAssertEqual(text.contains("<sc:RoutingMode>"), mode == .adventure, "\(mode)")
+
+            let back = try GPXReader.read(data: Data(text.utf8))
+            XCTAssertEqual(back.routes.first?.route.mode, mode)
+        }
+    }
+
+    /// A BaseCamp file with a Direct profile reads as a direct route, by
+    /// namespace; any other profile it names is a road route.
+    func testGarminTransportationModeIsReadByNamespace() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1"
+             xmlns:t="http://www.garmin.com/xmlschemas/TripExtensions/v1">
+          <rte><name>Straight</name>
+            <extensions><t:Trip><t:TransportationMode>Direct</t:TransportationMode></t:Trip></extensions>
+            <rtept lat="40.0" lon="-105.0"/><rtept lat="40.1" lon="-105.1"/>
+          </rte>
+          <rte><name>Car</name>
+            <extensions><t:Trip><t:TransportationMode>Automotive</t:TransportationMode></t:Trip></extensions>
+            <rtept lat="40.0" lon="-105.0"/><rtept lat="40.1" lon="-105.1"/>
+          </rte>
+        </gpx>
+        """
+        let document = try GPXReader.read(data: Data(xml.utf8))
+        XCTAssertEqual(document.routes.map(\.route.mode), [.direct, .road])
+    }
+
     func testWrittenFileDeclaresGPX11AndTheGarminNamespace() throws {
         let text = GPXWriter.write(try read("basecamp-route"))
 

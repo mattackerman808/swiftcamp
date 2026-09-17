@@ -97,6 +97,7 @@ extension GPXReader: XMLParserDelegate {
             startTripElement(element)
             return
         }
+        if namespaceURI == GPX.swiftcampExtensions { return }
 
         // Anything from a namespace we do not handle is skipped whole,
         // children included. Garmin's TrackPointExtension lands here, as does
@@ -168,7 +169,14 @@ extension GPXReader: XMLParserDelegate {
             endGarminElement(element)
             return
         }
-        if namespaceURI == GPX.garminTripExtensions { return }
+        if namespaceURI == GPX.garminTripExtensions {
+            endTripElement(element)
+            return
+        }
+        if namespaceURI == GPX.swiftcampExtensions {
+            endSwiftcampElement(element)
+            return
+        }
         guard GPX.isGPXNamespace(namespaceURI) else { return }
 
         defer {
@@ -303,6 +311,25 @@ extension GPXReader: XMLParserDelegate {
         case "ViaPoint": routePoint?.isVia = true
         default: break
         }
+    }
+
+    /// The route's activity profile. Direct is the one word of Garmin's
+    /// that changes how a route is edited here; every other profile is a
+    /// road route, which is also what an unmarked route is.
+    private func endTripElement(_ element: String) {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = ""
+        guard element == "TransportationMode", route != nil, routePoint == nil else { return }
+        if value == "Direct" { route?.mode = .direct }
+    }
+
+    /// Our own word for what Garmin's cannot say; see `GPX.swiftcampExtensions`.
+    private func endSwiftcampElement(_ element: String) {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = ""
+        guard element == "RoutingMode", route != nil, routePoint == nil,
+              let mode = RoutingMode(rawValue: value) else { return }
+        route?.mode = mode
     }
 
     // MARK: - Helpers
