@@ -278,6 +278,13 @@ schemes:
         Swiftcamp-macOS: all
     run:
       config: Debug
+      # Road snapping needs a graph on disk, and docs/routing.md builds one
+      # at this path. A developer-machine dependency in the same spirit as
+      # the sibling Valhalla checkout above: without the file the engine logs
+      # once at launch and every leg stays a straight line. Xcode passes the
+      # argument verbatim, so RoutingEngine expands the tilde itself.
+      commandLineArguments:
+        "-SwiftcampRouting ~/valhalla-data/colorado/valhalla.json": true
     test:
       config: Debug
       targets:

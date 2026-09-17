@@ -18,7 +18,10 @@ final class RoutingEngine: @unchecked Sendable {
     static let shared: RoutingEngine? = {
         guard let path = UserDefaults.standard.string(forKey: "SwiftcampRouting") else { return nil }
         do {
-            return try RoutingEngine(configURL: URL(fileURLWithPath: path))
+            // The Xcode scheme passes `~/valhalla-data/...`, and launch
+            // arguments arrive verbatim: there is no shell between Xcode and
+            // the process to expand a tilde.
+            return try RoutingEngine(configURL: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
         } catch {
             NSLog("[Swiftcamp] routing engine unavailable: %@", error.localizedDescription)
             return nil
