@@ -111,11 +111,10 @@ Leave a second between an edit and anything that clicks what it drew. The
 overlay reaches the renderer asynchronously and a hit test before it lands
 reports empty ground.
 
-Quit any other running copy of the app first, the one launched from Xcode
-included. A second copy started beside it gets a page whose map never
-finishes loading, so every scripted click lands on nothing and the run
-logs a single line. Two runs were lost to this before the other copy was
-noticed.
+A scripted run floats its window above everything else, so it can run
+beside a copy launched from Xcode. Without that, a second copy opens
+exactly under the first and WebKit stops rendering a covered view: the map
+never draws, never fires `load`, and every scripted click lands on nothing.
 
 ## Data
 

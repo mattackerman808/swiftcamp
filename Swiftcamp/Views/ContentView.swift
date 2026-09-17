@@ -39,7 +39,22 @@ struct ContentView: View {
         MapContainer(overlay: model.overlay, camera: model.camera,
                      editingRouteID: model.editingRouteID, pageEvent: model.pageEvent,
                      onClick: model.select, onDrag: model.drag, onKey: model.key,
-                     onContextMenu: model.contextMenu)
+                     onContextMenu: model.contextMenu, onView: model.viewChanged)
+            #if os(macOS)
+            // A scripted run floats its window. WebKit stops rendering a
+            // view its window does not show, and a second copy of the app
+            // opens exactly under the first, fully covered: the map never
+            // draws a frame, never fires `load`, and every scripted click
+            // lands on nothing. Two runs were lost to a developer's own copy
+            // sitting on top before the cause was found by sampling.
+            .onAppear {
+                guard UserDefaults.standard.string(forKey: "SwiftcampScript") != nil
+                        || UserDefaults.standard.string(forKey: "SwiftcampSnapshot") != nil else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    NSApp.windows.first { $0.isVisible }?.level = .floating
+                }
+            }
+            #endif
             #if os(iOS)
             // Edge to edge under the status bar and home indicator.
             //
