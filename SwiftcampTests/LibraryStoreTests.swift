@@ -170,6 +170,25 @@ final class LibraryStoreTests: XCTestCase {
         ])
     }
 
+    /// Distance along the road, not as the crow flies, and measured from
+    /// the start so the last point reads as the route's length.
+    func testDistancesFromStartFollowTheShapedPath() throws {
+        let route = Route(name: "Detour")
+        let detail = RouteDetail(route: route, points: [
+            RoutePoint(routeID: route.id, seq: 0, lat: 40.0, lon: -105.0,
+                       geometry: [Coordinate(lat: 41.0, lon: -105.0)]),
+            RoutePoint(routeID: route.id, seq: 1, lat: 40.0, lon: -104.9),
+            RoutePoint(routeID: route.id, seq: 2, lat: 40.0, lon: -104.8),
+        ])
+        let distances = detail.distancesFromStart()
+
+        XCTAssertEqual(distances[0], 0)
+        XCTAssertEqual(try XCTUnwrap(distances[1]),
+                       GeoMath.length([Coordinate(lat: 40.0, lon: -105.0), Coordinate(lat: 41.0, lon: -105.0),
+                                       Coordinate(lat: 40.0, lon: -104.9)]), accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(distances[2]), detail.length, accuracy: 0.001)
+    }
+
     func testLengthFollowsTheShapedPathNotTheViaPoints() throws {
         let route = Route(name: "Detour")
         // Two via points a short way apart, with geometry that loops well

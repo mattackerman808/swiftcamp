@@ -72,7 +72,7 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
-| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `click`, `drag`, `key`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `click`, `drag`, `hover`, `key`, `menu`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \
@@ -89,8 +89,10 @@ nothing can script those against a real window without Accessibility
 permission. The page dispatches DOM events on its own canvas instead, so
 everything from MapLibre's hit test onward is the real path. `probe` logs
 what the renderer has at a coordinate, which is the first thing to ask when a
-click did not do what it should. `dump` writes the routes as JSON for a check
-to read.
+click did not do what it should. `menu` right-clicks and chooses the item
+named in `choose`, running it rather than showing a menu nothing could
+dismiss. `dump` writes the routes as JSON for a check to read; with `"geometry": true` each point also carries its leg's path, which
+is how a check finds a spot on the line to grab.
 
 ```json
 [

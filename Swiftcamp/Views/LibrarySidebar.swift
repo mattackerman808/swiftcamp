@@ -41,6 +41,16 @@ struct LibrarySidebar: View {
                             Divider()
                             deleteButton(detail.route.id)
                         }
+
+                        // The selected route's points, in order, the way
+                        // BaseCamp lists them under a route. `seq` rather
+                        // than the row id as identity: a point just
+                        // written has none until its row comes back.
+                        if isExpanded(detail) {
+                            ForEach(detail.points.sorted { $0.seq < $1.seq }, id: \.seq) { point in
+                                pointRow(detail, point)
+                            }
+                        }
                     }
                 }
             }
@@ -100,6 +110,46 @@ struct LibrarySidebar: View {
         .listStyle(.sidebar)
     }
 
+    // MARK: - Route points
+
+    /// A route shows its points while it, or one of them, is selected.
+    private func isExpanded(_ detail: RouteDetail) -> Bool {
+        model.selection.contains(detail.route.id)
+            || model.selection.contains { OverlayGeoJSON.parseHandle($0)?.routeID == detail.route.id }
+    }
+
+    /// One point of a route: a via point with its name, or a shaping point,
+    /// which has none. Both say how far along the road they are.
+    private func pointRow(_ detail: RouteDetail, _ point: RoutePoint) -> some View {
+        let handle = OverlayGeoJSON.handle(detail.route.id, point.seq)
+        let color = ItemColor.named(detail.route.color).map(Color.init) ?? Color.secondary
+
+        return row(id: handle,
+                   name: point.isVia ? (point.name ?? "Via point \(point.seq + 1)") : "Shaping point",
+                   detail: model.pointSummaries[handle] ?? "") {
+            // The same marks the map draws: a ring for a stop, a small solid
+            // dot for a bend in the road.
+            Image(systemName: point.isVia ? "circle" : "circle.fill")
+                .font(.system(size: point.isVia ? 11 : 7, weight: .bold))
+                .foregroundStyle(color)
+                .frame(width: 13)
+        }
+        .padding(.leading, 16)
+        .tag(handle)
+        .contextMenu {
+            if point.isVia {
+                renameButton(handle, point.name ?? "")
+                Button("Make Shaping Point") { model.setVia(routeID: detail.route.id, seq: point.seq, false) }
+            } else {
+                Button("Make Via Point") { model.setVia(routeID: detail.route.id, seq: point.seq, true) }
+            }
+            Divider()
+            Button("Delete Point", role: .destructive) {
+                model.deleteViaPoint(routeID: detail.route.id, seq: point.seq)
+            }
+        }
+    }
+
     // MARK: - Rows
 
     private func row(id: String, name: String, detail: String, color: ItemColor?) -> some View {
@@ -150,7 +200,13 @@ struct LibrarySidebar: View {
     }
 
     private func commitRename() {
-        if let id = renaming { model.rename(id, to: draft) }
+        if let id = renaming {
+            if let handle = OverlayGeoJSON.parseHandle(id) {
+                model.renamePoint(routeID: handle.routeID, seq: handle.seq, to: draft)
+            } else {
+                model.rename(id, to: draft)
+            }
+        }
         renaming = nil
     }
 

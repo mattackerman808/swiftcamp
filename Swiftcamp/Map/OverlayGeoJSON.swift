@@ -24,12 +24,14 @@ enum OverlayGeoJSON {
         })
     }
 
-    /// The handles. Via points only — shaping points are geometry, not
-    /// something the user can grab, and drawing them would put thousands of
-    /// dots on a route that has three.
-    static func viaPoints(_ routes: [RouteDetail], selected: Set<String> = []) -> FeatureCollection {
+    /// The handles: every route point, via and shaping alike, since both
+    /// can be grabbed. The road geometry between them is not a handle; a
+    /// Colorado leg carries thousands of vertices and drawing a grabbable
+    /// dot on each would be unusable.
+    static func handles(_ routes: [RouteDetail], selected: Set<String> = []) -> FeatureCollection {
         FeatureCollection(features: routes.flatMap { detail in
-            detail.viaPoints.map { point in
+            let distances = detail.distancesFromStart()
+            return detail.points.sorted { $0.seq < $1.seq }.map { point in
                 Feature(geometry: .point(point.coordinate),
                         properties: Properties(id: detail.route.id,
                                                seq: point.seq,
@@ -41,7 +43,21 @@ enum OverlayGeoJSON {
                                                // neither says nothing about
                                                // which one it belongs to.
                                                color: ItemColor.hex(detail.route.color),
-                                               selected: selected.contains(handle(detail.route.id, point.seq))))
+                                               selected: selected.contains(handle(detail.route.id, point.seq)),
+                                               // The style draws a shaping
+                                               // point smaller and solid,
+                                               // so a stop and a bend read
+                                               // differently at a glance.
+                                               via: point.isVia,
+                                               // For the readout under the
+                                               // pointer. The geometry the
+                                               // renderer hands back from a
+                                               // hit is quantised to the
+                                               // tile grid, so the exact
+                                               // position travels as data.
+                                               lat: point.lat,
+                                               lon: point.lon,
+                                               distance: distances[point.seq]))
             }
         })
     }
@@ -91,7 +107,9 @@ enum OverlayGeoJSON {
             Feature(geometry: .point(waypoint.coordinate),
                     properties: Properties(id: waypoint.id,
                                            name: waypoint.name,
-                                           selected: selected.contains(waypoint.id)))
+                                           selected: selected.contains(waypoint.id),
+                                           lat: waypoint.lat,
+                                           lon: waypoint.lon))
         })
     }
 
@@ -171,5 +189,10 @@ enum OverlayGeoJSON {
         var name: String?
         var color: String?
         var selected: Bool?
+        var via: Bool?
+        var lat: Double?
+        var lon: Double?
+        /// Metres from the start of the route, for route points.
+        var distance: Double?
     }
 }

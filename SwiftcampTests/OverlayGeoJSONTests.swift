@@ -45,20 +45,31 @@ final class OverlayGeoJSONTests: XCTestCase {
         XCTAssertTrue(OverlayGeoJSON.routeLines([detail]).features.isEmpty)
     }
 
-    /// Shaping points are geometry, not handles. A Colorado route carries
-    /// thousands of them and three via points; drawing a grabbable dot on
-    /// each would be unusable.
-    func testOnlyViaPointsBecomeHandles() {
-        let collection = OverlayGeoJSON.viaPoints([route()])
+    /// Road geometry is not a handle. A Colorado leg carries thousands of
+    /// vertices between two points; drawing a grabbable dot on each would be
+    /// unusable.
+    func testRoadGeometryDoesNotBecomeHandles() {
+        let collection = OverlayGeoJSON.handles([route()])
 
         XCTAssertEqual(collection.features.count, 2)
         XCTAssertEqual(collection.features.map(\.properties.name), ["Estes Park", "Grand Lake"])
     }
 
+    /// A shaping point is a handle too, since it can be grabbed, and says
+    /// so, since the style draws it differently.
+    func testShapingPointsAreHandlesMarkedAsSuch() {
+        var detail = route()
+        detail.points[1].isVia = false
+        let collection = OverlayGeoJSON.handles([detail])
+
+        XCTAssertEqual(collection.features.count, 2)
+        XCTAssertEqual(collection.features.map(\.properties.via), [true, false])
+    }
+
     func testSelectionIsAPropertyNotASeparateSource() throws {
         let detail = route()
         let selected = OverlayGeoJSON.handle(detail.route.id, 1)
-        let collection = OverlayGeoJSON.viaPoints([detail], selected: [selected])
+        let collection = OverlayGeoJSON.handles([detail], selected: [selected])
 
         XCTAssertEqual(collection.features.map(\.properties.selected), [false, true])
     }
@@ -67,10 +78,24 @@ final class OverlayGeoJSONTests: XCTestCase {
     /// database row id is not available: saving a route rewrites every point.
     func testViaPointsCarryEnoughToIdentifyThemselves() throws {
         let detail = route()
-        let feature = try XCTUnwrap(OverlayGeoJSON.viaPoints([detail]).features.last)
+        let feature = try XCTUnwrap(OverlayGeoJSON.handles([detail]).features.last)
 
         XCTAssertEqual(feature.properties.id, detail.route.id)
         XCTAssertEqual(feature.properties.seq, 1)
+    }
+
+    /// The readout under the pointer needs the exact position and how far
+    /// along the road the point is; the renderer's own geometry for a hit
+    /// is quantised to the tile grid.
+    func testHandlesCarryPositionAndDistanceFromStart() throws {
+        let detail = route()
+        let features = OverlayGeoJSON.handles([detail]).features
+
+        XCTAssertEqual(features.map(\.properties.lat), [40.0, 40.2])
+        XCTAssertEqual(features.map(\.properties.lon), [-105.0, -105.2])
+        XCTAssertEqual(features[0].properties.distance, 0)
+        let expected = GeoMath.length(detail.path)
+        XCTAssertEqual(try XCTUnwrap(features[1].properties.distance), expected, accuracy: 0.001)
     }
 
     // MARK: - Tracks

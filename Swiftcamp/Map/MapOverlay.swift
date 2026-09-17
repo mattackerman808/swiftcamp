@@ -42,7 +42,7 @@ struct MapOverlay: Equatable, Sendable {
         return MapOverlay(sources: [
             MapStyle.Overlay.trackLines: encode(OverlayGeoJSON.trackLines(tracks)),
             MapStyle.Overlay.routeLines: encode(OverlayGeoJSON.routeLines(routes)),
-            MapStyle.Overlay.viaPoints: encode(OverlayGeoJSON.viaPoints(routes, selected: selection)),
+            MapStyle.Overlay.viaPoints: encode(OverlayGeoJSON.handles(routes, selected: selection)),
             MapStyle.Overlay.waypoints: encode(OverlayGeoJSON.waypoints(waypoints, selected: selection)),
         ])
     }
@@ -93,19 +93,34 @@ struct MapClick: Equatable, Sendable {
     var target: Target
 }
 
-/// A via point being dragged on the map.
+/// A via point, or the line itself, being dragged on the map.
 ///
-/// `.move` arrives continuously and only updates what is drawn; `.end`
-/// arrives once and is the edit. Writing the library on every mouse move
-/// would make a single drag hundreds of transactions and hundreds of
-/// observation deliveries, each of which re-renders the sidebar.
+/// `.begin` arrives once the pointer has moved far enough to be a drag and
+/// says what was grabbed: via point `seq`, or the line when `seq` is nil,
+/// which grows a new via point at `coordinate` and drags that — the Google
+/// Maps gesture of pulling a route onto a different road. `.move` arrives
+/// continuously and only updates what is drawn; `.end` arrives once and is
+/// the edit. Writing the library on every mouse move would make a single
+/// drag hundreds of transactions and hundreds of observation deliveries,
+/// each of which re-renders the sidebar.
 struct MapDrag: Equatable, Sendable {
-    enum Phase: Equatable, Sendable { case move, end }
+    enum Phase: Equatable, Sendable { case begin, move, end }
 
     var routeID: String
-    var seq: Int
+    var seq: Int?
     var coordinate: Coordinate
     var phase: Phase
+}
+
+/// One entry of the menu a right-click on the map puts up.
+///
+/// Data rather than a platform menu, so the model can say what applies to
+/// what was hit without importing AppKit, and each host draws it natively.
+/// On the Mac that is an `NSMenu`; a menu drawn inside the page would look
+/// like a web page in a Mac app.
+struct MapMenuItem {
+    var title: String
+    var action: @MainActor () -> Void
 }
 
 /// A key the page saw and handed back, because the web view is first

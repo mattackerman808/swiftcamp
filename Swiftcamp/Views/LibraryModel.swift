@@ -55,6 +55,11 @@ final class LibraryModel {
     /// scrolling the sidebar into seconds of work per frame.
     private(set) var summaries: [String: String] = [:]
 
+    /// Distance from the start of its route to each point, keyed by the
+    /// point's handle, for the sidebar's list of a route's points. Built
+    /// with `summaries`, for the same reason.
+    private(set) var pointSummaries: [String: String] = [:]
+
     /// Whether the open or save panel is up.
     ///
     /// On the model rather than in the view because the File menu and the
@@ -76,12 +81,45 @@ final class LibraryModel {
     /// a via point to it and its handles can be dragged.
     private(set) var editingRouteID: String?
 
-    /// The editor's copy of the route's points while a drag is in flight.
+    /// The drag in flight, if any. See `Drag`.
+    @ObservationIgnored private var drag: Drag?
+
+    /// The editor's state while a via point is being dragged.
     ///
     /// The library is written once, when the drag ends. Between mouse
-    /// moves this is what the overlay draws, so the line follows the
+    /// moves `points` is what the overlay draws, so the line follows the
     /// pointer without a transaction and an observation delivery per frame.
-    @ObservationIgnored private var dragged: [RoutePoint]?
+    ///
+    /// The legs either side of the moving point are routed on every move,
+    /// so the line follows the road under the pointer rather than going
+    /// straight and snapping on release. Routing runs off the main actor,
+    /// one pass at a time, and only the newest position is worth routing:
+    /// `pending` holds it while a pass is in flight and the pass that lands
+    /// starts the next. Positions between are never routed, which is what
+    /// keeps a fast drag across a slow leg from queueing seconds of work
+    /// that describe where the pointer no longer is.
+    @MainActor private final class Drag {
+        let routeID: String
+        let seq: Int
+        /// Whether the drag grew this via point, for the undo action's name.
+        let inserted: Bool
+        /// The route's points as the drag found them, the grown point included.
+        let base: [RoutePoint]
+        /// What the overlay draws: `base` with the point moved and its
+        /// legs routed for `shapedFor`.
+        var points: [RoutePoint]
+        var shapedFor: Coordinate?
+        var pending: Coordinate?
+        var inFlight = false
+
+        init(routeID: String, seq: Int, inserted: Bool, base: [RoutePoint]) {
+            self.routeID = routeID
+            self.seq = seq
+            self.inserted = inserted
+            self.base = base
+            self.points = base
+        }
+    }
 
     /// Undo and redo for edits. Owned here rather than taken from the
     /// window, because the web view is first responder whenever the mouse
@@ -135,8 +173,10 @@ final class LibraryModel {
     /// window without Accessibility permission, so the check goes in through
     /// the front door instead: the page dispatches DOM events on its own
     /// canvas and everything from MapLibre's hit test onward is the real
-    /// path. Actions are `newRoute`, `click`, `drag`, `key`, `undo`, `redo`,
-    /// `done`, `wait` and `dump`, as JSON objects with an `action` key.
+    /// path. Actions are `newRoute`, `click`, `drag`, `hover`, `key`, `menu`,
+    /// `undo`, `redo`, `done`, `wait`, `probe` and `dump`, as JSON objects
+    /// with an `action` key. `menu` right-clicks and chooses the item named
+    /// in `choose`.
     private func runScriptIfRequested() {
         guard let path = UserDefaults.standard.string(forKey: "SwiftcampScript"),
               let data = FileManager.default.contents(atPath: path),
@@ -165,14 +205,16 @@ final class LibraryModel {
                 undoManager.redo()
             case "done":
                 finishEditing()
-            case "click", "drag", "key", "probe":
+            case "click", "drag", "key", "probe", "menu", "hover":
                 pageEvent = MapPageEvent(id: (pageEvent?.id ?? 0) + 1,
                                          kind: step["action"] as! String,
                                          lon: number("lon", step), lat: number("lat", step),
                                          toLon: number("toLon", step), toLat: number("toLat", step),
-                                         key: step["key"] as? String ?? "")
+                                         key: step["key"] as? String ?? step["choose"] as? String ?? "")
             case "dump":
-                if let path = step["path"] as? String { dump(to: path) }
+                if let path = step["path"] as? String {
+                    dump(to: path, geometry: step["geometry"] as? Bool ?? false)
+                }
             default:
                 NSLog("[Swiftcamp] script: unknown step %@", String(describing: step))
             }
@@ -180,13 +222,19 @@ final class LibraryModel {
     }
 
     /// The library's routes as JSON, for a script to assert against.
-    private func dump(to path: String) {
+    /// With `geometry`, each point also carries its leg's path as
+    /// `[lon, lat]` pairs, so a check can find a coordinate on the line to
+    /// grab. Off by default because a road leg is thousands of them.
+    private func dump(to path: String, geometry: Bool = false) {
         let routes = self.routes.map { detail -> [String: Any] in
             ["name": detail.route.name,
              "editing": detail.route.id == editingRouteID,
              "points": detail.points.map { p -> [String: Any] in
-                 ["seq": p.seq, "lat": p.lat, "lon": p.lon,
-                  "name": p.name ?? "", "geometry": p.geometry?.count ?? 0]
+                 var out: [String: Any] = ["seq": p.seq, "lat": p.lat, "lon": p.lon,
+                                           "name": p.name ?? "", "via": p.isVia,
+                                           "geometry": p.geometry?.count ?? 0]
+                 if geometry { out["path"] = (p.geometry ?? []).map { [$0.lon, $0.lat] } }
+                 return out
              }]
         }
         let payload: [String: Any] = ["routes": routes,
@@ -288,9 +336,8 @@ final class LibraryModel {
     /// turns a redundant rebuild into another round of view invalidation.
     private func rebuildOverlay() {
         var routes = self.routes
-        if let editingRouteID, let dragged,
-           let i = routes.firstIndex(where: { $0.route.id == editingRouteID }) {
-            routes[i].points = dragged
+        if let drag, let i = routes.firstIndex(where: { $0.route.id == drag.routeID }) {
+            routes[i].points = drag.points
         }
         let tracks = self.tracks
         let waypoints = self.waypoints
@@ -314,13 +361,23 @@ final class LibraryModel {
     /// Row subtitles, recomputed only when the rows themselves change.
     private func rebuildSummaries() {
         var out: [String: String] = [:]
+        var points: [String: String] = [:]
         for detail in routes {
-            out[detail.route.id] = "\(detail.viaPoints.count) via points · \(Self.miles(detail.length))"
+            let vias = detail.viaPoints.count
+            let shaping = detail.points.count - vias
+            var summary = "\(vias) via point\(vias == 1 ? "" : "s")"
+            if shaping > 0 { summary += ", \(shaping) shaping" }
+            out[detail.route.id] = summary + " · \(Self.miles(detail.length))"
+
+            for (seq, metres) in detail.distancesFromStart() {
+                points[OverlayGeoJSON.handle(detail.route.id, seq)] = Self.miles(metres)
+            }
         }
         for detail in tracks {
             out[detail.track.id] = "\(detail.points.count) points · \(Self.miles(detail.length))"
         }
         summaries = out
+        pointSummaries = points
     }
 
     /// Miles, because this is a US touring app and the GPS it feeds is set
@@ -528,6 +585,13 @@ final class LibraryModel {
         for waypoint in waypoints where ids.contains(waypoint.id) {
             corners.append(waypoint.coordinate)
         }
+        // A route point picked from the sidebar's list, by its handle.
+        for handle in ids.compactMap(OverlayGeoJSON.parseHandle) {
+            if let point = routes.first(where: { $0.route.id == handle.routeID })?
+                .points.first(where: { $0.seq == handle.seq }) {
+                corners.append(point.coordinate)
+            }
+        }
 
         guard let box = BoundingBox(corners) else { return }
         nextCameraID += 1
@@ -608,7 +672,7 @@ final class LibraryModel {
     func finishEditing() {
         guard let id = editingRouteID else { return }
         editingRouteID = nil
-        dragged = nil
+        if drag?.routeID == id { drag = nil }
         if let detail = routes.first(where: { $0.route.id == id }), detail.points.isEmpty {
             do { try store.deleteRoute(id: id) } catch { failure = error.localizedDescription }
             selection.remove(id)
@@ -662,34 +726,158 @@ final class LibraryModel {
         }
     }
 
-    /// A via point being dragged. Moves redraw; the end is the edit.
-    func drag(_ drag: MapDrag) {
-        guard var detail = editingDetail, drag.routeID == detail.route.id else { return }
-        if let dragged { detail.points = dragged }
+    /// A via point, or the line, being dragged. Moves redraw along the
+    /// road; the end is the edit.
+    ///
+    /// Any route, not only the one being edited. Grabbing a route is how
+    /// it gets selected, as in Google Maps; editing mode exists for adding
+    /// points by clicking, which needs a mode because a click on empty map
+    /// otherwise means nothing.
+    func drag(_ event: MapDrag) {
+        guard var detail = routes.first(where: { $0.route.id == event.routeID }) else { return }
 
-        switch drag.phase {
+        switch event.phase {
+        case .begin:
+            let seq: Int
+            if let grabbed = event.seq {
+                seq = grabbed
+            } else {
+                // The line was grabbed: it grows a point where the press
+                // landed, and the drag moves that. A shaping point, as
+                // BaseCamp and Google Maps both make it: pulling a route
+                // onto a different road is about the road, not a stop. A
+                // click on the line makes a via point, and the right-click
+                // menu converts either way. Its legs are straight only
+                // until the first move routes them, which is the same frame.
+                guard let leg = detail.nearestLeg(to: event.coordinate) else { return }
+                detail.insertVia(event.coordinate, inLeg: leg, isVia: false)
+                seq = leg + 1
+            }
+            guard detail.points.indices.contains(seq) else { return }
+            // Selected before the drag state exists, so the rebuild the
+            // selection triggers draws the route as it was. A grown point
+            // with its straight legs would otherwise flash for a frame
+            // before the first move routes them.
+            selection = [OverlayGeoJSON.handle(detail.route.id, seq), detail.route.id]
+            drag = Drag(routeID: detail.route.id, seq: seq, inserted: event.seq == nil, base: detail.points)
+
         case .move:
-            // Straight legs while the mouse is down. Routing runs tens of
-            // milliseconds per leg and a drag reports every frame; the road
-            // is computed once, on release.
-            detail.moveVia(at: drag.seq, to: drag.coordinate)
-            dragged = detail.points
-            rebuildOverlay()
+            guard let drag, drag.routeID == event.routeID else { return }
+            drag.pending = event.coordinate
+            if !drag.inFlight { routeDrag(drag) }
+
         case .end:
-            dragged = nil
-            detail.moveVia(at: drag.seq, to: drag.coordinate, shape: shape)
-            commit(detail, actionName: "Move Point")
+            guard let drag, drag.routeID == event.routeID else { return }
+            self.drag = nil
+            if drag.shapedFor == event.coordinate {
+                // The release is where the last move was routed, which is
+                // nearly always: the pointer does not move between the
+                // final mousemove and the mouseup.
+                detail.points = drag.points
+            } else {
+                detail.points = drag.base
+                detail.moveVia(at: drag.seq, to: event.coordinate, shape: shape)
+            }
+            commit(detail, actionName: drag.inserted ? "Insert Point" : "Move Point")
+        }
+    }
+
+    /// Routes the legs either side of the dragged point for its newest
+    /// position, away from the main actor, then draws the result and
+    /// routes again if the pointer moved meanwhile.
+    ///
+    /// Always from `base`, never from the previous pass: only one point
+    /// moves and only its two legs change, so the result is the same and
+    /// nothing can accumulate.
+    private func routeDrag(_ drag: Drag) {
+        guard let target = drag.pending,
+              let detail = routes.first(where: { $0.route.id == drag.routeID }) else { return }
+        drag.pending = nil
+        drag.inFlight = true
+
+        var base = detail
+        base.points = drag.base
+        let seq = drag.seq
+        let shape = self.shape
+        Task {
+            let points = await Task.detached(priority: .userInitiated) { () -> [RoutePoint] in
+                var working = base
+                working.moveVia(at: seq, to: target, shape: shape)
+                return working.points
+            }.value
+
+            // The drag may have ended, or a new one begun, while this was
+            // routing; the result then describes nothing on screen.
+            guard self.drag === drag else { return }
+            drag.inFlight = false
+            drag.points = points
+            drag.shapedFor = target
+            rebuildOverlay()
+            if drag.pending != nil { routeDrag(drag) }
         }
     }
 
     /// Removes the selected via point of the route being edited.
     func deleteSelectedViaPoint() {
-        guard var detail = editingDetail,
+        guard let detail = editingDetail,
               let seq = selection.compactMap(OverlayGeoJSON.parseHandle).first(where: { $0.routeID == detail.route.id })?.seq
         else { return }
+        deleteViaPoint(routeID: detail.route.id, seq: seq)
+    }
+
+    /// Makes a point a stop or a bend in the road. See `RouteDetail.setVia`.
+    func setVia(routeID: String, seq: Int, _ isVia: Bool) {
+        guard var detail = routes.first(where: { $0.route.id == routeID }) else { return }
+        detail.setVia(at: seq, isVia)
+        commit(detail, actionName: isVia ? "Make Via Point" : "Make Shaping Point")
+    }
+
+    /// Names a via point. A shaping point ignores it; see `RouteDetail.rename`.
+    func renamePoint(routeID: String, seq: Int, to name: String) {
+        guard var detail = routes.first(where: { $0.route.id == routeID }) else { return }
+        detail.rename(at: seq, to: name)
+        commit(detail, actionName: "Rename Point")
+    }
+
+    /// Removes point `seq` of route `routeID`. Its neighbours are joined
+    /// by a fresh leg, routed like any other.
+    func deleteViaPoint(routeID: String, seq: Int) {
+        guard var detail = routes.first(where: { $0.route.id == routeID }),
+              detail.points.indices.contains(seq) else { return }
         detail.removeVia(at: seq, shape: shape)
-        selection.remove(OverlayGeoJSON.handle(detail.route.id, seq))
+        selection.remove(OverlayGeoJSON.handle(routeID, seq))
         commit(detail, actionName: "Delete Point")
+    }
+
+    // MARK: - Context menu
+
+    /// What a right-click on the map offers, for the host to draw.
+    ///
+    /// A via point can be deleted from any route, not only the one being
+    /// edited. The right-click names its target, where the Delete key has
+    /// only the selection to go on, and that is confined to the editor.
+    func contextMenu(for click: MapClick) -> [MapMenuItem] {
+        switch click.target {
+        case .viaPoint(let routeID, let seq):
+            let isVia = routes.first { $0.route.id == routeID }?.points.first { $0.seq == seq }?.isVia ?? true
+            return [
+                MapMenuItem(title: isVia ? "Make Shaping Point" : "Make Via Point") {
+                    self.setVia(routeID: routeID, seq: seq, !isVia)
+                },
+                MapMenuItem(title: "Delete Point") { self.deleteViaPoint(routeID: routeID, seq: seq) },
+            ]
+
+        case .routeLine(let routeID):
+            let editing = routeID == editingRouteID
+            return [
+                editing ? MapMenuItem(title: "Done Editing") { self.finishEditing() }
+                        : MapMenuItem(title: "Edit Route") { self.editRoute(routeID) },
+                MapMenuItem(title: "Reverse Route") { self.reverseRoute(routeID) },
+            ]
+
+        case .waypoint, .track, .ground:
+            return []
+        }
     }
 
     func reverseRoute(_ id: String) {
@@ -764,10 +952,8 @@ final class LibraryModel {
     }
 
     func delete(_ id: String) {
-        if id == editingRouteID {
-            editingRouteID = nil
-            dragged = nil
-        }
+        if id == editingRouteID { editingRouteID = nil }
+        if drag?.routeID == id { drag = nil }
         do {
             if routes.contains(where: { $0.route.id == id }) {
                 try store.deleteRoute(id: id)

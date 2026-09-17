@@ -28,12 +28,17 @@ Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route
 shields for all 50 states. A GRDB library with waypoints, tracks and routes.
 GPX 1.0 and 1.1 in, 1.1 with Garmin extensions out. MTP transfer over USB to
-a zūmo XT3, both directions. Route editing on the map: click to add, drag to
-move, click the line to insert, Delete to remove, reverse, undo and redo.
-Legs are straight lines until Valhalla lands.
+a zūmo XT3, both directions. Route editing on the map: drag a point to
+move it, drag the line to insert a shaping point, click it to insert a via
+point, right-click to convert or remove, reverse, undo and redo, all on any
+route without a mode, and grabbing a route selects it. Editing mode is only
+for adding via points by clicking empty map. The sidebar lists a selected
+route's points, and via points are named there. With a Valhalla graph loaded, legs follow roads and re-route live
+while dragging; without one they are straight lines. `docs/routing.md`.
 
 Not started: waypoint creation and editing, lists, search and sort, GDB
-import, routing. `docs/basecamp-parity.md` has the full inventory.
+import, region packs and tile streaming for routing.
+`docs/basecamp-parity.md` has the full inventory.
 
 Only macOS is being actively worked on. iOS builds but has no overlay path.
 
@@ -338,6 +343,19 @@ implements them; this is the index.
   have.** `osascript` and CGEvent posting both fail silently or prompt the
   user. `-SwiftcampScript` dispatches DOM events on the map canvas instead,
   which runs MapLibre's own hit testing and every handler after it.
+- **A synthetic drag delivered in one tick never exercised the live path.**
+  The harness dispatched all eight mousemoves synchronously, so the page's
+  per-frame coalescing folded them into one report that the release then
+  cancelled, and the "live re-routing" check was passing on the release
+  path alone. Moves now go out one per animation frame, the way a mouse
+  delivers them. Count the routing passes in the log, not the final shape.
+- **MapLibre holds a contextmenu that follows a press until the release.**
+  macOS raises the contextmenu event on the right button's press, so the
+  library defers its own event to the mouseup to keep a right-drag from
+  opening a menu. A synthetic contextmenu with no release around it is
+  therefore reported never, and the harness sends press, contextmenu,
+  release exactly as the OS does. Read from the bundled `maplibre-gl.js`
+  after one wrong guess, which is the renderer lesson yet again.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

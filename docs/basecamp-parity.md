@@ -101,16 +101,16 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | --- | --- |
 | Create a route by clicking the map | **Have** — straight legs until routing lands |
 | Drag a point to move it | **Have** |
-| Insert a point into a leg | **Have** |
+| Insert a point into a leg | **Have** — click the line, or drag it |
 | Delete a point | **Have** |
-| Via points versus shaping points | **Partial** — the model distinguishes them, the writer does not honour it |
+| Via points versus shaping points | **Have** — dragging the line makes a shaping point, clicking makes a via point, either converts; written as `trp:ShapingPoint` and `trp:ViaPoint` |
 | Reverse a route | **Have** |
 | Route from a track | **Build** |
 | Track from a route | **Build** — this is how riders defeat device re-routing |
 | Activity profiles: motorcycling, driving, walking | **Build**, needs routing |
 | Routing preferences: faster time, shorter distance | **Build**, needs routing |
 | Avoidances: tolls, ferries, unpaved, highways | **Build**, needs routing |
-| Road snapping and recalculation on drag | **Build** — Stage 2, Valhalla |
+| Road snapping and recalculation on drag | **Partial** — live against a local Valhalla graph; region packs and streaming to come |
 | Trip planner with departure and arrival times | **Build**, later |
 
 ### Tracks

@@ -88,6 +88,55 @@ final class RouteEditingTests: XCTestCase {
         XCTAssertEqual(detail, before)
     }
 
+    // MARK: - Via and shaping
+
+    /// A point grown by dragging the line is a shaping point: it bends the
+    /// route without being a stop. Otherwise it is a point like any other.
+    func testAnInsertedPointCanBeAShapingPoint() {
+        var detail = route([a, c])
+        detail.insertVia(b, inLeg: 0, isVia: false)
+
+        XCTAssertEqual(detail.points.map(\.isVia), [true, false, true])
+        XCTAssertEqual(detail.points.map(\.seq), [0, 1, 2])
+        XCTAssertEqual(detail.points.map(\.coordinate), [a, b, c])
+    }
+
+    /// Converting changes what the device announces and nothing about the
+    /// line: both kinds sit on the road.
+    func testConvertingAPointKeepsTheLine() {
+        var detail = route([a, b, c], shape: midpoint)
+        let before = detail.path
+
+        detail.setVia(at: 1, false)
+        XCTAssertFalse(detail.points[1].isVia)
+        XCTAssertEqual(detail.path, before)
+
+        detail.setVia(at: 1, true)
+        XCTAssertTrue(detail.points[1].isVia)
+        XCTAssertEqual(detail.path, before)
+    }
+
+    /// A bend in the road is not a place, so it has no name to keep or take.
+    func testAShapingPointHasNoName() {
+        var detail = route([a, b, c])
+        detail.rename(at: 1, to: "Lyons")
+        XCTAssertEqual(detail.points[1].name, "Lyons")
+
+        detail.setVia(at: 1, false)
+        XCTAssertNil(detail.points[1].name)
+
+        detail.rename(at: 1, to: "Lyons")
+        XCTAssertNil(detail.points[1].name)
+    }
+
+    func testRenamingTrimsAndEmptiesToNoName() {
+        var detail = route([a, b])
+        detail.rename(at: 0, to: "  Estes Park ")
+        XCTAssertEqual(detail.points[0].name, "Estes Park")
+        detail.rename(at: 0, to: "   ")
+        XCTAssertNil(detail.points[0].name)
+    }
+
     // MARK: - Remove
 
     func testRemovingJoinsTheNeighbours() {

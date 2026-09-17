@@ -24,12 +24,14 @@ enum RouteEditing {
 extension RouteDetail {
     // MARK: - Editing
 
-    /// Adds a via point at the end.
+    /// Adds a point at the end: a via point, or with `isVia` false a
+    /// shaping point, which bends the route without being a stop.
     mutating func appendVia(_ coordinate: Coordinate,
                             name: String? = nil,
+                            isVia: Bool = true,
                             shape: RouteEditing.LegShaper = RouteEditing.straight) {
         points.append(RoutePoint(routeID: route.id, seq: points.count,
-                                 lat: coordinate.lat, lon: coordinate.lon, name: name))
+                                 lat: coordinate.lat, lon: coordinate.lon, name: name, isVia: isVia))
         resequence()
         reshape(leg: points.count - 2, shape)
     }
@@ -43,13 +45,14 @@ extension RouteDetail {
     /// the road anyway.
     mutating func insertVia(_ coordinate: Coordinate,
                             inLeg leg: Int,
+                            isVia: Bool = true,
                             shape: RouteEditing.LegShaper = RouteEditing.straight) {
         guard leg >= 0, leg < points.count - 1 else {
-            appendVia(coordinate, shape: shape)
+            appendVia(coordinate, isVia: isVia, shape: shape)
             return
         }
         points.insert(RoutePoint(routeID: route.id, seq: leg + 1,
-                                 lat: coordinate.lat, lon: coordinate.lon),
+                                 lat: coordinate.lat, lon: coordinate.lon, isVia: isVia),
                       at: leg + 1)
         resequence()
         reshape(leg: leg, shape)
@@ -65,6 +68,25 @@ extension RouteDetail {
         points[index].lon = coordinate.lon
         reshape(leg: index - 1, shape)
         reshape(leg: index, shape)
+    }
+
+    /// Makes point `index` a via point or a shaping point.
+    ///
+    /// Nothing about the line changes: both kinds sit on the road and
+    /// shape it. The difference is on the device, which announces a via
+    /// point as a stop and passes a shaping point in silence, and in the
+    /// sidebar, where only via points carry names.
+    mutating func setVia(at index: Int, _ isVia: Bool) {
+        guard points.indices.contains(index) else { return }
+        points[index].isVia = isVia
+        if !isVia { points[index].name = nil }
+    }
+
+    /// Renames via point `index`. A shaping point has no name to give.
+    mutating func rename(at index: Int, to name: String?) {
+        guard points.indices.contains(index), points[index].isVia else { return }
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        points[index].name = trimmed.isEmpty ? nil : trimmed
     }
 
     /// Removes via point `index`. Its neighbours are joined by a fresh leg.

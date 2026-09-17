@@ -24,6 +24,8 @@ struct MapContainer: View {
     var onClick: ((MapClick) -> Void)?
     var onDrag: ((MapDrag) -> Void)?
     var onKey: ((MapKey) -> Void)?
+    /// What a right-click at a spot should offer; nothing means no menu.
+    var onContextMenu: ((MapClick) -> [MapMenuItem])?
 
     var body: some View {
         #if os(iOS)
@@ -33,7 +35,8 @@ struct MapContainer: View {
         MapLibreMapView()
         #else
         MapWebView(overlay: overlay, camera: camera, editingRouteID: editingRouteID,
-                   pageEvent: pageEvent, onClick: onClick, onDrag: onDrag, onKey: onKey)
+                   pageEvent: pageEvent, onClick: onClick, onDrag: onDrag, onKey: onKey,
+                   onContextMenu: onContextMenu)
         #endif
     }
 }

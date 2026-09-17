@@ -432,11 +432,29 @@ enum MapStyle {
 
             // Via points read as handles rather than as places: white with a
             // route-coloured ring, and larger, because they are the thing the
-            // user aims at with a cursor.
-            geoJSONCircle("via-point", source: Overlay.viaPoints,
-                          fill: Palette.viaFill,
-                          stroke: ["coalesce", ["get", "color"], Palette.routeLine],
-                          radii: [[6, 3.5], [11, 6.0], [16, 8.0]]),
+            // user aims at with a cursor. A shaping point is the same handle
+            // drawn smaller and solid in the route's colour, so a stop and a
+            // bend in the road read differently at a glance. One layer for
+            // both, because the hit test names layers and a point is a point
+            // whichever kind it is.
+            [
+                "id": "via-point",
+                "type": "circle",
+                "source": Overlay.viaPoints,
+                "paint": [
+                    // Zoom may only drive the outermost expression, so the
+                    // kind is decided at each stop rather than around them.
+                    "circle-radius": ["interpolate", ["linear"], ["zoom"],
+                                      6, byKind(via: 3.5, shaping: 2.0),
+                                      11, byKind(via: 6.0, shaping: 3.5),
+                                      16, byKind(via: 8.0, shaping: 4.5)],
+                    "circle-color": byKind(via: Palette.viaFill,
+                                           shaping: ["coalesce", ["get", "color"], Palette.routeLine]),
+                    "circle-stroke-width": byKind(via: 2.0, shaping: 1.5),
+                    "circle-stroke-color": byKind(via: ["coalesce", ["get", "color"], Palette.routeLine],
+                                                  shaping: Palette.viaFill),
+                ],
+            ],
 
             // Selection is a property on the feature rather than a separate
             // source, so selecting something is a data push and never a layer
@@ -735,6 +753,13 @@ enum MapStyle {
             paint["circle-stroke-color"] = stroke
         }
         return ["id": id, "type": "circle", "source": source, "paint": paint]
+    }
+
+    /// One value for a via point and another for a shaping point, read off
+    /// the handle's `via` property. Absent counts as via, which is also what
+    /// a device assumes of an unmarked route point.
+    private static func byKind(via: Any, shaping: Any) -> [Any] {
+        ["case", ["==", ["get", "via"], false], shaping, via]
     }
 
     /// `[zoom, value]` stops as a MapLibre interpolate expression.

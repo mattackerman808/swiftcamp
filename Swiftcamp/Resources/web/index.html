@@ -9,10 +9,25 @@
   /* Attribution is drawn by SwiftUI over the web view, matching iOS, so
      the in-map control is suppressed rather than duplicated. */
   .maplibregl-ctrl-attrib, .maplibregl-ctrl-logo { display: none !important; }
+  /* The readout under the pointer, drawn to look like a Mac tooltip. */
+  #tip {
+    position: fixed; z-index: 10; display: none; pointer-events: none;
+    max-width: 260px; padding: 5px 8px; border-radius: 5px;
+    background: rgba(255, 255, 255, 0.96); color: #1d1d1f;
+    border: 0.5px solid rgba(0, 0, 0, 0.18);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    font: 11px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    white-space: nowrap;
+  }
+  #tip b { font-weight: 600; }
+  #tip .kind { color: #6e6e73; }
+  #tip .row { display: flex; gap: 10px; justify-content: space-between; }
+  #tip .row span:last-child { font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<div id="tip"></div>
 <script src="maplibre-gl.js"></script>
 <script src="pmtiles.js"></script>
 <script>
@@ -62,7 +77,12 @@ function post(message) {
     center: camera.center || [-104.99, 39.74],
     zoom: camera.zoom !== undefined ? camera.zoom : 13,
     maxZoom: window.__SWIFTCAMP_MAX_ZOOM__,
-    attributionControl: false
+    attributionControl: false,
+    // Right-drag would rotate the map, and the right button is the context
+    // menu instead. A native menu also swallows the release, so MapLibre
+    // would be left believing the button was still down and the next hover
+    // would spin the map. North-up is what a planner wants anyway.
+    dragRotate: false
   });
 
   // MapLibre GL JS sizes its canvas once and does not track its container.
@@ -101,10 +121,9 @@ function post(message) {
       map.fitBounds([[west, south], [east, north]], { padding: 64, duration: 600 });
     },
 
-    // Which route's via points can be dragged, or null. Known here and not
-    // only in Swift because a drag begins by cancelling the map's own pan
-    // on mousedown, and cancelling it for a dot that will not move leaves a
-    // map that refuses to pan whenever the cursor is over one.
+    // Which route is being edited, or null. While set, empty map is a
+    // crosshair because a click there adds a point to it. Dragging needs
+    // no mode: every route's dots and line can be grabbed.
     setEditing: function (id) {
       editing = id || null;
       map.getCanvas().style.cursor = editing ? 'crosshair' : '';
@@ -142,14 +161,47 @@ function post(message) {
         mouse('mouseup', canvas, p, 0);
         mouse('click', canvas, p, 0);
       } else if (kind === 'drag') {
-        var a = at(lon, lat), b = at(toLon, toLat);
+        // One move per frame, the way a mouse delivers them. Dispatching
+        // them all in one tick coalesced into a single report that the
+        // release then cancelled, so the live re-routing a real drag runs
+        // through was never exercised: the check passed on the release
+        // path alone.
+        var a = at(lon, lat), b = at(toLon, toLat), steps = 8, i = 0;
         mouse('mousemove', canvas, a, 0);
         mouse('mousedown', canvas, a, 1);
-        for (var i = 1; i <= 8; i++) {
-          var t = i / 8;
+        (function step() {
+          i += 1;
+          var t = i / steps;
           mouse('mousemove', canvas, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, 1);
-        }
-        mouse('mouseup', canvas, b, 0);
+          if (i < steps) requestAnimationFrame(step);
+          else requestAnimationFrame(function () { mouse('mouseup', canvas, b, 0); });
+        })();
+      } else if (kind === 'hover') {
+        // A move with no button down, then a repaint so the snapshot
+        // harness, which photographs on idle, sees the tooltip the move
+        // put up: a tooltip is DOM, and DOM changes do not make the map
+        // render.
+        mouse('mousemove', canvas, at(lon, lat), 0);
+        map.triggerRepaint();
+      } else if (kind === 'contextmenu') {
+        // The sequence macOS produces for the right button: press, the
+        // contextmenu event, release. MapLibre holds a contextmenu that
+        // follows a press until the release arrives, so sending the
+        // contextmenu event alone reports nothing, ever.
+        var c = at(lon, lat);
+        mouse('mousemove', canvas, c, 0);
+        canvas.dispatchEvent(new MouseEvent('mousedown', {
+          bubbles: true, cancelable: true, view: window,
+          clientX: c.x, clientY: c.y, screenX: c.x, screenY: c.y, button: 2, buttons: 2
+        }));
+        canvas.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, view: window,
+          clientX: c.x, clientY: c.y, screenX: c.x, screenY: c.y, button: 2, buttons: 2
+        }));
+        canvas.dispatchEvent(new MouseEvent('mouseup', {
+          bubbles: true, cancelable: true, view: window,
+          clientX: c.x, clientY: c.y, screenX: c.x, screenY: c.y, button: 2, buttons: 0
+        }));
       } else if (kind === 'probe') {
         // What the renderer has at this spot. The answer to "why did that
         // click not hit" is here, never in reasoning about it.
@@ -170,20 +222,41 @@ function post(message) {
   var editing = null;
 
   // Overlay layers, topmost first, so a click reports the thing the user
-  // thinks they aimed at when a via point sits on its own route line.
-  var PICKABLE = ['via-point', 'waypoint-dot', 'route-line', 'track-line'];
+  // thinks they aimed at when a via point sits on its own route line. The
+  // route's casing rather than its stroke: the stroke is four pixels wide
+  // at city zooms and the casing seven, and a line that is to be grabbed
+  // needs the fatter target. Both draw from the same features, so a hit on
+  // either carries the same properties.
+  var PICKABLE = ['via-point', 'waypoint-dot', 'route-casing', 'track-line'];
 
-  map.on('click', function (e) {
-    var hits = map.queryRenderedFeatures(e.point, { layers: PICKABLE });
+  // What is under a point, in the shape Swift decodes for a click.
+  function describe(point, lngLat) {
+    var hits = map.queryRenderedFeatures(point, { layers: PICKABLE });
     var hit = hits.length ? hits[0] : null;
-    post({
-      type: 'click',
-      lon: e.lngLat.lng,
-      lat: e.lngLat.lat,
+    return {
+      lon: lngLat.lng,
+      lat: lngLat.lat,
       layer: hit ? hit.layer.id : null,
       id: hit ? (hit.properties.id || null) : null,
       seq: hit && hit.properties.seq !== undefined ? hit.properties.seq : null
-    });
+    };
+  }
+
+  map.on('click', function (e) {
+    if (swallowClick) { swallowClick = false; return; }
+    post(Object.assign({ type: 'click' }, describe(e.point, e.lngLat)));
+  });
+
+  // Right-click. WebKit's own menu is suppressed and what is under the
+  // pointer is reported instead, with the pixel, and Swift puts up a
+  // native menu there. The items are the model's actions, and a menu drawn
+  // in the page would look like a web page inside a Mac app. The pixel is
+  // in the map's coordinates, which are the web view's: the map fills the
+  // page.
+  map.on('contextmenu', function (e) {
+    e.originalEvent.preventDefault();
+    post(Object.assign({ type: 'contextmenu', x: e.point.x, y: e.point.y },
+                       describe(e.point, e.lngLat)));
   });
 
   // A cursor that changes is the only affordance saying a dot can be grabbed.
@@ -192,8 +265,9 @@ function post(message) {
     if (dragging) return;
     var hits = map.queryRenderedFeatures(e.point, { layers: PICKABLE });
     var hit = hits.length ? hits[0] : null;
+    hover(hit, e.point);
     var cursor = '';
-    if (hit && hit.layer.id === 'via-point' && editing && hit.properties.id === editing) {
+    if (hit && (hit.layer.id === 'via-point' || hit.layer.id === 'route-casing')) {
       cursor = 'grab';
     } else if (hit) {
       cursor = 'pointer';
@@ -203,24 +277,179 @@ function post(message) {
     map.getCanvas().style.cursor = cursor;
   });
 
-  // Dragging a via point. The standard MapLibre GL JS pattern: on mousedown
-  // over the handle, preventDefault stops the map panning, then mousemove
-  // follows the pointer until mouseup. Only the route being edited is
-  // draggable, so a dot on any other route still lets the map pan under it.
+  // The readout under the pointer: what a point is, where it is, how far
+  // along the route, and how high. Built here rather than in Swift because
+  // it follows the pointer and a round trip per mouse move would lag; the
+  // facts it shows travel on the feature, except elevation, which is read
+  // off the terrain tiles below.
+  var tip = document.getElementById('tip');
+  var tipKey = null;
+
+  function hover(hit, point) {
+    var pointLayer = hit && (hit.layer.id === 'via-point' || hit.layer.id === 'waypoint-dot');
+    if (!pointLayer) { hideTip(); return; }
+
+    var p = hit.properties;
+    var key = hit.layer.id + ':' + p.id + ':' + (p.seq === undefined ? '' : p.seq);
+    if (key !== tipKey) {
+      tipKey = key;
+      tip.innerHTML = describePoint(hit.layer.id, p);
+      lookupElevation(p.lon, p.lat, key);
+    }
+    tip.style.display = 'block';
+    // Beside the pointer, and kept on the map when the pointer is near an
+    // edge: a tooltip that is half off screen is a tooltip nobody reads.
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var x = point.x + 14, y = point.y + 14;
+    if (x + w > window.innerWidth - 8) x = point.x - w - 14;
+    if (y + h > window.innerHeight - 8) y = point.y - h - 14;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  }
+
+  function hideTip() {
+    tip.style.display = 'none';
+    tipKey = null;
+  }
+
+  map.getCanvas().addEventListener('mouseleave', hideTip);
+  map.on('mousedown', hideTip);
+
+  function escapeHTML(text) {
+    return String(text).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function describePoint(layer, p) {
+    var kind, title;
+    if (layer === 'waypoint-dot') {
+      kind = 'Waypoint';
+      title = p.name || 'Waypoint';
+    } else if (p.via === false) {
+      kind = 'Shaping point';
+      title = kind;
+    } else {
+      kind = 'Via point';
+      title = p.name || ('Via point ' + (p.seq + 1));
+    }
+    var rows = ['<div><b>' + escapeHTML(title) + '</b></div>'];
+    if (title !== kind) rows.push('<div class="kind">' + kind + '</div>');
+    rows.push(row('Position', formatPosition(p.lat, p.lon)));
+    if (p.distance !== undefined) rows.push(row('From start', formatMiles(p.distance)));
+    rows.push(row('Elevation', '<span id="tip-ele">…</span>'));
+    return rows.join('');
+  }
+
+  function row(label, value) {
+    return '<div class="row"><span class="kind">' + label + '</span><span>' + value + '</span></div>';
+  }
+
+  // Five decimals is about a metre, which is as much as a rider can use
+  // and as much as the file stores meaningfully.
+  function formatPosition(lat, lon) {
+    return lat.toFixed(5) + ', ' + lon.toFixed(5);
+  }
+
+  // Miles, the way the sidebar shows them: a decimal under ten, whole
+  // above, because this is a US touring app and its GPS is set the same.
+  function formatMiles(metres) {
+    var miles = metres / 1609.344;
+    return (miles < 10 ? miles.toFixed(1) : Math.round(miles)) + ' mi';
+  }
+
+  // Elevation, read off the same Terrarium tiles the hillshade draws. The
+  // map cannot answer this itself without 3-D terrain switched on, which
+  // changes how everything renders, so the tile is fetched through the
+  // PMTiles protocol the map already uses and the pixel decoded here.
+  // Always the archive's deepest zoom: a point wants the finest sample,
+  // not whatever the current view happens to be drawing.
+  var demTiles = {};
+
+  function lookupElevation(lon, lat, key) {
+    elevationAt(lon, lat).then(function (metres) {
+      if (tipKey !== key) return;
+      var slot = document.getElementById('tip-ele');
+      if (!slot) return;
+      if (metres === null) { slot.parentNode.remove(); return; }
+      slot.textContent = Math.round(metres * 3.28084).toLocaleString('en-US') + ' ft';
+    }).catch(function (e) { console.warn('elevation lookup failed: ' + e); });
+  }
+
+  async function elevationAt(lon, lat) {
+    var source = style.sources.terrain;
+    if (!source || !source.url) return null;
+    var archive = source.url.replace(/^pmtiles:\/\//, '');
+    // The protocol keeps one PMTiles instance per archive with its
+    // directory cached; borrow it rather than fetching the directory again.
+    var pm = (protocol.tiles && protocol.tiles.get(archive)) || new pmtiles.PMTiles(archive);
+    var header = await pm.getHeader();
+    var z = header.maxZoom;
+    var n = Math.pow(2, z);
+    var latRad = lat * Math.PI / 180;
+    var xf = (lon + 180) / 360 * n;
+    var yf = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+    var x = Math.floor(xf), y = Math.floor(yf);
+    var tileKey = z + '/' + x + '/' + y;
+
+    if (!demTiles[tileKey]) {
+      demTiles[tileKey] = pm.getZxy(z, x, y).then(async function (resp) {
+        if (!resp || !resp.data || !resp.data.byteLength) return null;
+        var bitmap = await createImageBitmap(new Blob([resp.data]));
+        var canvas = document.createElement('canvas');
+        canvas.width = bitmap.width; canvas.height = bitmap.height;
+        var ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(bitmap, 0, 0);
+        return { pixels: ctx.getImageData(0, 0, bitmap.width, bitmap.height), size: bitmap.width };
+      });
+    }
+    var tile = await demTiles[tileKey];
+    if (!tile) return null;
+    var px = Math.min(tile.size - 1, Math.floor((xf - x) * tile.size));
+    var py = Math.min(tile.size - 1, Math.floor((yf - y) * tile.size));
+    var i = (py * tile.size + px) * 4;
+    var d = tile.pixels.data;
+    // Terrarium: metres = (R * 256 + G + B / 256) - 32768.
+    return (d[i] * 256 + d[i + 1] + d[i + 2] / 256) - 32768;
+  }
+
+  // Dragging. Two things on any route can be picked up: a via point, which
+  // moves, and the line itself, which grows a new via point where it was
+  // grabbed and moves that — the Google Maps gesture of pulling a route
+  // onto a different road. No mode is needed and grabbing a route selects
+  // it. Either way it is the standard MapLibre GL JS pattern: on mousedown
+  // over the target, preventDefault stops the map panning, then mousemove
+  // follows the pointer until mouseup. The map still pans from anywhere
+  // that is not a dot or a line.
   //
-  // Moves are reported to Swift, which redraws the line from an in-memory
-  // copy; the write happens once, on 'end'. Nothing is drawn from here
-  // directly, so the page never holds a copy of the route that could
-  // disagree with the library.
+  // Moves are reported to Swift, which routes the legs either side and
+  // redraws the line from an in-memory copy; the write happens once, on
+  // 'end'. Nothing is drawn from here directly, so the page never holds a
+  // copy of the route that could disagree with the library.
   var dragging = null;
 
-  map.on('mousedown', 'via-point', function (e) {
-    if (!editing) return;
-    var feature = e.features && e.features[0];
-    if (!feature || feature.properties.id !== editing) return;
-    e.preventDefault();
+  // MapLibre's own threshold between a click and a drag, so the two agree.
+  // A press that travels less than this is a click, and the click handler
+  // reports it; reporting a drag for it as well would write a no-op edit
+  // onto the undo stack, or for a grab on the line insert a second point.
+  var CLICK_TOLERANCE = 3;
 
-    dragging = { id: feature.properties.id, seq: feature.properties.seq, moved: false, pending: null };
+  // MapLibre measures press to release, not the furthest excursion, so a
+  // drag that wanders out and back can still end in a click. Set when a
+  // drag has been reported so that click is dropped, and cleared on the
+  // next press in case none came.
+  var swallowClick = false;
+
+  map.on('mousedown', function () { swallowClick = false; });
+
+  function beginDrag(e, id, seq) {
+    // The left button only. The right one is the context menu, and a
+    // drag begun by it would still be waiting for its release when the
+    // native menu takes the pointer.
+    if (e.originalEvent.button !== 0) return;
+    e.preventDefault();
+    dragging = { id: id, seq: seq, down: e.lngLat, downPoint: e.point,
+                 moved: false, pending: null, frame: null };
     map.getCanvas().style.cursor = 'grabbing';
 
     function report(phase, lngLat) {
@@ -229,9 +458,15 @@ function post(message) {
     }
 
     // One report per frame, not per event. The pointer can raise several
-    // mousemoves between frames and each report is an overlay rebuild.
+    // mousemoves between frames and each report is a routing pass.
     function onMove(ev) {
-      dragging.moved = true;
+      if (!dragging.moved) {
+        if (ev.point.dist(dragging.downPoint) < CLICK_TOLERANCE) return;
+        dragging.moved = true;
+        // Where the press landed, which for a grab on the line is where
+        // the new via point goes.
+        report('begin', dragging.down);
+      }
       dragging.pending = ev.lngLat;
       if (dragging.frame) return;
       dragging.frame = requestAnimationFrame(function () {
@@ -243,16 +478,33 @@ function post(message) {
     function onUp(ev) {
       map.off('mousemove', onMove);
       if (dragging.frame) cancelAnimationFrame(dragging.frame);
-      // A press with no movement is a click, and the click handler already
-      // reports it. Reporting an 'end' here too would write a no-op edit
-      // onto the undo stack.
-      if (dragging.moved) report('end', ev.lngLat);
+      if (dragging.moved) {
+        report('end', ev.lngLat);
+        swallowClick = true;
+      }
       dragging = null;
       map.getCanvas().style.cursor = 'grab';
     }
 
     map.on('mousemove', onMove);
     map.once('mouseup', onUp);
+  }
+
+  map.on('mousedown', 'via-point', function (e) {
+    if (dragging) return;
+    var feature = e.features && e.features[0];
+    if (!feature) return;
+    beginDrag(e, feature.properties.id, feature.properties.seq);
+  });
+
+  // Registered after the via-point handler, and MapLibre fires them in
+  // that order, so a press on a dot that sits on its own line starts one
+  // drag, of the dot.
+  map.on('mousedown', 'route-casing', function (e) {
+    if (dragging) return;
+    var feature = e.features && e.features[0];
+    if (!feature) return;
+    beginDrag(e, feature.properties.id, null);
   });
 
   // Keys the app cares about, forwarded because the web view is first

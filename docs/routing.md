@@ -18,9 +18,14 @@ The engine is `RoutingEngine`, a process-wide singleton wrapping Valhalla's
 JSON in, JSON out; the route shape comes back as a polyline encoded at
 Valhalla's 1e6 precision, which `Polyline` decodes.
 
-A drag shapes straight lines while the mouse is down and asks for the road
-once, on release. Routing costs tens of milliseconds per leg and a drag
-reports every frame.
+A drag routes live. Every mouse move re-routes the two legs either side of
+the moving via point, off the main actor with only the newest position ever
+routed, so the line follows the road under the pointer instead of going
+straight and snapping on release. Grabbing the line itself grows a shaping
+point at the grab and drags that, which is the Google Maps gesture; a click
+on the line inserts a via point instead, and the right-click menu converts
+either way. Any route can be grabbed, and grabbing selects it; no editing
+mode is needed. `LibraryModel.Drag` has the mechanics.
 
 ## Building libvalhalla for the Mac
 
@@ -83,11 +88,20 @@ a missing tar on every launch.
 
 Measured 2026-09-16 on an M5 Max: 22 seconds, 599 tiles, 534 MB on disk.
 
+The M3 Ultra builds with the planet admin database and the timezone
+database from the earlier admin work instead, both under
+`~/swiftcamp-build` (see `docs/data-architecture.md` for why only a planet
+build yields a usable one). Measured 2026-09-17: 31 seconds, 599 tiles,
+522 MB on disk, so admin data costs nothing at rest.
+
 ## Running the app against it
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp -SwiftcampRouting ~/valhalla-data/colorado/valhalla.json
 ```
+
+The macOS scheme in `project.yml` passes exactly this argument, so Run in
+Xcode loads the Colorado graph when it exists at that path.
 
 Without the argument the engine is nil and every leg is a straight line,
 which is also what happens when Valhalla finds no path between two points:
@@ -106,9 +120,10 @@ First spike, 2026-09-16, Colorado graph on local disk:
 | Next route, tiles warm | 3 ms |
 | Shape points on that leg | 5,724 |
 
-Fast enough that the engine is called synchronously on the main actor at
-the end of a drag, which `RoutingEngine.route` logs every time so a
-regression shows up in the console rather than as a stutter.
+Fast enough to route on every mouse move, which is what a drag does;
+`RoutingEngine.route` logs every call so a regression shows up in the
+console rather than as a stutter. A drag is two legs per pass, and passes
+run back to back for as long as the pointer keeps moving.
 
 ## Things the graph taught
 

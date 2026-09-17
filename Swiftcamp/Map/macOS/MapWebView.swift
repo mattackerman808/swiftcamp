@@ -30,6 +30,7 @@ struct MapWebView: NSViewRepresentable {
     var onClick: ((MapClick) -> Void)?
     var onDrag: ((MapDrag) -> Void)?
     var onKey: ((MapKey) -> Void)?
+    var onContextMenu: ((MapClick) -> [MapMenuItem])?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -63,6 +64,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.onClick = onClick
         context.coordinator.onDrag = onDrag
         context.coordinator.onKey = onKey
+        context.coordinator.onContextMenu = onContextMenu
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
@@ -74,6 +76,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.onClick = onClick
         context.coordinator.onDrag = onDrag
         context.coordinator.onKey = onKey
+        context.coordinator.onContextMenu = onContextMenu
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
@@ -129,6 +132,7 @@ struct MapWebView: NSViewRepresentable {
         var onClick: ((MapClick) -> Void)?
         var onDrag: ((MapDrag) -> Void)?
         var onKey: ((MapKey) -> Void)?
+        var onContextMenu: ((MapClick) -> [MapMenuItem])?
 
         /// Nothing can be pushed until the page reports that its style has
         /// parsed and its sources exist. `makeNSView` returns long before
@@ -235,11 +239,55 @@ struct MapWebView: NSViewRepresentable {
         func synthesize(_ event: MapPageEvent?) {
             guard let event, isReady, event.id != appliedPageEventID else { return }
             appliedPageEventID = event.id
+
+            // A scripted right-click names the item to choose in `key`, and
+            // the menu is then run rather than shown: a popped-up `NSMenu`
+            // blocks until a mouse dismisses it, and no mouse is coming.
+            var kind = event.kind
+            if kind == "menu" {
+                scriptedMenuChoice = event.key
+                kind = "contextmenu"
+            }
+
             webView?.callAsyncJavaScript(
                 "window.swiftcamp.synthesize(kind, lon, lat, toLon, toLat, key);",
-                arguments: ["kind": event.kind, "lon": event.lon, "lat": event.lat,
+                arguments: ["kind": kind, "lon": event.lon, "lat": event.lat,
                             "toLon": event.toLon, "toLat": event.toLat, "key": event.key],
                 in: nil, in: .page, completionHandler: Self.report)
+        }
+
+        private var scriptedMenuChoice: String?
+
+        // MARK: - Context menu
+
+        /// Puts up the native menu for whatever was right-clicked.
+        ///
+        /// The page reports the pixel in its own coordinates, which are the
+        /// web view's: the map fills the page, and `WKWebView` is flipped
+        /// the way a page is.
+        private func showMenu(for click: MapClick, at point: NSPoint) {
+            guard let items = onContextMenu?(click), !items.isEmpty, let webView else { return }
+
+            if let choice = scriptedMenuChoice {
+                scriptedMenuChoice = nil
+                NSLog("[Swiftcamp] menu: %@", items.map(\.title).joined(separator: " | "))
+                if let chosen = items.first(where: { $0.title == choice }) {
+                    MainActor.assumeIsolated { chosen.action() }
+                }
+                return
+            }
+
+            let menu = NSMenu()
+            for item in items {
+                let entry = NSMenuItem(title: item.title, action: #selector(MenuAction.fire), keyEquivalent: "")
+                // `target` is weak. The action object lives in
+                // `representedObject`, which is not, for as long as the menu.
+                let action = MenuAction(item.action)
+                entry.target = action
+                entry.representedObject = action
+                menu.addItem(entry)
+            }
+            menu.popUp(positioning: nil, at: point, in: webView)
         }
 
         @MainActor @Sendable
@@ -287,6 +335,11 @@ struct MapWebView: NSViewRepresentable {
             case "key":
                 if let key = (body["key"] as? String).flatMap(MapKey.init(rawValue:)) { onKey?(key) }
 
+            case "contextmenu":
+                guard let click = Self.click(from: body),
+                      let x = body["x"] as? Double, let y = body["y"] as? Double else { return }
+                showMenu(for: click, at: NSPoint(x: x, y: y))
+
             default:
                 break
             }
@@ -307,7 +360,9 @@ struct MapWebView: NSViewRepresentable {
             case "via-point":
                 guard let id, let seq else { return nil }
                 target = .viaPoint(routeID: id, seq: seq)
-            case "route-line":
+            case "route-line", "route-casing":
+                // The page hit-tests the casing, the wider of the two
+                // layers drawn from the route source; either is the line.
                 guard let id else { return nil }
                 target = .routeLine(routeID: id)
             case "waypoint-dot":
@@ -325,12 +380,16 @@ struct MapWebView: NSViewRepresentable {
 
         private static func drag(from body: [String: Any]) -> MapDrag? {
             guard let lon = body["lon"] as? Double, let lat = body["lat"] as? Double,
-                  let id = body["id"] as? String, let seq = body["seq"] as? Int,
-                  let phase = body["phase"] as? String else { return nil }
-            return MapDrag(routeID: id, seq: seq,
+                  let id = body["id"] as? String,
+                  let phase = (body["phase"] as? String).flatMap({ Self.phases[$0] }) else { return nil }
+            // A grab on the line sends `seq: null`, which crosses the
+            // bridge as NSNull and reads as nil here, the same as absent.
+            return MapDrag(routeID: id, seq: body["seq"] as? Int,
                            coordinate: Coordinate(lat: lat, lon: lon),
-                           phase: phase == "end" ? .end : .move)
+                           phase: phase)
         }
+
+        private static let phases: [String: MapDrag.Phase] = ["begin": .begin, "move": .move, "end": .end]
 
         /// Writes a PNG of the web view when launched with
         /// `-SwiftcampSnapshot <path>`.
@@ -359,6 +418,20 @@ struct MapWebView: NSViewRepresentable {
                 }
             }
         }
+    }
+}
+
+/// An `NSMenuItem` action as a closure. `NSMenuItem` wants a target and a
+/// selector; the model's actions are closures.
+private final class MenuAction: NSObject {
+    private let perform: @MainActor () -> Void
+
+    init(_ perform: @escaping @MainActor () -> Void) {
+        self.perform = perform
+    }
+
+    @objc func fire() {
+        MainActor.assumeIsolated { perform() }
     }
 }
 #endif

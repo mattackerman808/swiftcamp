@@ -278,6 +278,22 @@ struct RouteDetail: Identifiable, Hashable, Sendable {
     /// Length in metres along the shaped path, not via point to via point.
     var length: Double { GeoMath.length(path) }
 
+    /// How far along the road each point is, in metres from the start,
+    /// keyed by `seq`. What a rider planning fuel and lunch wants beside a
+    /// stop, in the sidebar and under the pointer alike.
+    func distancesFromStart() -> [Int: Double] {
+        let sorted = points.sorted { $0.seq < $1.seq }
+        var out: [Int: Double] = [:]
+        var travelled = 0.0
+        for (i, point) in sorted.enumerated() {
+            out[point.seq] = travelled
+            if i + 1 < sorted.count {
+                travelled += GeoMath.length([point.coordinate] + (point.geometry ?? []) + [sorted[i + 1].coordinate])
+            }
+        }
+        return out
+    }
+
     /// Over the shaped path, not the via points: a route that loops well off
     /// the straight line between two stops must still fit on screen whole.
     var bounds: BoundingBox? { BoundingBox(path) }
