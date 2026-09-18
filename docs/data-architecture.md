@@ -287,6 +287,37 @@ Impact if left unfixed: missing driving side, ISO codes, and admin-derived acces
 
 Continental coverage is not a goal. Touring is regional, and a state or small cluster of neighbouring states is the natural unit.
 
+## Search
+
+Three sources behind one field, asked in order, each a `Geocoder` in
+`Swiftcamp/Search/`:
+
+1. **Coordinates**, parsed in the app. Decimal, degrees and minutes, or
+   degrees, minutes and seconds, with or without hemisphere letters.
+2. **Our index** on the CDN: `search-us-<date>/places.sqlite`, the whole
+   country's cities, towns, villages and hamlets, and
+   `search-us-<date>/cells/<id>.sqlite`, one shard per 4° cell (Valhalla's
+   level-0 grid, so the app names them the way it names graph tiles) of
+   streets and points of interest. Each is a SQLite file with an FTS5
+   index; the app fetches `places.sqlite` and the cell under the map, keeps
+   them under Caches, and searches locally, so once fetched it works with no
+   signal. `scripts/build-search.py` builds it from the same Geofabrik
+   extract as the graph, with osmium doing the filtering. A street is one
+   row per name and county at the centroid of its ways; a point of interest
+   carries its kind and nearest town; a place its kind and state, the state
+   from the admin polygons of the routing build.
+3. **The US Census geocoder** for house numbers, online, asked only when
+   the query starts with a number. Public domain, no key, no terms about
+   whose map shows the result, which is what ruled out the commercial APIs
+   and Apple's. It interpolates along TIGER's block ranges, so a match is on
+   the right block and side rather than the roof. Rooftop points from
+   OpenAddresses would replace it offline; that is a week of work and on the
+   list.
+
+A chosen result flies the map there and pins it; the pin is not in the
+library until "Save as Waypoint", because a search is a look and most
+looks are not kept.
+
 ## Map layers
 
 Measured 2026-09-11 by extracting a Colorado bounding box from each upstream planet archive.

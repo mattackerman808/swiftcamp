@@ -15,6 +15,28 @@ struct ContentView: View {
             map
         }
         .toolbar { toolbar }
+        // The search field lives in the toolbar and its results drop from
+        // it, which is the Mac's own shape for this. Choosing a result
+        // flies there and pins it; the bar over the map then offers to
+        // keep it as a waypoint.
+        .searchable(text: Binding(get: { model.search.query }, set: { model.search.query = $0 }),
+                    placement: .toolbar,
+                    prompt: "Place, address, or coordinates")
+        .searchSuggestions {
+            ForEach(model.search.results) { result in
+                Button {
+                    model.show(result)
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(result.name)
+                        Text(result.detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .onSubmit(of: .search) {
+            if let first = model.search.results.first { model.show(first) }
+        }
         .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.gpx], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): urls.forEach(model.importGPX(from:))
@@ -78,6 +100,10 @@ struct ContentView: View {
                     .padding(8)
             }
             .overlay(alignment: .top) {
+              VStack(spacing: 0) {
+                if let pin = model.searchPin {
+                    searchPinBar(pin)
+                }
                 if model.editingRouteID != nil {
                     editBar
                 } else if model.isBusy {
@@ -98,6 +124,7 @@ struct ContentView: View {
                         .padding(12)
                         .onTapGesture { model.failure = nil }
                 }
+              }
             }
     }
 
@@ -110,6 +137,25 @@ struct ContentView: View {
                 .font(.callout)
             Button("Done") { model.finishEditing() }
                 .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+    }
+
+    /// The pinned search result: what it is, and the two things to do
+    /// with it. A pin is a look, not a library item, until it is saved.
+    private func searchPinBar(_ pin: SearchResult) -> some View {
+        HStack(spacing: 12) {
+            Label {
+                Text(pin.name).bold() + Text("  ") + Text(pin.detail).foregroundStyle(.secondary)
+            } icon: {
+                Image(systemName: "mappin.circle.fill").foregroundStyle(.red)
+            }
+            .font(.callout)
+            Button("Save as Waypoint") { model.saveSearchPin() }
+            Button("Dismiss") { model.dismissSearchPin() }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

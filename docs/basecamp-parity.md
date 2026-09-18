@@ -142,9 +142,9 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 
 | Feature | Status |
 | --- | --- |
-| Coordinate entry and goto | **Build**, easy |
-| Address search | **Build** — needs a geocoder; a real dependency decision |
-| POI search | **Build** — the tiles carry POIs we do not draw yet |
+| Coordinate entry and goto | **Have** — decimal, degrees-minutes, DMS, with or without hemisphere letters |
+| Address search | **Have** — house numbers from the US Census geocoder, online; places and streets from our own index, offline once fetched |
+| POI search | **Have** — fuel, food, lodging, camping, hospitals, pharmacies, motorcycle shops, peaks, passes, viewpoints, from our index |
 | Find near a selected item | **Build** |
 | Geocaching | **Won't for now** — CLAUDE.md defers it explicitly |
 

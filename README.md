@@ -72,7 +72,7 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
-| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `search`, `searchShow`, `searchSave`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \

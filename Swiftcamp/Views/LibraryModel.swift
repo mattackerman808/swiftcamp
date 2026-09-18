@@ -169,6 +169,14 @@ final class LibraryModel {
     /// developer's local graph.
     let prefetch: RoutingPrefetch?
 
+    /// The search field's state; see `SearchModel`.
+    let search = SearchModel()
+
+    /// Where the last chosen search result is, shown as a pin until it is
+    /// saved as a waypoint or dismissed. Not in the library: a search is a
+    /// look, and most looks are not kept.
+    private(set) var searchPin: SearchResult?
+
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
         if UserDefaults.standard.string(forKey: "SwiftcampRouting") == nil,
@@ -199,9 +207,12 @@ final class LibraryModel {
     /// the front door instead: the page dispatches DOM events on its own
     /// canvas and everything from MapLibre's hit test onward is the real
     /// path. Actions are `newRoute`, `click`, `drag`, `hover`, `key`, `menu`,
-    /// `mode`, `undo`, `redo`, `done`, `wait`, `probe` and `dump`, as JSON
-    /// objects with an `action` key. `menu` right-clicks and chooses the
-    /// item named in `choose`; `mode` sets the routing mode in `value`.
+    /// `mode`, `search`, `searchShow`, `searchSave`, `undo`, `redo`, `done`,
+    /// `wait`, `probe` and `dump`, as JSON objects with an `action` key.
+    /// `menu` right-clicks and chooses the item named in `choose`; `mode`
+    /// sets the routing mode in `value`; `search` types `query` into the
+    /// field, `searchShow` picks the first result, `searchSave` keeps the
+    /// pin as a waypoint.
     private func runScriptIfRequested() {
         guard let path = UserDefaults.standard.string(forKey: "SwiftcampScript"),
               let data = FileManager.default.contents(atPath: path),
@@ -230,6 +241,14 @@ final class LibraryModel {
                 undoManager.redo()
             case "done":
                 finishEditing()
+            case "search":
+                // Types into the search field; results arrive on their
+                // own schedule, so a `wait` follows in any script.
+                search.query = step["query"] as? String ?? ""
+            case "searchShow":
+                if let first = search.results.first { show(first) }
+            case "searchSave":
+                saveSearchPin()
             case "mode":
                 // On the route being edited, else the selected one.
                 if let mode = (step["value"] as? String).flatMap(RoutingMode.init(rawValue:)),
@@ -269,6 +288,10 @@ final class LibraryModel {
              }]
         }
         let payload: [String: Any] = ["routes": routes,
+                                      "waypoints": waypoints.map { ["name": $0.name, "lat": $0.lat, "lon": $0.lon] },
+                                      "search": search.results.map { ["name": $0.name, "detail": $0.detail, "kind": $0.kind.rawValue,
+                                                                      "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] },
+                                      "pin": searchPin.map { ["name": $0.name, "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] } as Any,
                                       "selection": Array(selection).sorted(),
                                       "canUndo": undoManager.canUndo,
                                       "canRedo": undoManager.canRedo]
@@ -373,6 +396,7 @@ final class LibraryModel {
         let tracks = self.tracks
         let waypoints = self.waypoints
         let selection = self.selection
+        let searchPin = self.searchPin
 
         // Only the newest rebuild matters. Three observations can land in
         // quick succession on one import, and the first two describe a state
@@ -382,7 +406,7 @@ final class LibraryModel {
             let started = ContinuousClock.now
             let built = await Task.detached(priority: .userInitiated) {
                 MapOverlay.make(routes: routes, tracks: tracks,
-                                waypoints: waypoints, selection: selection)
+                                waypoints: waypoints, selection: selection, searchPin: searchPin)
             }.value
             Timing.log("overlay.encode", since: started,
                        "\(built.sources.values.reduce(0) { $0 + $1.utf8.count } / 1000) KB")
@@ -726,8 +750,46 @@ final class LibraryModel {
     /// The map moved. From zoom 9 the local tiles under it are worth
     /// having before a drag asks for them.
     func viewChanged(_ box: BoundingBox, zoom: Double) {
+        search.prepare(near: box.center)
         guard zoom >= 9 else { return }
         prefetch?.warm(box)
+    }
+
+    // MARK: - Search
+
+    /// Flies to a result and pins it. Zoom 14 puts a town and its roads on
+    /// screen, the context that makes a pin mean anything; a street is
+    /// shown a little closer.
+    func show(_ result: SearchResult) {
+        searchPin = result
+        rebuildOverlay()
+        nextCameraID += 1
+        camera = MapCameraRequest(id: nextCameraID,
+                                  target: .point(result.coordinate, zoom: result.kind == .address ? 15 : 13))
+    }
+
+    func dismissSearchPin() {
+        searchPin = nil
+        rebuildOverlay()
+    }
+
+    /// Keeps the pinned result as a waypoint, which can then be routed
+    /// through, renamed and sent to the device like any other.
+    func saveSearchPin() {
+        guard let result = searchPin else { return }
+        let waypoint = Waypoint(name: result.name, lat: result.coordinate.lat, lon: result.coordinate.lon,
+                                comment: result.kind == .coordinate ? nil : result.detail)
+        do {
+            try store.save(waypoint)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Save Waypoint") { model in model.delete(waypoint.id) }
+        waypoints.append(waypoint)
+        refreshHasContent()
+        searchPin = nil
+        selection = [waypoint.id]
     }
 
     // MARK: - Routing after an edit

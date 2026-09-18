@@ -81,6 +81,13 @@ enum BasemapSource {
 
     static var routingURL: String { "\(cdnBase)/\(routingArchive)" }
 
+    /// The search index: `places.sqlite` for the whole country and one
+    /// shard per 4° cell under `cells/`, built by `scripts/build-search.py`
+    /// from the same extract as the graph. Dated like everything else.
+    static let searchArchive = "search-us-20260918"
+
+    static var searchURL: String { "\(cdnBase)/\(searchArchive)" }
+
     /// ODbL obligation, not decoration. Must stay visible on the map.
     static let attribution = "© OpenStreetMap"
 

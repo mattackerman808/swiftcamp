@@ -40,9 +40,12 @@ mode, Road, Adventure or Direct, which decides which ways its legs may use
 and whether a dropped point lands on one; `docs/routing.md` has the table. With a Valhalla graph loaded, legs follow roads and re-route live
 while dragging; without one they are straight lines. `docs/routing.md`.
 
-Not started: waypoint creation and editing, lists, search and sort, GDB
-import, region packs and tile streaming for routing.
-`docs/basecamp-parity.md` has the full inventory.
+Search: coordinates in any common form, places, streets and points of
+interest from our own index on the CDN, and street addresses from the US
+Census geocoder; a result pins on the map and can be kept as a waypoint.
+
+Not started: waypoint editing, lists, library search and sort, GDB
+import, region packs. `docs/basecamp-parity.md` has the full inventory.
 
 Only macOS is being actively worked on. iOS builds but has no overlay path.
 
@@ -189,6 +192,7 @@ so colours cannot drift from the sheet they describe.
 | `Swiftcamp/Model/` | Records, and the only copy of the geo math |
 | `Swiftcamp/Store/` | GRDB database, migrations, and the library store |
 | `Swiftcamp/GPX/` | GPX 1.1 and 1.0 reader, GPX 1.1 writer |
+| `Swiftcamp/Search/` | The search field's sources: coordinates, our own place index, the Census geocoder |
 | `Swiftcamp/Views/` | Window shell, sidebar, and the library model |
 | `SwiftcampTests/` | The whole of it, minus the renderer |
 

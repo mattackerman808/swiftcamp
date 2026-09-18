@@ -102,6 +102,14 @@ enum OverlayGeoJSON {
         return out
     }
 
+    /// The pin for a search result, or nothing.
+    static func searchPin(_ result: SearchResult?) -> FeatureCollection {
+        FeatureCollection(features: result.map {
+            [Feature(geometry: .point($0.coordinate),
+                     properties: Properties(name: $0.name, lat: $0.coordinate.lat, lon: $0.coordinate.lon))]
+        } ?? [])
+    }
+
     static func waypoints(_ waypoints: [Waypoint], selected: Set<String> = []) -> FeatureCollection {
         FeatureCollection(features: waypoints.map { waypoint in
             Feature(geometry: .point(waypoint.coordinate),

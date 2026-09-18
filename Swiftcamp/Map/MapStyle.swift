@@ -115,8 +115,10 @@ enum MapStyle {
         static let routeLines = "sc-route-lines"
         static let viaPoints  = "sc-via-points"
         static let waypoints  = "sc-waypoints"
+        /// The one place a search landed on, until it is saved or dismissed.
+        static let search     = "sc-search"
 
-        static let all = [trackLines, routeLines, viaPoints, waypoints]
+        static let all = [trackLines, routeLines, viaPoints, waypoints, search]
     }
 
     private static func overlaySources() -> [String: Any] {
@@ -182,6 +184,7 @@ enum MapStyle {
         static let trackLine       = "#1f7a8c"
         static let viaFill         = "#ffffff"
         static let waypointFill    = "#f5a623"
+        static let searchPin       = "#d62828"
         static let selection       = "#111111"
 
         static let label           = "#40464e"
@@ -444,6 +447,15 @@ enum MapStyle {
             geoJSONCircle("waypoint-dot", source: Overlay.waypoints,
                           fill: Palette.waypointFill,
                           radii: [[6, 3.0], [11, 5.0], [16, 7.0]]),
+
+            // Where a search landed. Larger than a waypoint and red, and
+            // deliberately not among the layers a click hit-tests: a
+            // right-click on it falls through to empty map, whose menu
+            // already starts a route or drops a point exactly there.
+            geoJSONCircle("search-pin", source: Overlay.search,
+                          fill: Palette.searchPin,
+                          stroke: Palette.viaFill,
+                          radii: [[6, 5.0], [11, 8.0], [16, 10.0]]),
 
             // Via points read as handles rather than as places: white with a
             // route-coloured ring, and larger, because they are the thing the
