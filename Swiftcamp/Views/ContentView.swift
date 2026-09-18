@@ -27,7 +27,7 @@ struct ContentView: View {
             // an area waits on the index for that area arriving, up to
             // 58 MB, and an empty list for that long reads as broken.
             if model.search.results.isEmpty, !model.search.query.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text(model.search.isSearching ? "Searching…" : "No matches")
+                Text(model.search.isSearching ? "Searching…" : (model.search.hint ?? "No matches"))
                     .foregroundStyle(.secondary)
             }
             ForEach(model.search.results) { result in
@@ -39,6 +39,9 @@ struct ContentView: View {
                         Text(result.detail).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+            }
+            if !model.search.results.isEmpty, let hint = model.search.hint {
+                Text(hint).font(.caption).foregroundStyle(.secondary)
             }
         }
         .onSubmit(of: .search) {

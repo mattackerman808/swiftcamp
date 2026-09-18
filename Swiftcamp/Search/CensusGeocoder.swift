@@ -20,7 +20,41 @@ struct CensusGeocoder: Geocoder {
             URLQueryItem(name: "format", value: "json"),
         ]
         let (data, _) = try await URLSession.shared.data(from: components.url!)
-        return try Self.results(from: data)
+        var found = try Self.results(from: data)
+        // Asked with only a state, Census answers with every town that
+        // has the number on a street of that name. The one nearest the
+        // map is the likeliest.
+        if let near {
+            let k = cos(near.lat * .pi / 180)
+            func d(_ c: Coordinate) -> Double {
+                (c.lat - near.lat) * (c.lat - near.lat) + (c.lon - near.lon) * (c.lon - near.lon) * k * k
+            }
+            found.sort { d($0.coordinate) < d($1.coordinate) }
+        }
+        return found
+    }
+
+    /// What to ask, in order, for a query that may not say where it is.
+    ///
+    /// Census parses generously: a town without its state, no commas at
+    /// all, a street without its type, even a wrong state beside the
+    /// right town. What it cannot do is search the country for a house
+    /// number: "472 N Juniper" alone is nothing, and neither is it with
+    /// "CA", where too many streets carry the name. So the query goes as
+    /// typed first, because a town the rider did type must not have
+    /// another appended; then with the map's town, since "1234 Main St"
+    /// means the one here; then with the map's state, which finds it in
+    /// the next town over. Each is asked only if the one before found
+    /// nothing. An address anywhere else needs its town or zip, and the
+    /// field says so.
+    static func attempts(for query: String, near town: String?) -> [String] {
+        guard looksLikeAddress(query), !namesAPlace(query), let town else { return [query] }
+        var attempts = [query, "\(query), \(town)"]
+        if let state = town.split(separator: ",").last.map({ $0.trimmingCharacters(in: .whitespaces) }),
+           state != town {
+            attempts.append("\(query), \(state)")
+        }
+        return attempts
     }
 
     /// A house number first, then words: what an address looks like and
@@ -55,20 +89,24 @@ struct CensusGeocoder: Geocoder {
             // the first line, the rest underneath, out of capitals.
             let parts = match.matchedAddress.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             let name = titleCase(parts.first ?? match.matchedAddress)
-            let detail = parts.dropFirst().map(titleCase).joined(separator: ", ")
+            // A part that is two letters is the state and stays "CO".
+            let detail = parts.dropFirst().map { $0.count == 2 ? $0 : titleCase($0) }.joined(separator: ", ")
             return SearchResult(name: name, detail: detail.isEmpty ? "Address" : detail,
                                 coordinate: Coordinate(lat: match.coordinates.y, lon: match.coordinates.x),
                                 kind: .address)
         }
     }
 
-    /// Census shouts. Words are capitalised, except a two-letter word,
-    /// which is a state or a direction and stays as it was.
+    /// Census shouts. Words are capitalised, "ST" to "St" and "ELKHORN"
+    /// to "Elkhorn", except a direction, which stays "N" or "NE".
     private static func titleCase(_ text: String) -> String {
         text.split(separator: " ").map { word in
-            word.count <= 2 ? String(word) : word.prefix(1).uppercased() + word.dropFirst().lowercased()
+            word.count == 1 || compass.contains(String(word))
+                ? String(word) : word.prefix(1).uppercased() + word.dropFirst().lowercased()
         }.joined(separator: " ")
     }
+
+    private static let compass: Set<String> = ["NE", "NW", "SE", "SW"]
 
     private struct Response: Decodable {
         struct Result: Decodable {

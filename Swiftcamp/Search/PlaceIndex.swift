@@ -80,6 +80,26 @@ actor PlaceIndex: Geocoder {
 
     // MARK: - Querying
 
+    /// An address as the index spells streets: the house number dropped,
+    /// since no street carries one and a word that matches nothing
+    /// empties the result, and the abbreviations Census takes written
+    /// out, since OSM names the road "North Juniper Street" and
+    /// "n juniper st" matches none of its words. Only for a query shaped
+    /// like an address; "St Louis" is a place, not a street.
+    static func streetQuery(for query: String) -> String {
+        var words = query.split(whereSeparator: { $0.isWhitespace || $0 == "," }).map { String($0) }
+        if words.first?.first?.isNumber == true { words.removeFirst() }
+        return words.map { expansions[$0.lowercased()] ?? $0 }.joined(separator: " ")
+    }
+
+    private static let expansions: [String: String] = [
+        "n": "north", "s": "south", "e": "east", "w": "west",
+        "ne": "northeast", "nw": "northwest", "se": "southeast", "sw": "southwest",
+        "st": "street", "ave": "avenue", "av": "avenue", "blvd": "boulevard", "dr": "drive",
+        "rd": "road", "ln": "lane", "ct": "court", "pl": "place", "cir": "circle",
+        "hwy": "highway", "pkwy": "parkway", "ter": "terrace", "trl": "trail",
+    ]
+
     /// The FTS5 expression for what was typed: every word must match, and
     /// the last one may be the start of a word, since the user is still
     /// typing it. Quoted, so punctuation in a name is a character and not

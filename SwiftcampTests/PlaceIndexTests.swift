@@ -88,6 +88,13 @@ final class PlaceIndexTests: XCTestCase {
         XCTAssertEqual(results.first?.kind, .poi)
     }
 
+    func testAnAddressIsSearchedAsTheStreetTheIndexSpells() {
+        XCTAssertEqual(PlaceIndex.streetQuery(for: "472 n juniper st"), "north juniper street")
+        XCTAssertEqual(PlaceIndex.streetQuery(for: "1234 W Elkhorn Ave"), "west Elkhorn avenue")
+        XCTAssertEqual(PlaceIndex.streetQuery(for: "472 Juniper"), "Juniper")
+        XCTAssertEqual(PlaceIndex.streetQuery(for: "472"), "")
+    }
+
     func testTheShardIsTheHighwayCellUnderThePoint() {
         XCTAssertEqual(PlaceIndex.shard(for: Coordinate(lat: 40.3772, lon: -105.5217)), "cells/2898.sqlite")
     }
