@@ -5,7 +5,18 @@ shard per 1° tile of house numbers with their rooftop points, published
 beside the search index and fetched by the app for the tile under the map.
 
     scripts/build-addresses.py ~/valhalla-data/nad/NAD_TXT.zip out/addresses-us-YYYYMMDD \
-        --places out/search-us-YYYYMMDD/places.sqlite
+        --places out/search-us-YYYYMMDD/places.sqlite \
+        --openaddresses ~/valhalla-data/oa/collections --sources ~/valhalla-data/oa/sources/sources
+
+Why OpenAddresses too. The NAD's coverage is by state participation and
+California's submission has no Santa Clara, San Mateo, Los Angeles or
+Orange County; Florida is nearly empty. OpenAddresses collects the county
+and city address points those states publish, each under its own licence,
+so it fills what the NAD lacks: a row is kept only where no NAD row has
+the same street and number within 150 m, a source with a share-alike
+licence is skipped, and every source used is listed with its attribution
+in ATTRIBUTION.txt beside the index. `scripts/fetch-openaddresses.sh`
+gets the collections; they need an account, the listing does not.
 
 Why the NAD. The US Department of Transportation compiles it from state and
 county address programmes, so a point is the parcel or the roof rather than
@@ -49,6 +60,34 @@ def placement_code(value):
     if v.startswith("site"): return 3
     if "street" in v: return 4
     return 5
+
+OPENADDRESSES_POINT = 6
+
+# Partition columns: name, town, county, state, zip, number, suffix, lat,
+# lon, placement, origin (0 NAD, 1 OpenAddresses).
+def parse_number(text):
+    """'472' → (472, ''), '472A' → (472, 'A'), '1234 1/2' → (1234, '1/2'),
+    '100-102' → (100, ''); nothing for no leading digits or zero."""
+    text = text.strip()
+    digits = ""
+    for ch in text:
+        if ch.isdigit(): digits += ch
+        else: break
+    if not digits or int(digits) == 0: return None
+    rest = text[len(digits):].strip(" -")
+    if rest.startswith("-") or (rest and rest[0].isdigit() and "/" not in rest): rest = ""
+    return int(digits), rest[:6]
+
+def display_street(name):
+    """An OpenAddresses street, 'N JUNIPER AVE', as the NAD spells it:
+    'North Juniper Avenue'."""
+    words = []
+    for w in name.split():
+        full = EXPAND.get(w.lower())
+        if full: words.append(full.capitalize())
+        elif w.upper() in ("NE", "NW", "SE", "SW"): words.append(w.upper())
+        else: words.append(w.capitalize() if w.isupper() or w.islower() else w)
+    return " ".join(words)
 
 LEVEL_SIZE = 1.0
 COLUMNS = int(360 / LEVEL_SIZE)
@@ -131,18 +170,27 @@ def build_tile(args):
     """One shard from its partition file: (tile, partition path, out path)."""
     tile, partition, out = args
     streets, addresses = {}, {}
+    # Where each street and number already is, for an OpenAddresses row
+    # that the NAD, read first, already has. 150 m in microdegrees.
+    placed = collections.defaultdict(list)
+    NEAR = 1350
     with open(partition, encoding="utf-8") as f:
         for line in f:
-            name, town, county, state, zipcode, number, suffix, lat, lon, placement = line.rstrip("\n").split("\t")
-            if not town:
-                town = (GRID.nearest(int(lat) / 1e6, int(lon) / 1e6) if GRID else None) or (county + " County" if county else "")
-                if not town: continue
+            name, town, county, state, zipcode, number, suffix, lat, lon, placement, origin = line.rstrip("\n").split("\t")
+            lat, lon, number, placement = int(lat), int(lon), int(number), int(placement)
             search = search_words(name)
+            if origin == "1":
+                k = math.cos(math.radians(lat / 1e6))
+                if any(abs(plat - lat) < NEAR and abs(plon - lon) * k < NEAR for plat, plon in placed[(search, number, suffix)]):
+                    continue
+            if not town:
+                town = (GRID.nearest(lat / 1e6, lon / 1e6) if GRID else None) or (county + " County" if county else "")
+                if not town: continue
             key = (search, town.lower(), state)
             street = streets.get(key)
             if street is None:
-                street = streets[key] = [len(streets) + 1, display(name), display(town), state, set(), search, 0, 0, 0]
-            lat, lon, number, placement = int(lat), int(lon), int(number), int(placement)
+                shown = display_street(name) if origin == "1" else display(name)
+                street = streets[key] = [len(streets) + 1, shown, display(town), state, set(), search, 0, 0, 0]
             street[6] += lat; street[7] += lon; street[8] += 1
             if zipcode: street[4].add(zipcode)
             akey = (street[0], number, suffix)
@@ -151,6 +199,7 @@ def build_tile(args):
             have = addresses.get(akey)
             if have is None or placement < have[2]:
                 addresses[akey] = (lat, lon, placement, int(zipcode) if zipcode.isdigit() else None)
+            placed[(search, number, suffix)].append((lat, lon))
     if os.path.exists(out): os.remove(out)
     db = sqlite3.connect(out)
     db.executescript(SCHEMA)
@@ -164,10 +213,77 @@ def build_tile(args):
     os.remove(partition)
     return tile, os.path.getsize(out), len(addresses), len(streets)
 
+def openaddresses_files(root):
+    """Every addresses layer under `root`: collection zips, directories of
+    GeoJSON, or gzipped GeoJSON files. Yields (reader, source, layer name),
+    the reader a callable producing features one line at a time, since a
+    collection member is a GeoJSON sequence too big to load whole."""
+    def lines_of(open_fn):
+        def read():
+            with open_fn() as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line in ("[", "]"): continue
+                    if line.startswith('{"type":"FeatureCollection"'): continue
+                    if line.endswith(","): line = line[:-1]
+                    try: yield json.loads(line)
+                    except json.JSONDecodeError: continue
+        return read
+    def name_parts(member):
+        # us/ca/santa_clara-addresses-county.geojson
+        base = member[:-len(".geojson")] if member.endswith(".geojson") else member
+        if base.endswith(".geojson.gz"): base = base[:-len(".geojson.gz")]
+        if "-addresses-" not in base: return None
+        source, layer_name = base.split("-addresses-", 1)
+        return source, layer_name
+    paths = []
+    if os.path.isdir(root):
+        for dirpath, _, names in os.walk(root):
+            for n in names: paths.append(os.path.join(dirpath, n))
+    else:
+        paths = [root]
+    for path in sorted(paths):
+        if path.endswith(".zip"):
+            archive = zipfile.ZipFile(path)
+            for member in archive.namelist():
+                parts = name_parts(member)
+                if not parts: continue
+                yield lines_of(lambda m=member, z=archive: io.TextIOWrapper(z.open(m), encoding="utf-8", errors="replace")), parts[0], parts[1]
+        elif path.endswith(".geojson") or path.endswith(".geojson.gz"):
+            rel = os.path.relpath(path, root) if os.path.isdir(root) else os.path.basename(path)
+            parts = name_parts(rel)
+            if not parts: continue
+            if path.endswith(".gz"):
+                import gzip
+                yield lines_of(lambda p=path: gzip.open(p, "rt", encoding="utf-8", errors="replace")), parts[0], parts[1]
+            else:
+                yield lines_of(lambda p=path: open(p, encoding="utf-8", errors="replace")), parts[0], parts[1]
+
+def read_licences(sources_dir):
+    """(source, layer name) → its licence dict, from the source JSONs."""
+    out = {}
+    for dirpath, _, names in os.walk(sources_dir):
+        for n in names:
+            if not n.endswith(".json"): continue
+            path = os.path.join(dirpath, n)
+            source = os.path.relpath(path, sources_dir)[:-len(".json")]
+            try: d = json.load(open(path))
+            except Exception: continue
+            for layer in (d.get("layers") or {}).get("addresses", []):
+                lic = layer.get("license") or d.get("license") or {}
+                if isinstance(lic, str): lic = {"url": lic}
+                if layer.get("attribution") and "attribution name" not in lic:
+                    lic = dict(lic, **{"attribution name": layer["attribution"]})
+                out[(source, layer.get("name"))] = lic
+                out.setdefault((source, None), lic)
+    return out
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("nad"); ap.add_argument("out_dir")
     ap.add_argument("--places", help="places.sqlite of the search index, for rows whose source names no town")
+    ap.add_argument("--openaddresses", help="OpenAddresses collection zips or GeoJSON files, filling what the NAD lacks")
+    ap.add_argument("--sources", help="the openaddresses repository's sources/ tree, for licences and attribution")
     ap.add_argument("--jobs", type=int, default=max(1, os.cpu_count() - 2))
     a = ap.parse_args()
     started = time.time()
@@ -177,7 +293,9 @@ def main():
     # have addresses, and the default limit on open files is 256.
     resource.setrlimit(resource.RLIMIT_NOFILE, (10240, 10240))
     partitions_dir = os.path.join(a.out_dir, "partitions")
-    os.makedirs(partitions_dir, exist_ok=True)
+    if os.path.exists(partitions_dir):
+        sys.exit(f"{partitions_dir} exists; a stale partition would be appended to")
+    os.makedirs(partitions_dir)
     os.makedirs(os.path.join(a.out_dir, "tiles"), exist_ok=True)
 
     if a.nad.endswith(".zip"):
@@ -221,13 +339,60 @@ def main():
         tile = tile_of(lat, lon)
         f = files.get(tile)
         if f is None:
-            f = files[tile] = open(os.path.join(partitions_dir, f"{tile}.tsv"), "w", encoding="utf-8")
+            f = files[tile] = open(os.path.join(partitions_dir, f"{tile}.tsv"), "a", encoding="utf-8")
         f.write("\t".join((name.replace("\t", " "), town.replace("\t", " "), county.replace("\t", " "), state, zipcode, str(number), suffix,
-                           str(int(round(lat * 1e6))), str(int(round(lon * 1e6))), str(placement_code(row[c_placement])))) + "\n")
+                           str(int(round(lat * 1e6))), str(int(round(lon * 1e6))), str(placement_code(row[c_placement])), "0")) + "\n")
         kept += 1
         if kept % 5000000 == 0: log(f"  {kept} addresses into {len(files)} tiles")
+    log(f"NAD: {kept} addresses kept, {skipped} skipped, {len(files)} tiles")
+
+    # OpenAddresses, after the NAD so the worker sees the NAD first.
+    attribution = []
+    if a.openaddresses:
+        licences = read_licences(a.sources) if a.sources else {}
+        oa_kept = oa_skipped = 0
+        for path, source, layer_name in openaddresses_files(a.openaddresses):
+            licence = licences.get((source, layer_name)) or licences.get((source, None)) or {}
+            if licence.get("share-alike"):
+                log(f"  skipping {source} ({layer_name}): share-alike licence"); continue
+            n = 0
+            for feature in path():
+                p = feature.get("properties") or {}
+                g = feature.get("geometry") or {}
+                coords = g.get("coordinates") if g.get("type") == "Point" else None
+                parsed = parse_number(str(p.get("number") or ""))
+                street_name = (p.get("street") or "").strip()
+                state = (p.get("region") or "").strip().upper()
+                if not coords or not parsed or not street_name or len(state) != 2:
+                    oa_skipped += 1; continue
+                lon, lat = coords[0], coords[1]
+                if not (-90 < lat < 90) or not (-180 < lon < 180) or (abs(lat) < 1e-6 and abs(lon) < 1e-6):
+                    oa_skipped += 1; continue
+                number, suffix = parsed
+                town = town_of(p.get("city") or "")
+                zipcode = (p.get("postcode") or "").strip()[:5]
+                tile = tile_of(lat, lon)
+                f = files.get(tile)
+                if f is None:
+                    f = files[tile] = open(os.path.join(partitions_dir, f"{tile}.tsv"), "a", encoding="utf-8")
+                f.write("\t".join((street_name.replace("\t", " "), town.replace("\t", " "), "", state, zipcode, str(number), suffix,
+                                   str(int(round(lat * 1e6))), str(int(round(lon * 1e6))), str(OPENADDRESSES_POINT), "1")) + "\n")
+                n += 1
+            oa_kept += n
+            attribution.append((source, layer_name, n, licence))
+            if len(attribution) % 100 == 0: log(f"  {len(attribution)} OpenAddresses sources, {oa_kept} addresses")
+        log(f"OpenAddresses: {oa_kept} addresses from {len(attribution)} sources, {oa_skipped} skipped")
+        with open(os.path.join(a.out_dir, "ATTRIBUTION.txt"), "w") as f:
+            f.write("Address points in this index come from the National Address Database (US Department of\n"
+                    "Transportation, public domain) and from the OpenAddresses sources below, each under the\n"
+                    "licence its publisher chose. Attribution as required by each.\n\n")
+            for source, layer_name, n, licence in sorted(attribution):
+                who = licence.get("attribution name") or (licence.get("attribution") if isinstance(licence.get("attribution"), str) else None)
+                f.write(f"{source} ({layer_name}): {n} addresses. {who or source}. "
+                        f"{licence.get('text') or 'no licence stated by the source'}"
+                        f"{' ' + licence['url'] if licence.get('url') else ''}\n")
     for f in files.values(): f.close()
-    log(f"{kept} addresses kept, {skipped} skipped, {len(files)} tiles")
+    log(f"{len(files)} tiles")
 
     jobs = [(tile, os.path.join(partitions_dir, f"{tile}.tsv"), os.path.join(a.out_dir, "tiles", f"{tile}.sqlite"))
             for tile in sorted(files)]

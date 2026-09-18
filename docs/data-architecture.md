@@ -325,9 +325,18 @@ Four sources behind one field, asked in order, each a `Geocoder` in
    of the file. The 1° tile rather than the 4° cell because a cell would
    put all of Los Angeles in one file. A search asks the tile under the map
    and every tile already on disk, so the one under home answers while the
-   map is across the country. Coverage is by state participation, so the
-   Census geocoder stays behind it. OpenAddresses was the alternative: wider,
-   but a thousand sources each under its own licence, some share-alike.
+   map is across the country. Coverage is by state participation and it is
+   uneven: Texas is complete, California's submission has no Santa Clara,
+   San Mateo, Los Angeles or Orange County, Florida is nearly empty. So the
+   same build takes **OpenAddresses** behind the NAD: the county and city
+   address points those places publish, fetched as the four US collections
+   by `scripts/fetch-openaddresses.sh` (the batch site lists for free and
+   downloads only to an account), each source under its own licence. A row
+   is kept only where no NAD row has the same street and number within
+   150 m, a source with a share-alike licence is skipped (five of 1,924),
+   and every source used is listed with its attribution in
+   `ATTRIBUTION.txt` beside the index, which the manifest points at. The
+   Census geocoder stays behind both for what neither has.
 4. **The US Census geocoder** for house numbers the address index does not
    have, online, asked only when the query starts with a number and our
    index found nothing. Public domain, no key, no terms about whose map
