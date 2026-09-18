@@ -314,8 +314,8 @@ Four sources behind one field, asked in order, each a `Geocoder` in
    their points, built by `scripts/build-addresses.py` from the National
    Address Database, which the US Department of Transportation compiles
    from state and county address programmes and publishes in the public
-   domain: 84.7 million addresses in 846 tiles, 2,753 MB, the
-   largest tile 61 MB. A point is the roof or the parcel, marked
+   domain, with OpenAddresses behind it: 135.4 million addresses in 1049 tiles,
+   4,506 MB, the largest tile 67 MB, 84.7 million of them from the NAD. A point is the roof or the parcel, marked
    as such in the result, rather than an estimate along the block. A shard
    holds streets, one row per name, town and state with an FTS5 index over
    the name in one spelling (lower case, abbreviations written out, which is
@@ -326,17 +326,21 @@ Four sources behind one field, asked in order, each a `Geocoder` in
    put all of Los Angeles in one file. A search asks the tile under the map
    and every tile already on disk, so the one under home answers while the
    map is across the country. Coverage is by state participation and it is
-   uneven: Texas is complete, California's submission has no Santa Clara,
-   San Mateo, Los Angeles or Orange County, Florida is nearly empty. So the
+   uneven: Texas is complete, California's submission had no Santa Clara,
+   San Mateo, Los Angeles or Orange County, Florida was nearly empty. So the
    same build takes **OpenAddresses** behind the NAD: the county and city
    address points those places publish, fetched as the four US collections
    by `scripts/fetch-openaddresses.sh` (the batch site lists for free and
    downloads only to an account), each source under its own licence. A row
    is kept only where no NAD row has the same street and number within
    150 m, a source with a share-alike licence is skipped (five of 1,924),
-   and every source used is listed with its attribution in
-   `ATTRIBUTION.txt` beside the index, which the manifest points at. The
-   Census geocoder stays behind both for what neither has.
+   and every source used, 1,824 of them, is listed with its attribution in
+   `ATTRIBUTION.txt` beside the index, which the manifest points at. With
+   both, California has 13.1 million rows and Florida 12.6 million; South
+   Carolina, at 0.2 million, is the state neither source covers. The Census
+   geocoder stays behind both for what neither has. Measured on the M3
+   Ultra: the NAD pass 8 minutes, the OpenAddresses pass 12 minutes for
+   196 million features, the shards 2 minutes.
 4. **The US Census geocoder** for house numbers the address index does not
    have, online, asked only when the query starts with a number and our
    index found nothing. Public domain, no key, no terms about whose map

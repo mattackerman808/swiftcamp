@@ -87,8 +87,10 @@ enum BasemapSource {
     static let searchArchive = "search-us-20260918"
 
     /// The address index: one shard per 1° tile under `tiles/`, built by
-    /// `scripts/build-addresses.py` from the National Address Database.
-    static let addressArchive = "addresses-us-20260918"
+    /// `scripts/build-addresses.py` from the National Address Database with
+    /// OpenAddresses behind it. A new build is a new name, never the same
+    /// one overwritten, so a cache keyed by this never holds a mix.
+    static let addressArchive = "addresses-us-20260918b"
     static var addressURL: String { "\(cdnBase)/\(addressArchive)" }
 
     static var searchURL: String { "\(cdnBase)/\(searchArchive)" }
