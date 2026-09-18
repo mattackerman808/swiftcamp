@@ -98,6 +98,9 @@ Extraction from the upstream planets took 77 seconds (street) and about 2 minute
 ```
 basemap.pmtiles                     # streamed, full detail
 graph-<region>-<date>.tar           # streamed routing graph, one tile per range request
+graph-<region>-<date>/<l>/<path>.gph.gz  # the same graph, one gzipped object per tile
+search-<region>-<date>/              # place index: places.sqlite, cells/<id>.sqlite
+addresses-<region>-<date>/           # address index: tiles/<id>.sqlite, index.json
 regions/<region>.pmtiles            # offline map for one region
 regions/<region>-routing.tar.zst    # Valhalla graph for one region, offline
 manifest.json                       # region list, sizes, sha256, build date
@@ -289,13 +292,13 @@ Continental coverage is not a goal. Touring is regional, and a state or small cl
 
 ## Search
 
-Three sources behind one field, asked in order, each a `Geocoder` in
+Four sources behind one field, asked in order, each a `Geocoder` in
 `Swiftcamp/Search/`:
 
 1. **Coordinates**, parsed in the app. Decimal, degrees and minutes, or
    degrees, minutes and seconds, with or without hemisphere letters.
-2. **Our index** on the CDN: `search-us-<date>/places.sqlite`, the whole
-   country's cities, towns, villages and hamlets, and
+2. **Our place index** on the CDN: `search-us-<date>/places.sqlite`, the
+   whole country's cities, towns, villages and hamlets, and
    `search-us-<date>/cells/<id>.sqlite`, one shard per 4° cell (Valhalla's
    level-0 grid, so the app names them the way it names graph tiles) of
    streets and points of interest. Each is a SQLite file with an FTS5
@@ -303,16 +306,39 @@ Three sources behind one field, asked in order, each a `Geocoder` in
    them under Caches, and searches locally, so once fetched it works with no
    signal. `scripts/build-search.py` builds it from the same Geofabrik
    extract as the graph, with osmium doing the filtering. A street is one
-   row per name and county at the centroid of its ways; a point of interest
-   carries its kind and nearest town; a place its kind and state, the state
-   from the admin polygons of the routing build.
-3. **The US Census geocoder** for house numbers, online, asked only when
-   the query starts with a number. Public domain, no key, no terms about
-   whose map shows the result, which is what ruled out the commercial APIs
-   and Apple's. It interpolates along TIGER's block ranges, so a match is on
-   the right block and side rather than the roof. Rooftop points from
-   OpenAddresses would replace it offline; that is a week of work and on the
-   list.
+   row per name and nearest town at the centroid of its ways; a point of
+   interest carries its kind and nearest town; a place its kind and state,
+   the state from the admin polygons of the routing build.
+3. **Our address index** on the CDN: `addresses-us-<date>/tiles/<id>.sqlite`,
+   one shard per 1° tile (Valhalla's level-1 grid) of house numbers with
+   their points, built by `scripts/build-addresses.py` from the National
+   Address Database, which the US Department of Transportation compiles
+   from state and county address programmes and publishes in the public
+   domain: 84.7 million addresses in 846 tiles, 2,753 MB, the
+   largest tile 61 MB. A point is the roof or the parcel, marked
+   as such in the result, rather than an estimate along the block. A shard
+   holds streets, one row per name, town and state with an FTS5 index over
+   the name in one spelling (lower case, abbreviations written out, which is
+   how the app writes its query), and addresses, one row per number on a
+   street, keyed by street and number, positions in integer microdegrees
+   because eighty million rows at sixteen bytes a coordinate would be most
+   of the file. The 1° tile rather than the 4° cell because a cell would
+   put all of Los Angeles in one file. A search asks the tile under the map
+   and every tile already on disk, so the one under home answers while the
+   map is across the country. Coverage is by state participation, so the
+   Census geocoder stays behind it. OpenAddresses was the alternative: wider,
+   but a thousand sources each under its own licence, some share-alike.
+4. **The US Census geocoder** for house numbers the address index does not
+   have, online, asked only when the query starts with a number and our
+   index found nothing. Public domain, no key, no terms about whose map
+   shows the result, which is what ruled out the commercial APIs and
+   Apple's. It interpolates along TIGER's block ranges, so a match is on the
+   right block and side rather than the roof. It cannot search the country
+   for a house number: a street alone is nothing, and so is a street with a
+   state that has too many of the name, while a town, even without its
+   state, finds it. So it is asked as typed, then with the town nearest the
+   map, then with the map's state, and the field says when an address
+   elsewhere needs its town or zip.
 
 A chosen result flies the map there and pins it; the pin is not in the
 library until "Save as Waypoint", because a search is a look and most
