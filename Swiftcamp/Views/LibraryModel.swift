@@ -1052,9 +1052,32 @@ final class LibraryModel {
                 }
             }
 
-        case .waypoint, .track, .ground:
+        case .ground:
+            return [MapMenuItem(title: "New Route Here") { self.startRoute(at: click.coordinate) }]
+
+        case .waypoint(let id):
+            guard let waypoint = waypoints.first(where: { $0.id == id }) else { return [] }
+            return [MapMenuItem(title: "New Route from \(waypoint.name)") {
+                self.startRoute(at: waypoint.coordinate, name: waypoint.name, pinned: true)
+            }]
+
+        case .track:
             return []
         }
+    }
+
+    /// A new route whose first point is where the right-click landed, as
+    /// one undo step: creating the route and placing the point are one
+    /// gesture to the user, so undoing it should not leave an empty route
+    /// behind for a second undo to collect.
+    func startRoute(at coordinate: Coordinate, name: String? = nil, pinned: Bool = false) {
+        undoManager.beginUndoGrouping()
+        defer { undoManager.endUndoGrouping() }
+        newRoute()
+        guard var detail = editingDetail else { return }
+        detail.appendVia(coordinate, name: name, isPinned: pinned)
+        commit(detail, actionName: "New Route")
+        undoManager.setActionName("New Route")
     }
 
     func reverseRoute(_ id: String) {

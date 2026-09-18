@@ -28,10 +28,11 @@ Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route
 shields for all 50 states. A GRDB library with waypoints, tracks and routes.
 GPX 1.0 and 1.1 in, 1.1 with Garmin extensions out. MTP transfer over USB to
-a zūmo XT3, both directions. Route editing on the map: drag a point to
-move it, drag the line to insert a shaping point, click it to insert a via
-point, right-click to convert or remove, reverse, undo and redo, all on any
-route without a mode, and grabbing a route selects it. Editing mode is only
+a zūmo XT3, both directions. Route editing on the map: right-click empty
+map or a waypoint to start a route there, drag a point to move it, drag
+the line to insert a shaping point, click it to insert a via point,
+right-click to convert or remove, reverse, undo and redo, all on any route
+without a mode, and grabbing a route selects it. Editing mode is only
 for adding via points by clicking empty map. The sidebar lists a selected
 route's points, and via points are named there. Each route has a routing
 mode, Road, Adventure or Direct, which decides which ways its legs may use
