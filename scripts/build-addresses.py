@@ -101,6 +101,12 @@ WORD = re.compile(r"[a-z0-9]+")
 def search_words(name):
     return " ".join(EXPAND.get(w, w) for w in WORD.findall(name.lower()))
 
+def clean(text):
+    """A field as one line of one column: tabs and line breaks become
+    spaces. One source carries a carriage return inside a street name,
+    and Python's text reader turns that into a record boundary."""
+    return text.replace("\t", " ").replace("\r", " ").replace("\n", " ").strip()
+
 def display(text):
     """Sources shout inconsistently, "3RD Avenue" and "DAVENPORT": a word
     in capitals is brought down, except a compass point."""
@@ -174,10 +180,17 @@ def build_tile(args):
     # that the NAD, read first, already has. 150 m in microdegrees.
     placed = collections.defaultdict(list)
     NEAR = 1350
-    with open(partition, encoding="utf-8") as f:
+    bad = 0
+    with open(partition, encoding="utf-8", newline="\n") as f:
         for line in f:
-            name, town, county, state, zipcode, number, suffix, lat, lon, placement, origin = line.rstrip("\n").split("\t")
-            lat, lon, number, placement = int(lat), int(lon), int(number), int(placement)
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) != 11:
+                bad += 1; continue
+            name, town, county, state, zipcode, number, suffix, lat, lon, placement, origin = fields
+            try:
+                lat, lon, number, placement = int(lat), int(lon), int(number), int(placement)
+            except ValueError:
+                bad += 1; continue
             search = search_words(name)
             if origin == "1":
                 k = math.cos(math.radians(lat / 1e6))
@@ -211,7 +224,7 @@ def build_tile(args):
     db.execute("INSERT INTO street_fts(street_fts) VALUES ('rebuild')")
     db.commit(); db.execute("VACUUM"); db.close()
     os.remove(partition)
-    return tile, os.path.getsize(out), len(addresses), len(streets)
+    return tile, os.path.getsize(out), len(addresses), len(streets), bad
 
 def openaddresses_files(root):
     """Every addresses layer under `root`: collection zips, directories of
@@ -230,9 +243,11 @@ def openaddresses_files(root):
                     except json.JSONDecodeError: continue
         return read
     def name_parts(member):
-        # us/ca/santa_clara-addresses-county.geojson
-        base = member[:-len(".geojson")] if member.endswith(".geojson") else member
-        if base.endswith(".geojson.gz"): base = base[:-len(".geojson.gz")]
+        # us/ca/santa_clara-addresses-county.geojson; a .geojson.meta
+        # sidecar sits beside each and is not data.
+        if member.endswith(".geojson"): base = member[:-len(".geojson")]
+        elif member.endswith(".geojson.gz"): base = member[:-len(".geojson.gz")]
+        else: return None
         if "-addresses-" not in base: return None
         source, layer_name = base.split("-addresses-", 1)
         return source, layer_name
@@ -285,6 +300,8 @@ def main():
     ap.add_argument("--openaddresses", help="OpenAddresses collection zips or GeoJSON files, filling what the NAD lacks")
     ap.add_argument("--sources", help="the openaddresses repository's sources/ tree, for licences and attribution")
     ap.add_argument("--jobs", type=int, default=max(1, os.cpu_count() - 2))
+    ap.add_argument("--shards-only", action="store_true",
+                    help="skip the inputs and build shards from the partitions of an earlier run, keeping shards already built")
     a = ap.parse_args()
     started = time.time()
     def log(msg): print("%6.0fs %s" % (time.time() - started, msg), flush=True)
@@ -293,6 +310,10 @@ def main():
     # have addresses, and the default limit on open files is 256.
     resource.setrlimit(resource.RLIMIT_NOFILE, (10240, 10240))
     partitions_dir = os.path.join(a.out_dir, "partitions")
+    if a.shards_only:
+        files = {int(n[:-4]): None for n in os.listdir(partitions_dir) if n.endswith(".tsv")}
+        log(f"resuming: {len(files)} partitions to build, {len(os.listdir(os.path.join(a.out_dir, 'tiles')))} shards kept")
+        return write_shards(a, files, partitions_dir, started)
     if os.path.exists(partitions_dir):
         sys.exit(f"{partitions_dir} exists; a stale partition would be appended to")
     os.makedirs(partitions_dir)
@@ -340,7 +361,7 @@ def main():
         f = files.get(tile)
         if f is None:
             f = files[tile] = open(os.path.join(partitions_dir, f"{tile}.tsv"), "a", encoding="utf-8")
-        f.write("\t".join((name.replace("\t", " "), town.replace("\t", " "), county.replace("\t", " "), state, zipcode, str(number), suffix,
+        f.write("\t".join((clean(name), clean(town), clean(county), state, zipcode, str(number), clean(suffix),
                            str(int(round(lat * 1e6))), str(int(round(lon * 1e6))), str(placement_code(row[c_placement])), "0")) + "\n")
         kept += 1
         if kept % 5000000 == 0: log(f"  {kept} addresses into {len(files)} tiles")
@@ -356,6 +377,10 @@ def main():
             if licence.get("share-alike"):
                 log(f"  skipping {source} ({layer_name}): share-alike licence"); continue
             n = 0
+            # The state is the source's path, "us/ca/santa_clara": the
+            # `region` property is empty in most sources, Santa Clara
+            # County's included, and a row with none would be dropped.
+            path_state = source.split("/")[1].upper() if source.count("/") >= 2 else ""
             for feature in path():
                 p = feature.get("properties") or {}
                 g = feature.get("geometry") or {}
@@ -363,6 +388,7 @@ def main():
                 parsed = parse_number(str(p.get("number") or ""))
                 street_name = (p.get("street") or "").strip()
                 state = (p.get("region") or "").strip().upper()
+                if len(state) != 2: state = path_state
                 if not coords or not parsed or not street_name or len(state) != 2:
                     oa_skipped += 1; continue
                 lon, lat = coords[0], coords[1]
@@ -375,7 +401,7 @@ def main():
                 f = files.get(tile)
                 if f is None:
                     f = files[tile] = open(os.path.join(partitions_dir, f"{tile}.tsv"), "a", encoding="utf-8")
-                f.write("\t".join((street_name.replace("\t", " "), town.replace("\t", " "), "", state, zipcode, str(number), suffix,
+                f.write("\t".join((clean(street_name), clean(town), "", state, zipcode, str(number), clean(suffix),
                                    str(int(round(lat * 1e6))), str(int(round(lon * 1e6))), str(OPENADDRESSES_POINT), "1")) + "\n")
                 n += 1
             oa_kept += n
@@ -393,14 +419,30 @@ def main():
                         f"{' ' + licence['url'] if licence.get('url') else ''}\n")
     for f in files.values(): f.close()
     log(f"{len(files)} tiles")
+    write_shards(a, files, partitions_dir, started)
 
+def write_shards(a, files, partitions_dir, started):
+    def log(msg): print("%6.0fs %s" % (time.time() - started, msg), flush=True)
     jobs = [(tile, os.path.join(partitions_dir, f"{tile}.tsv"), os.path.join(a.out_dir, "tiles", f"{tile}.sqlite"))
             for tile in sorted(files)]
     index = {"version": 1, "archive": os.path.basename(a.out_dir.rstrip("/")), "level": 1, "tiles": {}}
+    bad = 0
     with multiprocessing.Pool(a.jobs, initializer=load_places, initargs=(a.places,)) as pool:
-        for n, (tile, size, count, streets) in enumerate(pool.imap_unordered(build_tile, jobs), 1):
+        for n, (tile, size, count, streets, broken) in enumerate(pool.imap_unordered(build_tile, jobs), 1):
             index["tiles"][str(tile)] = {"bytes": size, "count": count, "streets": streets}
+            bad += broken
             if n % 100 == 0: log(f"  {n} tiles written")
+    if bad: log(f"{bad} broken partition lines skipped")
+    # Shards an earlier run finished before it stopped.
+    for name in os.listdir(os.path.join(a.out_dir, "tiles")):
+        tile = name[:-len(".sqlite")]
+        if tile in index["tiles"] or not name.endswith(".sqlite"): continue
+        path = os.path.join(a.out_dir, "tiles", name)
+        db = sqlite3.connect(path)
+        count, = db.execute("SELECT count(*) FROM address").fetchone()
+        streets, = db.execute("SELECT count(*) FROM street").fetchone()
+        db.close()
+        index["tiles"][tile] = {"bytes": os.path.getsize(path), "count": count, "streets": streets}
     os.rmdir(partitions_dir)
     total = sum(t["bytes"] for t in index["tiles"].values())
     largest = max(index["tiles"].items(), key=lambda t: t[1]["bytes"])
