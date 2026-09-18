@@ -827,8 +827,7 @@ final class LibraryModel {
 
         switch click.target {
         case .ground:
-            detail.appendVia(click.coordinate)
-            commit(detail, actionName: "Add Point")
+            appendPoint(click.coordinate, isVia: true)
             return true
 
         case .waypoint(let id):
@@ -838,8 +837,7 @@ final class LibraryModel {
             // position whatever the mode: a campsite is where it is, and
             // the leg runs to the road from there, as BaseCamp draws it.
             guard let waypoint = waypoints.first(where: { $0.id == id }) else { return false }
-            detail.appendVia(waypoint.coordinate, name: waypoint.name, isPinned: true)
-            commit(detail, actionName: "Add Point")
+            appendPoint(waypoint.coordinate, isVia: true, name: waypoint.name, pinned: true)
             return true
 
         case .routeLine(let routeID) where routeID == detail.route.id:
@@ -1042,7 +1040,14 @@ final class LibraryModel {
         case .routeLine(let routeID):
             let editing = routeID == editingRouteID
             let current = routes.first { $0.route.id == routeID }?.route.mode ?? .road
-            return [
+            var items: [MapMenuItem] = []
+            if editing {
+                // On the line, the point goes into the leg under the click
+                // rather than on the end, as a click on the line does.
+                items.append(MapMenuItem(title: "Insert Via Point Here") { self.insertPoint(click.coordinate, isVia: true) })
+                items.append(MapMenuItem(title: "Insert Shaping Point Here") { self.insertPoint(click.coordinate, isVia: false) })
+            }
+            return items + [
                 editing ? MapMenuItem(title: "Done Editing") { self.finishEditing() }
                         : MapMenuItem(title: "Edit Route") { self.editRoute(routeID) },
                 MapMenuItem(title: "Reverse Route") { self.reverseRoute(routeID) },
@@ -1053,17 +1058,51 @@ final class LibraryModel {
             }
 
         case .ground:
-            return [MapMenuItem(title: "New Route Here") { self.startRoute(at: click.coordinate) }]
+            // While a route is being edited, the point is the likelier
+            // intent and goes first; a shaping point is the one thing a
+            // click cannot place, since a click makes a via point.
+            var items: [MapMenuItem] = []
+            if editingRouteID != nil {
+                items.append(MapMenuItem(title: "Add Via Point Here") { self.appendPoint(click.coordinate, isVia: true) })
+                items.append(MapMenuItem(title: "Add Shaping Point Here") { self.appendPoint(click.coordinate, isVia: false) })
+            }
+            items.append(MapMenuItem(title: "New Route Here") { self.startRoute(at: click.coordinate) })
+            return items
 
         case .waypoint(let id):
             guard let waypoint = waypoints.first(where: { $0.id == id }) else { return [] }
-            return [MapMenuItem(title: "New Route from \(waypoint.name)") {
+            var items: [MapMenuItem] = []
+            if editingRouteID != nil {
+                items.append(MapMenuItem(title: "Add Via Point at \(waypoint.name)") {
+                    self.appendPoint(waypoint.coordinate, isVia: true, name: waypoint.name, pinned: true)
+                })
+            }
+            items.append(MapMenuItem(title: "New Route from \(waypoint.name)") {
                 self.startRoute(at: waypoint.coordinate, name: waypoint.name, pinned: true)
-            }]
+            })
+            return items
 
         case .track:
             return []
         }
+    }
+
+    /// Appends a point to the route being edited: a via point, or a
+    /// shaping point, which only the right-click menu can place since a
+    /// click makes a via point. The road follows the write; see
+    /// `routeStraightLegs`.
+    func appendPoint(_ coordinate: Coordinate, isVia: Bool, name: String? = nil, pinned: Bool = false) {
+        guard var detail = editingDetail else { return }
+        detail.appendVia(coordinate, name: name, isVia: isVia, isPinned: pinned)
+        commit(detail, actionName: isVia ? "Add Point" : "Add Shaping Point")
+    }
+
+    /// Inserts a point into the leg of the edited route nearest a spot on
+    /// its line, as the right-click menu asks.
+    func insertPoint(_ coordinate: Coordinate, isVia: Bool) {
+        guard var detail = editingDetail, let leg = detail.nearestLeg(to: coordinate) else { return }
+        detail.insertVia(coordinate, inLeg: leg, isVia: isVia)
+        commit(detail, actionName: isVia ? "Insert Point" : "Insert Shaping Point")
     }
 
     /// A new route whose first point is where the right-click landed, as
