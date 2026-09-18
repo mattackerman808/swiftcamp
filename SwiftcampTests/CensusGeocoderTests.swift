@@ -17,7 +17,7 @@ final class CensusGeocoderTests: XCTestCase {
         let results = try CensusGeocoder.results(from: Data(reply.utf8))
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].name, "1234 W Elkhorn Ave")
-        XCTAssertEqual(results[0].detail, "Estes Park, CO, 80517")
+        XCTAssertEqual(results[0].detail, "Estes Park, CO, 80517 · On the block")
         XCTAssertEqual(results[0].kind, .address)
         XCTAssertEqual(results[0].coordinate.lat, 40.3817, accuracy: 0.0001)
         XCTAssertEqual(results[0].coordinate.lon, -105.5397, accuracy: 0.0001)
@@ -30,7 +30,7 @@ final class CensusGeocoderTests: XCTestCase {
         """
         let results = try CensusGeocoder.results(from: Data(json.utf8))
         XCTAssertEqual(results.first?.name, "472 N Juniper St")
-        XCTAssertEqual(results.first?.detail, "Orange, CA, 92866")
+        XCTAssertEqual(results.first?.detail, "Orange, CA, 92866 · On the block")
     }
 
     func testNoMatchesIsAnEmptyList() throws {

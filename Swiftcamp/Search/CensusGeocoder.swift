@@ -89,9 +89,12 @@ struct CensusGeocoder: Geocoder {
             // the first line, the rest underneath, out of capitals.
             let parts = match.matchedAddress.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
             let name = titleCase(parts.first ?? match.matchedAddress)
-            // A part that is two letters is the state and stays "CO".
+            // A part that is two letters is the state and stays "CO". The
+            // line ends by saying what the point is, the way an index
+            // result says "Rooftop": an estimate along the block, so a
+            // rider can tell which they got without knowing the formats.
             let detail = parts.dropFirst().map { $0.count == 2 ? $0 : titleCase($0) }.joined(separator: ", ")
-            return SearchResult(name: name, detail: detail.isEmpty ? "Address" : detail,
+            return SearchResult(name: name, detail: (detail.isEmpty ? "Address" : detail) + " · On the block",
                                 coordinate: Coordinate(lat: match.coordinates.y, lon: match.coordinates.x),
                                 kind: .address)
         }
