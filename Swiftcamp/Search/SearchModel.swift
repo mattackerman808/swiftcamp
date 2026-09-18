@@ -32,22 +32,28 @@ final class SearchModel {
         self.geocoders = geocoders
     }
 
-    /// The sources in the order they are asked: our index first, the
-    /// Census geocoder for house numbers after.
+    /// The sources in the order they are asked: our place index, our
+    /// address index, and the Census geocoder for the house numbers the
+    /// address index does not have.
     convenience init() {
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Swiftcamp/search/\(BasemapSource.searchArchive)", isDirectory: true)
-        let index = PlaceIndex(base: URL(string: BasemapSource.searchURL)!, cache: cache)
-        self.init(geocoders: [index, CensusGeocoder()])
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let index = PlaceIndex(base: URL(string: BasemapSource.searchURL)!,
+                               cache: caches.appendingPathComponent("Swiftcamp/search/\(BasemapSource.searchArchive)", isDirectory: true))
+        let addresses = AddressIndex(base: URL(string: BasemapSource.addressURL)!,
+                                     cache: caches.appendingPathComponent("Swiftcamp/search/\(BasemapSource.addressArchive)", isDirectory: true))
+        self.init(geocoders: [index, addresses, CensusGeocoder()])
         self.index = index
+        self.addresses = addresses
     }
 
     @ObservationIgnored private var index: PlaceIndex?
+    @ObservationIgnored private var addresses: AddressIndex?
 
     /// The map moved: fetch what a search here would need.
     func prepare(near coordinate: Coordinate) {
         near = coordinate
         Task { await index?.prepare(near: coordinate) }
+        Task { await addresses?.prepare(near: coordinate) }
     }
 
     private func schedule() {
@@ -93,6 +99,13 @@ final class SearchModel {
             guard !Task.isCancelled else { return }
             do {
                 if geocoder is CensusGeocoder {
+                    // Only for what our own index did not have: a match
+                    // from the roof needs no estimate along the block,
+                    // and no network.
+                    if found.contains(where: { $0.kind == .address }) {
+                        matchedAt = 0
+                        continue
+                    }
                     for (attempt, query) in attempts.enumerated() {
                         let matches = try await geocoder.search(query, near: near)
                         guard !Task.isCancelled else { return }
@@ -102,6 +115,9 @@ final class SearchModel {
                             break
                         }
                     }
+                } else if geocoder is AddressIndex {
+                    // The number is the point; the index parses it out.
+                    found += try await geocoder.search(text, near: near)
                 } else {
                     found += try await geocoder.search(indexQuery, near: near)
                 }

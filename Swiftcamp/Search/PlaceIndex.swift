@@ -12,24 +12,18 @@ import GRDB
 /// files are there. Nothing is metered and nobody's terms apply, which is
 /// why this source comes before the Census geocoder.
 actor PlaceIndex: Geocoder {
-    private let base: URL
-    private let cache: URL
-    private var databases: [String: DatabaseQueue] = [:]
-    /// Cells the CDN has no shard for: ocean, or beyond the extract.
-    private var missing: Set<String> = []
-    private var downloads: [String: Task<DatabaseQueue?, Never>] = [:]
+    private let files: IndexFiles
 
     init(base: URL, cache: URL) {
-        self.base = base
-        self.cache = cache
+        files = IndexFiles(base: base, cache: cache)
     }
 
     /// Gets the files a search near `near` will need, ahead of it. Called
     /// as the map moves, so the first search in an area does not wait.
     func prepare(near: Coordinate?) async {
-        _ = await database("places.sqlite")
+        _ = await files.database("places.sqlite")
         if let near {
-            _ = await database(Self.shard(for: near))
+            _ = await files.database(Self.shard(for: near))
         }
     }
 
@@ -37,12 +31,12 @@ actor PlaceIndex: Geocoder {
         guard let match = Self.matchExpression(for: query) else { return [] }
         var results: [SearchResult] = []
 
-        if let places = await database("places.sqlite") {
+        if let places = await files.database("places.sqlite") {
             results += try await places.read { db in
                 try Self.search(db, query: query, match: match, near: near, limit: 6, order: .importance)
             }
         }
-        if let near, let cell = await database(Self.shard(for: near)) {
+        if let near, let cell = await files.database(Self.shard(for: near)) {
             results += try await cell.read { db in
                 try Self.search(db, query: query, match: match, near: near, limit: 14, order: .distance)
             }
@@ -62,7 +56,7 @@ actor PlaceIndex: Geocoder {
     /// The town nearest a point, as "Estes Park, CO", for completing an
     /// address typed without one.
     func nearestTown(to coordinate: Coordinate) async -> String? {
-        guard let places = await database("places.sqlite") else { return nil }
+        guard let places = await files.database("places.sqlite") else { return nil }
         let k = cos(coordinate.lat * .pi / 180)
         return try? await places.read { db in
             let row = try Row.fetchOne(db, sql: """
@@ -199,35 +193,4 @@ actor PlaceIndex: Geocoder {
         "cells/\(RoutingTiles.id(of: coordinate, level: RoutingTiles.highways)).sqlite"
     }
 
-    /// The database for a file, fetched from the CDN on first use and
-    /// opened read-only. One download at a time per file, whoever asks.
-    private func database(_ name: String) async -> DatabaseQueue? {
-        if let open = databases[name] { return open }
-        if missing.contains(name) { return nil }
-        if let inFlight = downloads[name] { return await inFlight.value }
-
-        let task = Task { () -> DatabaseQueue? in
-            let local = cache.appendingPathComponent(name)
-            if !FileManager.default.fileExists(atPath: local.path) {
-                do {
-                    let (temporary, response) = try await URLSession.shared.download(from: base.appendingPathComponent(name))
-                    defer { try? FileManager.default.removeItem(at: temporary) }
-                    guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-                    try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try FileManager.default.moveItem(at: temporary, to: local)
-                } catch {
-                    NSLog("[Swiftcamp] search index %@ unavailable: %@", name, error.localizedDescription)
-                    return nil
-                }
-            }
-            var configuration = Configuration()
-            configuration.readonly = true
-            return try? DatabaseQueue(path: local.path, configuration: configuration)
-        }
-        downloads[name] = task
-        let opened = await task.value
-        downloads[name] = nil
-        if let opened { databases[name] = opened } else { missing.insert(name) }
-        return opened
-    }
 }

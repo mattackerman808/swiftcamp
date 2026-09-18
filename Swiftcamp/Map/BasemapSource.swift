@@ -86,6 +86,11 @@ enum BasemapSource {
     /// from the same extract as the graph. Dated like everything else.
     static let searchArchive = "search-us-20260918"
 
+    /// The address index: one shard per 1° tile under `tiles/`, built by
+    /// `scripts/build-addresses.py` from the National Address Database.
+    static let addressArchive = "addresses-us-20260918"
+    static var addressURL: String { "\(cdnBase)/\(addressArchive)" }
+
     static var searchURL: String { "\(cdnBase)/\(searchArchive)" }
 
     /// ODbL obligation, not decoration. Must stay visible on the map.
