@@ -19,13 +19,44 @@ enum Harness {
                 // A process launched from a terminal is not the active
                 // app, and an inactive app has no key window, so events
                 // posted to the application go nowhere.
-                NSApp.activate(ignoringOtherApps: true)
-                window.makeKeyAndOrderFront(nil)
+                // macOS grants activation when it feels like it: the
+                // same launch got it one run and not the next. The
+                // popover a search puts up needs a key window, so keep
+                // asking for a couple of seconds and say what happened,
+                // because a run without the popover otherwise reads as
+                // the search being broken.
+                activate(window)
                 return window.makeFirstResponder(field)
             }
         }
         NSLog("[Swiftcamp] harness: no search field in any window")
         return false
+    }
+
+    /// Waits for it, too. Keystrokes typed into a field before its
+    /// window is key go into the text and nowhere else: the suggestion
+    /// popover arms when the field takes focus in a key window, so typing
+    /// a beat too early left every later picture without it.
+    private static func activate(_ window: NSWindow) {
+        let deadline = Date(timeIntervalSinceNow: 3)
+        var attempts = 0
+        while Date() < deadline {
+            attempts += 1
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            if NSApp.isActive, window.isKeyWindow {
+                NSLog("[Swiftcamp] harness: active after %d attempts", attempts)
+                return
+            }
+            // Activation arrives as an application event, which only the
+            // application's own loop dispatches: spinning the run loop
+            // here waited three seconds and never saw it.
+            while let event = NSApp.nextEvent(matching: .any, until: Date(timeIntervalSinceNow: 0.1),
+                                              inMode: .default, dequeue: true) {
+                NSApp.sendEvent(event)
+            }
+        }
+        NSLog("[Swiftcamp] harness: never became the active app; no popover will show")
     }
 
     private static func searchField(in window: NSWindow) -> NSSearchField? {
