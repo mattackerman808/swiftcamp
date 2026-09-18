@@ -40,9 +40,12 @@ mode, Road, Adventure or Direct, which decides which ways its legs may use
 and whether a dropped point lands on one; `docs/routing.md` has the table. With a Valhalla graph loaded, legs follow roads and re-route live
 while dragging; without one they are straight lines. `docs/routing.md`.
 
-Search: coordinates in any common form, places, streets and points of
-interest from our own index on the CDN, and street addresses from the US
-Census geocoder; a result pins on the map and can be kept as a waypoint.
+Search: coordinates in any common form; places, streets and points of
+interest from our own index on the CDN; house numbers from our own index
+of the National Address Database, on the roof or the parcel and offline
+once the tile is fetched; and the US Census geocoder for addresses that
+index lacks. A result pins on the map and can be kept as a waypoint.
+`docs/data-architecture.md` has the four sources.
 
 Not started: waypoint editing, lists, library search and sort, GDB
 import, region packs. `docs/basecamp-parity.md` has the full inventory.
@@ -382,7 +385,17 @@ implements them; this is the index.
   a frame, never fired `load`, and logged one line in two minutes; the
   main thread was idle in its run loop the whole time, which `sample`
   showed in a second after two runs were lost to reasoning. A scripted run
-  floats its window.
+  floats its window. While another copy is running, from Xcode say, a
+  second copy has no visible window at all, so keystrokes and pictures
+  fail while the model still answers: verify through `search` and `dump`
+  then, and say so.
+- **A source's placeholder is a town until you look.** Colorado's whole
+  submission to the National Address Database names its municipality
+  "Unincorporated" and its postal city "Not stated", and 6.5 million
+  addresses nationwide would have listed under a town called
+  Unincorporated. Survey the distinct values of any column that becomes a
+  label before publishing; `scripts/build-addresses.py` takes the town
+  from the place index when the source has none.
 - **Valhalla's generated config is for a public server, not a planner.**
   Its motorcycle limit is 500 km per leg, a tenth of the car's, and a leg
   from California to Colorado was refused and drawn straight, which looked

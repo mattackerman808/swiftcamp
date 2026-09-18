@@ -29,7 +29,12 @@ enum Harness {
                 return window.makeFirstResponder(field)
             }
         }
-        NSLog("[Swiftcamp] harness: no search field in any window")
+        // Say what was there instead, since a field that is not found
+        // after a search has run is a different bug from one never built.
+        let items = NSApp.windows.filter(\.isVisible).map { window in
+            "\(Swift.type(of: window)): " + (window.toolbar?.items.map { "\(Swift.type(of: $0))" }.joined(separator: ",") ?? "no toolbar")
+        }
+        NSLog("[Swiftcamp] harness: no search field in any window; %@", items.joined(separator: "; "))
         return false
     }
 
@@ -59,17 +64,23 @@ enum Harness {
         NSLog("[Swiftcamp] harness: never became the active app; no popover will show")
     }
 
-    private static func searchField(in window: NSWindow) -> NSSearchField? {
+    private static func searchField(in window: NSWindow) -> NSTextField? {
         if let item = window.toolbar?.items.compactMap({ $0 as? NSSearchToolbarItem }).first {
             return item.searchField
         }
         var queue: [NSView] = [window.contentView?.superview ?? window.contentView].compactMap { $0 }
+        var fallback: NSTextField?
         while let view = queue.first {
             queue.removeFirst()
             if let field = view as? NSSearchField { return field }
+            // SwiftUI can host the field as a plain text field once a
+            // search has run; the prompt is what tells it apart.
+            if let field = view as? NSTextField, field.placeholderString?.contains("coordinates") == true {
+                fallback = fallback ?? field
+            }
             queue.append(contentsOf: view.subviews)
         }
-        return nil
+        return fallback
     }
 
     /// Types text as key events, one character at a time, to whatever is
