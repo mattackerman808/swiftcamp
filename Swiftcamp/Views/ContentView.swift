@@ -23,6 +23,13 @@ struct ContentView: View {
                     placement: .toolbar,
                     prompt: "Place, address, or coordinates")
         .searchSuggestions {
+            // Something the moment there is a query: the first search in
+            // an area waits on the index for that area arriving, up to
+            // 58 MB, and an empty list for that long reads as broken.
+            if model.search.results.isEmpty, !model.search.query.trimmingCharacters(in: .whitespaces).isEmpty {
+                Text(model.search.isSearching ? "Searching…" : "No matches")
+                    .foregroundStyle(.secondary)
+            }
             ForEach(model.search.results) { result in
                 Button {
                     model.show(result)

@@ -28,6 +28,15 @@ final class CensusGeocoderTests: XCTestCase {
         XCTAssertEqual(try CensusGeocoder.results(from: Data(empty.utf8)), [])
     }
 
+    /// An address that names no town or zip gets the map's town appended
+    /// before it goes out, because Census answers it with nothing otherwise.
+    func testAnAddressWithoutAPlaceIsRecognised() {
+        XCTAssertFalse(CensusGeocoder.namesAPlace("1234 W Elkhorn Ave"))
+        XCTAssertTrue(CensusGeocoder.namesAPlace("1234 W Elkhorn Ave, Estes Park, CO"))
+        XCTAssertTrue(CensusGeocoder.namesAPlace("1234 W Elkhorn Ave 80517"))
+        XCTAssertFalse(CensusGeocoder.namesAPlace("1234 W Elkhorn Ave, Estes Park"), "a town alone is not enough for Census either")
+    }
+
     /// Only a query that starts with a house number is worth a round trip.
     func testOnlyAddressesAreAsked() {
         XCTAssertTrue(CensusGeocoder.looksLikeAddress("1234 W Elkhorn Ave, Estes Park"))

@@ -249,6 +249,14 @@ final class LibraryModel {
                 if let first = search.results.first { show(first) }
             case "searchSave":
                 saveSearchPin()
+            #if os(macOS)
+            case "focusSearch":
+                _ = Harness.focusSearchField()
+            case "type":
+                Harness.type(step["text"] as? String ?? "")
+            case "snapshotWindows":
+                if let path = step["path"] as? String { Harness.snapshotWindows(to: path) }
+            #endif
             case "mode":
                 // On the route being edited, else the selected one.
                 if let mode = (step["value"] as? String).flatMap(RoutingMode.init(rawValue:)),
@@ -289,6 +297,7 @@ final class LibraryModel {
         }
         let payload: [String: Any] = ["routes": routes,
                                       "waypoints": waypoints.map { ["name": $0.name, "lat": $0.lat, "lon": $0.lon] },
+                                      "query": search.query,
                                       "search": search.results.map { ["name": $0.name, "detail": $0.detail, "kind": $0.kind.rawValue,
                                                                       "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] },
                                       "pin": searchPin.map { ["name": $0.name, "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] } as Any,

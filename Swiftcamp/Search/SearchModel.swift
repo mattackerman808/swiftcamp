@@ -70,10 +70,19 @@ final class SearchModel {
 
         isSearching = true
         defer { isSearching = false }
+
+        // An address typed without its town gets the town the map is
+        // looking at, since that is what a rider means by "1234 Main St".
+        var address = text
+        if CensusGeocoder.looksLikeAddress(text), !CensusGeocoder.namesAPlace(text),
+           let near, let town = await index?.nearestTown(to: near) {
+            address = "\(text), \(town)"
+        }
+
         for geocoder in geocoders {
             guard !Task.isCancelled else { return }
             do {
-                found += try await geocoder.search(text, near: near)
+                found += try await geocoder.search(geocoder is CensusGeocoder ? address : text, near: near)
             } catch {
                 NSLog("[Swiftcamp] search source failed: %@", error.localizedDescription)
             }

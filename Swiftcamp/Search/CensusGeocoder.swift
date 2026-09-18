@@ -30,6 +30,24 @@ struct CensusGeocoder: Geocoder {
         return trimmed.first?.isNumber == true && trimmed.contains { $0.isLetter }
     }
 
+    /// Whether the query already says where: a state at the end, or a
+    /// zip. Census answers "1234 W Elkhorn Ave" with nothing and the same
+    /// with a town or a zip with the address, so a query without either
+    /// gets the town the map is looking at appended.
+    static func namesAPlace(_ query: String) -> Bool {
+        let words = query.uppercased().split(whereSeparator: { $0.isWhitespace || $0 == "," }).map(String.init)
+        guard let last = words.last else { return false }
+        if last.count == 5, last.allSatisfy(\.isNumber) { return true }
+        if last.count == 2, states.contains(last) { return true }
+        return false
+    }
+
+    private static let states: Set<String> = [
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA",
+        "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+        "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC", "PR",
+    ]
+
     static func results(from data: Data) throws -> [SearchResult] {
         let response = try JSONDecoder().decode(Response.self, from: data)
         return response.result.addressMatches.map { match in

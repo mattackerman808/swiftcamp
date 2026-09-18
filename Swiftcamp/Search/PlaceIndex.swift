@@ -56,6 +56,28 @@ actor PlaceIndex: Geocoder {
     /// Street is the one meant.
     enum Order { case importance, distance }
 
+    /// Metres within which a place counts as local for ranking.
+    static let nearby = 300_000.0
+
+    /// The town nearest a point, as "Estes Park, CO", for completing an
+    /// address typed without one.
+    func nearestTown(to coordinate: Coordinate) async -> String? {
+        guard let places = await database("places.sqlite") else { return nil }
+        let k = cos(coordinate.lat * .pi / 180)
+        return try? await places.read { db in
+            let row = try Row.fetchOne(db, sql: """
+                SELECT name, detail FROM feature WHERE kind IN ('city', 'town', 'village')
+                ORDER BY (lat - ?) * (lat - ?) + (lon - ?) * (lon - ?) * ? LIMIT 1
+                """, arguments: [coordinate.lat, coordinate.lat, coordinate.lon, coordinate.lon, k * k])
+            guard let row else { return nil }
+            // The detail is "Town, CO": the state is what follows the comma.
+            let detail: String = row["detail"]
+            let state = detail.split(separator: ",").last?.trimmingCharacters(in: .whitespaces) ?? ""
+            let name: String = row["name"]
+            return state.isEmpty ? name : "\(name), \(state)"
+        }
+    }
+
     // MARK: - Querying
 
     /// The FTS5 expression for what was typed: every word must match, and
@@ -135,6 +157,11 @@ actor PlaceIndex: Geocoder {
             if a.nameMatches != b.nameMatches { return a.nameMatches }
             switch order {
             case .importance:
+                // A place within a few hours' ride outranks a bigger one
+                // across the country: "Estes" in Colorado means Estes
+                // Park, not a neighbourhood in Texas of the same size.
+                let aNear = a.distance < Self.nearby, bNear = b.distance < Self.nearby
+                if aNear != bNear { return aNear }
                 if a.rank != b.rank { return a.rank > b.rank }
                 if a.distance != b.distance { return a.distance < b.distance }
             case .distance:
