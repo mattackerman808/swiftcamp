@@ -53,6 +53,29 @@ final class RoutingPrefetch {
         Task { await fill() }
     }
 
+    /// The tiles a leg between these points will start and end in: the
+    /// local tile under each point and its eight neighbours, plus the
+    /// arterial tile over it, fetched together before the engine is
+    /// asked. The engine fetches one tile at a time at a quarter second
+    /// each, and a cold local route was eleven of them in series.
+    /// Returns when they are on disk, so the caller routes warm.
+    func warm(around coordinates: [Coordinate]) async {
+        var wanted: [(RoutingTiles.Level, Int)] = []
+        var seen: Set<String> = []
+        for c in coordinates {
+            let size = RoutingTiles.local.size
+            let box = BoundingBox(west: c.lon - size, south: c.lat - size, east: c.lon + size, north: c.lat + size)
+            for id in RoutingTiles.ids(in: box, level: RoutingTiles.local) where seen.insert("2:\(id)").inserted {
+                wanted.append((RoutingTiles.local, id))
+            }
+            let arterial = RoutingTiles.id(of: c, level: RoutingTiles.arterials)
+            if seen.insert("1:\(arterial)").inserted { wanted.append((RoutingTiles.arterials, arterial)) }
+        }
+        let started = ContinuousClock.now
+        await fetch(wanted, priority: .userInitiated, counting: false)
+        Timing.log("prefetch.ends", since: started, "\(wanted.count) tiles around \(coordinates.count) point(s)")
+    }
+
     /// The local tiles under a view, a screenful at most, for the drag
     /// that is about to happen there. A new view cancels the last.
     func warm(_ box: BoundingBox) {

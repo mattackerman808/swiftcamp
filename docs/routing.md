@@ -105,6 +105,29 @@ listing. Measured 2026-09-17 on the M3 Ultra's connection: the whole fill
 in 18 seconds. A scratch run does neither: a click check should not pull
 a gigabyte.
 
+### What a route costs, and where
+
+Instrumented 2026-09-18 behind `-SwiftcampTiming YES`, which the macOS
+scheme passes: one console line per stage with the prefix
+`Swiftcamp/timing`, so the console filters to the breakdown. What it
+found, and what changed:
+
+| Stage | Before | After |
+| --- | --- | --- |
+| Engine, cold cross-country leg | 7 s, 24 local tiles along the corridor fetched one at a time | 0.45 s after a 20-tile parallel prefetch at the ends; the engine fetched one tile itself |
+| Engine, cold local leg, Estes Park to Grand Lake | 2.9 s, 11 serial fetches | 0.6 s prefetch plus 0.1 s search |
+| Drag preview of a cross-country leg | 1.2 s per move, the whole search again | 0 ms: straight above 150 km, routed on release in 0.09 s |
+| Page, worker parse and first tile of a 13,000-point line | 30 ms | 30 ms |
+| Page, to idle | 300 ms | 300 ms, which is the label crossfade settling, not drawing |
+| Reply decode, store write, overlay encode, bridge, summaries | 1 to 18 ms each | unchanged |
+
+The corridor fetches were Valhalla's trip leg builder listing each path
+node's side streets, which means following its transitions down to the
+local level whether or not anyone asked; on a streamed graph each of
+those is a fetch. `scripts/valhalla-intersecting-edges.patch` guards that
+on the request's attribute filter, and every request now excludes the
+intersecting-edge attributes.
+
 ### After the edit
 
 Routing is a derivation that follows the write, not part of it. An edit
@@ -137,6 +160,7 @@ brew install cmake ninja pkgconf boost protobuf geos libspatialite \
 cd ~/git && git clone --recurse-submodules --shallow-submodules --depth 1 \
     https://github.com/valhalla/valhalla.git
 cd valhalla
+git apply ~/git/swiftcamp/scripts/valhalla-intersecting-edges.patch
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIBRARY_MODULES=ON \
   -DENABLE_SERVICES=OFF -DENABLE_PYTHON_BINDINGS=OFF -DENABLE_TESTS=OFF \
@@ -155,6 +179,14 @@ A few minutes on an M5 Max. What matters afterwards:
 | `build/src/valhalla/proto/` | Generated protobuf headers |
 | `build/valhalla_build_tiles` | The graph builder |
 | `scripts/valhalla_build_config` | Writes the JSON config the engine reads |
+
+The patch is one guard in the trip leg builder: when a request filters
+every intersecting-edge attribute out, as `RoutingEngine` does, the
+builder no longer follows each path node's transitions to the local level.
+Unpatched, a cross-country leg on the highway levels fetched every local
+tile along its corridor, twenty-four of them and seven seconds for a leg
+that needed none, because the builder lists the side streets at every
+node whether or not anyone asked. It is written to be sent upstream.
 
 `project.yml` points the macOS target at these under `$(HOME)/git/valhalla`,
 and links protobuf and its abseil dependencies from Homebrew. The abseil

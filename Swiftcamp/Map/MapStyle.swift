@@ -121,8 +121,23 @@ enum MapStyle {
 
     private static func overlaySources() -> [String: Any] {
         let empty: [String: Any] = ["type": "FeatureCollection", "features": []]
-        return Dictionary(uniqueKeysWithValues: Overlay.all.map {
-            ($0, ["type": "geojson", "data": empty] as [String: Any])
+        return Dictionary(uniqueKeysWithValues: Overlay.all.map { id in
+            var source: [String: Any] = ["type": "geojson", "data": empty]
+            if id == Overlay.routeLines {
+                // A cross-country route is 13,000 vertices, and every push
+                // of it, which a drag makes many times a second, is re-tiled
+                // by the page on its own thread: 300 ms to idle, measured.
+                // Three dials cut that work without touching the stored
+                // geometry: stop tiling at z14 and overzoom the rest, where
+                // a line is still a line; simplify to three quarters of a
+                // pixel rather than three eighths, under the seven-pixel
+                // stroke; and halve the tile buffer, which for a thin line
+                // is mostly empty.
+                source["maxzoom"] = 14
+                source["tolerance"] = 0.75
+                source["buffer"] = 64
+            }
+            return (id, source)
         })
     }
 

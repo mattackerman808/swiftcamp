@@ -103,6 +103,18 @@ final class RoutingEngine: @unchecked Sendable {
     /// scrub stays put, with a straight leg to the nearest way.
     static let adventureSnap = 50.0
 
+    /// The shaping for a drag preview: as `shaping(for:)`, but a leg longer
+    /// than `previewLimit` previews straight and is routed on release. See
+    /// `RouteEditing.straightBeyond`.
+    static func previewShaping(for mode: RoutingMode) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper)? {
+        guard let shaping = shaping(for: mode) else { return nil }
+        return (shaping.snap, RouteEditing.straightBeyond(previewLimit, shaping.shape))
+    }
+
+    /// Measured: a warm 1,900 km search is half a second, a 150 km one
+    /// tens of milliseconds, and a drag needs the second.
+    static let previewLimit = 150_000.0
+
     /// Lifts a limit the config generator sets for a public server.
     ///
     /// It caps a motorcycle route at 500 km, a tenth of what it allows a
@@ -185,6 +197,18 @@ final class RoutingEngine: @unchecked Sendable {
             // and generating maneuvers is a measurable share of the time.
             "directions_type": "none",
             "units": "miles",
+            // No intersecting edges either. Listing them makes the leg
+            // builder follow every path node's transitions to the local
+            // level, which for a cross-country leg on the highway levels
+            // loads every local tile along the corridor: twenty-four
+            // fetches and seven seconds, measured, for a leg that needed
+            // none of them. The filter is honoured by the patch in
+            // scripts/valhalla-intersecting-edges.patch; unpatched, it
+            // costs nothing and changes nothing.
+            "filters": [
+                "attributes": Self.intersectingEdgeAttributes,
+                "action": "exclude",
+            ],
         ]
         let body = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
 
@@ -234,6 +258,13 @@ final class RoutingEngine: @unchecked Sendable {
             }
         }
     }
+
+    /// Every attribute of a node's intersecting edges, as Valhalla names
+    /// them; the shape needs none.
+    private static let intersectingEdgeAttributes = [
+        "begin_heading", "from_edge_name_consistency", "to_edge_name_consistency", "driveability",
+        "cyclability", "walkability", "use", "road_class", "lane_count", "sign_info",
+    ].map { "node.intersecting_edge.\($0)" }
 
     /// Takes ownership of a C error string.
     private static func take(_ error: UnsafeMutablePointer<CChar>?) -> String? {

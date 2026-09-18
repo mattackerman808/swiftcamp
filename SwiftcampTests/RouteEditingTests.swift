@@ -231,6 +231,16 @@ final class RouteEditingTests: XCTestCase {
         XCTAssertEqual(detail.points.map(\.coordinate), [a, onRoad, b], "and moves nothing")
     }
 
+    // MARK: - Previews
+
+    /// A long leg previews straight and a short one still routes, so a
+    /// drag of a cross-country end does not repeat the search per frame.
+    func testAPreviewShaperGoesStraightBeyondItsLimit() {
+        let preview = RouteEditing.straightBeyond(100_000, midpoint)
+        XCTAssertEqual(preview(a, b).count, 3, "a and b are about 85 km apart")
+        XCTAssertEqual(preview(a, c), [], "a and c are about 140 km apart")
+    }
+
     // MARK: - Remove
 
     func testRemovingJoinsTheNeighbours() {

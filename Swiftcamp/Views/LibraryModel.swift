@@ -166,14 +166,12 @@ final class LibraryModel {
     @ObservationIgnored private var reroutePending: Set<String> = []
 
     /// Fills the streamed graph's cache ahead of routes. Nil for a
-    /// developer's local graph, and for a scratch run, which should not
-    /// pull a gigabyte to check a click.
+    /// developer's local graph.
     let prefetch: RoutingPrefetch?
 
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
         if UserDefaults.standard.string(forKey: "SwiftcampRouting") == nil,
-           UserDefaults.standard.string(forKey: "SwiftcampLibrary") == nil,
            let base = URL(string: BasemapSource.routingURL) {
             prefetch = RoutingPrefetch(base: base,
                                        cache: RoutingEngine.cacheDirectory(for: BasemapSource.routingArchive))
@@ -181,7 +179,11 @@ final class LibraryModel {
             prefetch = nil
         }
         RoutingEngine.warm()
-        prefetch?.fillBackground()
+        // The gigabyte fill is for a real launch. A scratch run still warms
+        // the tiles around what it edits, which is what a click check needs.
+        if UserDefaults.standard.string(forKey: "SwiftcampLibrary") == nil {
+            prefetch?.fillBackground()
+        }
         observe()
         importAtLaunchIfRequested()
         runScriptIfRequested()
@@ -756,6 +758,11 @@ final class LibraryModel {
         let mode = detail.route.mode
 
         Task {
+            // The tiles at each leg's ends, together, before the engine
+            // asks for them one at a time.
+            let ends = legs.flatMap { [detail.points[$0].coordinate, detail.points[$0 + 1].coordinate] }
+            await prefetch?.warm(around: ends)
+
             let started = ContinuousClock.now
             let routed = await Task.detached(priority: .userInitiated) { () -> [RoutePoint]? in
                 guard let shaping = RoutingEngine.shaping(for: mode) else { return nil }
@@ -923,10 +930,15 @@ final class LibraryModel {
         let seq = drag.seq
         let mode = detail.route.mode
         Task {
+            // The moving point and its neighbours: a preview routes the
+            // two legs between them.
+            let around = [seq - 1, seq + 1].filter { drag.base.indices.contains($0) }.map { drag.base[$0].coordinate }
+            await prefetch?.warm(around: [target] + around)
+
             let started = ContinuousClock.now
             let points = await Task.detached(priority: .userInitiated) { () -> [RoutePoint] in
                 var working = base
-                let shaping = RoutingEngine.shaping(for: mode) ?? (snap: .never, shape: RouteEditing.straight)
+                let shaping = RoutingEngine.previewShaping(for: mode) ?? (snap: .never, shape: RouteEditing.straight)
                 working.moveVia(at: seq, to: target, snap: shaping.snap, shape: shaping.shape)
                 return working.points
             }.value

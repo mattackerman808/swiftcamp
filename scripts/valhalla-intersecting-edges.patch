@@ -1,0 +1,28 @@
+diff --git a/src/thor/triplegbuilder.cc b/src/thor/triplegbuilder.cc
+index 3809fdb..ecace37 100644
+--- a/src/thor/triplegbuilder.cc
++++ b/src/thor/triplegbuilder.cc
+@@ -945,6 +945,8 @@ void AddTripIntersectingEdge(const AttributesController& controller,
+  * @param trip_node                pbf node in the pbf structure we are building
+  * @param blind_instructions       whether instructions for blind users are requested
+  */
++constexpr std::string_view kNodeIntersectingEdgeCategory = "node.intersecting_edge.";
++
+ void AddIntersectingEdges(const AttributesController& controller,
+                           const graph_tile_ptr& start_tile,
+                           const NodeInfo* node,
+@@ -2243,8 +2245,12 @@ void TripLegBuilder::Build(
+     AddLandmarks(edgeinfo, trip_edge, controller, directededge, trip_shape, begin_index);
+ 
+     // Add the intersecting edges at the node. Skip it if the node was an inner node (excluding start
+-    // node and end node) of a shortcut that was recovered.
+-    if (startnode.is_valid() && !edge_itr->start_node_is_recovered) {
++    // node and end node) of a shortcut that was recovered, or if the request filtered every
++    // intersecting edge attribute out: following each node's transitions loads the local-level tile
++    // beneath every node on the path, which for a long route on the highway levels is every local
++    // tile along the corridor, and a reader that fetches tiles over HTTP pays for each one.
++    if (startnode.is_valid() && !edge_itr->start_node_is_recovered &&
++        controller.category_attribute_enabled(kNodeIntersectingEdgeCategory)) {
+       AddIntersectingEdges(controller, start_tile, node, directededge, prev_de, prior_opp_local_index,
+                            graphreader, trip_node,
+                            travel_type == PedestrianType::kBlind &&

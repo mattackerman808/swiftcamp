@@ -24,6 +24,18 @@ enum RouteEditing {
     /// A straight line, which is a leg with no interior points at all.
     static let straight: LegShaper = { _, _ in [] }
 
+    /// A shaper that answers straight for any leg longer than `metres`
+    /// as the crow flies, and asks `shaper` for the rest.
+    ///
+    /// For drag previews. The engine cannot route incrementally, so a
+    /// preview of a cross-country leg repeats a half-second search on
+    /// every mouse move and the pointer runs a second ahead of the line.
+    /// Above the limit the leg follows the pointer straight and is routed
+    /// once, on release; below it, live re-routing stays.
+    static func straightBeyond(_ metres: Double, _ shaper: @escaping LegShaper) -> LegShaper {
+        { a, b in GeoMath.distance(a, b) > metres ? [] : shaper(a, b) }
+    }
+
     /// Whether a point moves to where its leg landed on the road.
     enum Snap: Equatable, Sendable {
         /// However far. BaseCamp's rule: a road route wants its stops on

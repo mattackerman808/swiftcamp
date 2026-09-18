@@ -358,6 +358,14 @@ implements them; this is the index.
   therefore reported never, and the harness sends press, contextmenu,
   release exactly as the OS does. Read from the bundled `maplibre-gl.js`
   after one wrong guess, which is the renderer lesson yet again.
+- **Valhalla's leg builder loads the local tile under every node of the
+  path.** It lists each node's side streets by following its transitions
+  down to the local level, whether or not the request wants them, so a
+  cross-country leg routed on the highway levels fetched every local tile
+  along its corridor: twenty-four of them, seven seconds, for a shape
+  that needed none. Found by mapping the fetched tile ids against the
+  route's ends and seeing Wyoming. `scripts/valhalla-intersecting-edges.patch`
+  guards it on the request's attribute filter, which the app sets.
 - **A timer that reads only the fraction of a second logs 16 s as 241 ms.**
   `Duration.components` is whole seconds plus attoseconds, and the route
   timer read the second half alone, so a cold cross-country route looked

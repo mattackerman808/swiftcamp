@@ -551,13 +551,36 @@ function post(message) {
 
   // When the map next settles after an overlay push, for the render cost
   // of a long route: setData returns before the source is re-tiled and
-  // drawn, and that work is on this thread too.
+  // drawn, and that work is on this thread too. The two data events split
+  // it: 'content' when the worker has parsed and indexed the new data,
+  // then the first tile of the source built from it.
   var overlayAppliedAt = null;
+  var overlayContentAt = null;
+
+  map.on('sourcedata', function (e) {
+    if (!window.__SWIFTCAMP_TIMING__ || overlayAppliedAt === null || e.sourceId !== 'sc-route-lines') return;
+    if (e.sourceDataType === 'content' && overlayContentAt === null) {
+      overlayContentAt = performance.now();
+      console.log('timing overlay.worker ' + (overlayContentAt - overlayAppliedAt).toFixed(0) + ' ms to content');
+    } else if (e.tile && overlayContentAt !== null) {
+      console.log('timing overlay.tile ' + (performance.now() - overlayContentAt).toFixed(0) + ' ms after content');
+      overlayContentAt = null;
+      // The frame that actually shows the new line. 'idle' comes about
+      // 300 ms later whatever the line, which is the label crossfade
+      // settling, not drawing.
+      map.once('render', function () {
+        if (overlayAppliedAt !== null) {
+          console.log('timing overlay.frame ' + (performance.now() - overlayAppliedAt).toFixed(0) + ' ms to the frame that draws it');
+        }
+      });
+    }
+  });
 
   map.on('idle', function () {
     if (overlayAppliedAt !== null) {
       console.log('timing overlay.render ' + (performance.now() - overlayAppliedAt).toFixed(0) + ' ms to idle');
       overlayAppliedAt = null;
+      overlayContentAt = null;
     }
     // Reported once: a non-zero feature count here proves the range requests
     // reached real data, and repeating it on every idle would bury the log.
