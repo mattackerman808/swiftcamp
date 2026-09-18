@@ -293,6 +293,8 @@ schemes:
       # argument verbatim, so RoutingEngine expands the tilde itself.
       commandLineArguments:
         "-SwiftcampRouting ~/valhalla-data/colorado/valhalla.json": false
+        # Stage timings for a route in the console; see Timing.swift.
+        "-SwiftcampTiming YES": true
     test:
       config: Debug
       targets:

@@ -50,6 +50,7 @@ struct MapWebView: NSViewRepresentable {
                 window.__SWIFTCAMP_STYLE__ = \(json);
                 window.__SWIFTCAMP_MAX_ZOOM__ = \(BasemapSource.maxZoom);
                 window.__SWIFTCAMP_CAMERA__ = \(cameraOverrideJSON());
+                window.__SWIFTCAMP_TIMING__ = \(Timing.enabled);
                 """,
                                       injectionTime: .atDocumentStart,
                                       forMainFrameOnly: true)
@@ -178,10 +179,15 @@ struct MapWebView: NSViewRepresentable {
             // otherwise close the string literal and turn the push into a
             // syntax error — and anything sharper than an apostrophe into
             // something worse.
+            let started = ContinuousClock.now
+            let bytes = changed.values.reduce(0) { $0 + $1.utf8.count }
             webView?.callAsyncJavaScript("window.swiftcamp.setOverlay(overlay);",
                                          arguments: ["overlay": changed],
                                          in: nil,
                                          in: .page) { result in
+                // Bridge crossing, parse and setData together; the page
+                // logs its own split of the last two.
+                Timing.log("overlay.push", since: started, "\(bytes / 1000) KB, \(changed.count) source(s)")
                 if case .failure(let error) = result {
                     NSLog("[Swiftcamp] overlay push failed: %@", String(describing: error))
                 }

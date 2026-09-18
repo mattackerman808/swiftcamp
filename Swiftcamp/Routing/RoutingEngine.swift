@@ -190,31 +190,30 @@ final class RoutingEngine: @unchecked Sendable {
 
         var error: UnsafeMutablePointer<CChar>?
         let started = ContinuousClock.now
-        defer {
-            // Left in on purpose: the drag-end cost is what decides whether
-            // routing can stay synchronous, and it changes with the graph.
-            // Whole seconds and the fraction both: the first version read
-            // only the fraction and logged a sixteen-second cold route as
-            // 241 ms, which made streaming look faster than it was.
-            let elapsed = (ContinuousClock.now - started).components
-            NSLog("[Swiftcamp] route %.0f ms", Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15)
-        }
         let reply: String? = lock.withLock {
             guard let out = valhalla_engine_route(engine, body, &error) else { return nil }
             defer { valhalla_free(out) }
             return String(cString: out)
         }
+        // Left in on purpose: this number decides how routing feels, and it
+        // changes with the graph. Whole seconds and the fraction both: the
+        // first version read only the fraction and logged a sixteen-second
+        // cold route as 241 ms.
+        NSLog("[Swiftcamp] route %.0f ms", Timing.milliseconds(since: started))
         guard let reply else {
             throw RoutingError(message: Self.take(error) ?? "no route")
         }
 
+        let decoding = ContinuousClock.now
         guard let json = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any],
               let trip = json["trip"] as? [String: Any],
               let legs = trip["legs"] as? [[String: Any]],
               let shape = legs.first?["shape"] as? String
         else { throw RoutingError(message: "unexpected reply from the routing engine") }
 
-        return Polyline.decode(shape)
+        let path = Polyline.decode(shape)
+        Timing.log("route.decode", since: decoding, "\(path.count) points, \(reply.utf8.count / 1000) KB reply")
+        return path
     }
 
     /// The engine as a `LegShaper` for a mode: the routed path with both

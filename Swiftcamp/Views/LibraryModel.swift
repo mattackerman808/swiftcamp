@@ -377,10 +377,13 @@ final class LibraryModel {
         // nobody will ever see.
         overlayTask?.cancel()
         overlayTask = Task {
+            let started = ContinuousClock.now
             let built = await Task.detached(priority: .userInitiated) {
                 MapOverlay.make(routes: routes, tracks: tracks,
                                 waypoints: waypoints, selection: selection)
             }.value
+            Timing.log("overlay.encode", since: started,
+                       "\(built.sources.values.reduce(0) { $0 + $1.utf8.count } / 1000) KB")
 
             guard !Task.isCancelled else { return }
             if built != overlay { overlay = built }
@@ -389,6 +392,8 @@ final class LibraryModel {
 
     /// Row subtitles, recomputed only when the rows themselves change.
     private func rebuildSummaries() {
+        let started = ContinuousClock.now
+        defer { Timing.log("summaries", since: started) }
         var out: [String: String] = [:]
         var points: [String: String] = [:]
         for detail in routes {
@@ -751,12 +756,14 @@ final class LibraryModel {
         let mode = detail.route.mode
 
         Task {
+            let started = ContinuousClock.now
             let routed = await Task.detached(priority: .userInitiated) { () -> [RoutePoint]? in
                 guard let shaping = RoutingEngine.shaping(for: mode) else { return nil }
                 var working = detail
                 working.reshape(legs: legs, snap: shaping.snap, shape: shaping.shape)
                 return working.points
             }.value
+            Timing.log("derive.route", since: started, "\(legs.count) leg(s)")
             routing.remove(routeID)
             defer {
                 if reroutePending.remove(routeID) != nil { routeStraightLegs(of: routeID) }
@@ -774,12 +781,14 @@ final class LibraryModel {
             }
             guard routed != routes[i].points else { return }
 
+            let writing = ContinuousClock.now
             do {
                 try store.replacePoints(routeID: routeID, with: routed)
             } catch {
                 failure = error.localizedDescription
                 return
             }
+            Timing.log("derive.write", since: writing, "\(routed.reduce(0) { $0 + 1 + ($1.geometry?.count ?? 0) }) coordinates")
             routes[i].points = routed
             rebuildOverlay()
         }
@@ -914,12 +923,14 @@ final class LibraryModel {
         let seq = drag.seq
         let mode = detail.route.mode
         Task {
+            let started = ContinuousClock.now
             let points = await Task.detached(priority: .userInitiated) { () -> [RoutePoint] in
                 var working = base
                 let shaping = RoutingEngine.shaping(for: mode) ?? (snap: .never, shape: RouteEditing.straight)
                 working.moveVia(at: seq, to: target, snap: shaping.snap, shape: shaping.shape)
                 return working.points
             }.value
+            Timing.log("preview.route", since: started)
 
             // The drag may have ended, or a new one begun, while this was
             // routing; the result then describes nothing on screen.

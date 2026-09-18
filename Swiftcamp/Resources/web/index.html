@@ -106,7 +106,15 @@ function post(message) {
         var source = map.getSource(id);
         if (!source) { console.error('no such source: ' + id); return; }
         try {
-          source.setData(JSON.parse(overlay[id]));
+          var t0 = performance.now();
+          var data = JSON.parse(overlay[id]);
+          var t1 = performance.now();
+          source.setData(data);
+          if (window.__SWIFTCAMP_TIMING__) {
+            console.log('timing overlay.apply ' + id + ': parse ' + (t1 - t0).toFixed(0) + ' ms, setData ' +
+                        (performance.now() - t1).toFixed(0) + ' ms, ' + Math.round(overlay[id].length / 1000) + ' KB');
+            overlayAppliedAt = performance.now();
+          }
         } catch (e) {
           console.error('bad geojson for ' + id + ': ' + e);
         }
@@ -541,7 +549,16 @@ function post(message) {
   });
   map.on('load', reportView);
 
+  // When the map next settles after an overlay push, for the render cost
+  // of a long route: setData returns before the source is re-tiled and
+  // drawn, and that work is on this thread too.
+  var overlayAppliedAt = null;
+
   map.on('idle', function () {
+    if (overlayAppliedAt !== null) {
+      console.log('timing overlay.render ' + (performance.now() - overlayAppliedAt).toFixed(0) + ' ms to idle');
+      overlayAppliedAt = null;
+    }
     // Reported once: a non-zero feature count here proves the range requests
     // reached real data, and repeating it on every idle would bury the log.
     if (!map.__reported) {
