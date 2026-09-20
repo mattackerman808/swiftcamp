@@ -80,14 +80,18 @@ struct LibrarySidebar: View {
                     ForEach(model.waypoints) { waypoint in
                         // No swatch. A waypoint's appearance on a Garmin is
                         // its symbol, not a display colour, and offering one
-                        // here would promise something GPX cannot carry.
+                        // here would promise something GPX cannot carry. The
+                        // symbol is drawn from the same sprite the map uses,
+                        // so the list and the map cannot disagree.
                         row(id: waypoint.id,
                             name: waypoint.name,
-                            detail: waypoint.symbol ?? coordinate(waypoint.coordinate),
-                            symbol: "mappin.circle.fill")
+                            detail: waypoint.symbol ?? coordinate(waypoint.coordinate)) {
+                            SymbolImage(entry: SymbolCatalog.entry(for: waypoint.symbol))
+                        }
                         .tag(waypoint.id)
                         .contextMenu {
                             renameButton(waypoint.id, waypoint.name)
+                            symbolMenu(for: waypoint)
                             Divider()
                             deleteButton(waypoint.id)
                         }
@@ -110,6 +114,15 @@ struct LibrarySidebar: View {
             }
         }
         .listStyle(.sidebar)
+        // A rename asked for on the map opens the same field a right-click
+        // here does. The request carries a token so the same waypoint can
+        // be asked for twice.
+        .onChange(of: model.renameRequest) { _, request in
+            guard let request, let waypoint = model.waypoints.first(where: { $0.id == request.id }) else { return }
+            draft = waypoint.name
+            renaming = request.id
+            DispatchQueue.main.async { isNaming = true }
+        }
         .safeAreaInset(edge: .bottom) {
             // The background fill of the highway levels, while it runs. A
             // rider should know why the network light is on, and when a
@@ -174,14 +187,6 @@ struct LibrarySidebar: View {
 
     private func row(id: String, name: String, detail: String, color: ItemColor?) -> some View {
         row(id: id, name: name, detail: detail) { Swatch(color: color) }
-    }
-
-    private func row(id: String, name: String, detail: String, symbol: String) -> some View {
-        row(id: id, name: name, detail: detail) {
-            Image(systemName: symbol)
-                .foregroundStyle(.orange)
-                .frame(width: 13)
-        }
     }
 
     private func row(id: String, name: String, detail: String,
@@ -260,6 +265,28 @@ struct LibrarySidebar: View {
                     Label { Text(color.name) } icon: { Swatch(color: color) }
                 }
             }
+        }
+    }
+
+    // MARK: - Symbol
+
+    /// Garmin's symbols, the waypoint's own ticked. A picker so the tick
+    /// is the system's; a symbol the catalog lacks matches no tag and
+    /// ticks nothing, which is honest about what the generic marker is.
+    private func symbolMenu(for waypoint: Waypoint) -> some View {
+        Menu("Change Icon") {
+            Picker("Icon", selection: Binding(get: { SymbolCatalog.known(waypoint.symbol)?.name ?? "" },
+                                              set: { model.setSymbol($0, forWaypoint: waypoint.id) })) {
+                ForEach(SymbolCatalog.groups, id: \.self) { group in
+                    Section {
+                        ForEach(SymbolCatalog.entries.filter { $0.group == group }, id: \.name) { entry in
+                            Label { Text(entry.name) } icon: { SymbolImage(entry: entry) }
+                                .tag(entry.name)
+                        }
+                    }
+                }
+            }
+            .pickerStyle(.inline)
         }
     }
 

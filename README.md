@@ -91,7 +91,8 @@ everything from MapLibre's hit test onward is the real path. `probe` logs
 what the renderer has at a coordinate, which is the first thing to ask when a
 click did not do what it should. `menu` right-clicks and chooses the item
 named in `choose`, running it rather than showing a menu nothing could
-dismiss. `dump` writes the routes as JSON for a check to read; with `"geometry": true` each point also carries its leg's path, which
+dismiss; a choice inside a submenu is named by itself, `"Flag, Red"` rather
+than a path through Change Icon. `dump` writes the routes as JSON for a check to read; with `"geometry": true` each point also carries its leg's path, which
 is how a check finds a spot on the line to grab.
 
 ```json

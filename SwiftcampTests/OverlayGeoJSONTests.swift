@@ -189,4 +189,32 @@ final class OverlayGeoJSONTests: XCTestCase {
         XCTAssertEqual(thin, thin.sorted { $0.lat < $1.lat })
         XCTAssertLessThanOrEqual(thin.count, 51, "the kept last point is the only overshoot")
     }
+
+    // MARK: - Waypoints and the search pin
+
+    /// The feature names its own picture and where that picture stands,
+    /// resolved here so the style never asks the sprite for an image it
+    /// does not have.
+    func testAWaypointCarriesItsSymbolsImageAndAnchor() throws {
+        let flag = Waypoint(name: "Fuel", lat: 40.0, lon: -105.0, symbol: "Flag, Red")
+        let block = Waypoint(name: "Turn", lat: 40.1, lon: -105.1, symbol: "Block, Blue")
+        let plain = Waypoint(name: "Home", lat: 40.2, lon: -105.2)
+        let odd = Waypoint(name: "Zoo", lat: 40.3, lon: -105.3, symbol: "Zoo")
+
+        let features = OverlayGeoJSON.waypoints([flag, block, plain, odd]).features
+        XCTAssertEqual(features.map(\.properties.icon),
+                       ["symbol-flag-red", "symbol-block-blue", SymbolCatalog.fallback.image, SymbolCatalog.fallback.image])
+        XCTAssertEqual(features.map(\.properties.anchor), ["bottom", "center", "bottom", "bottom"])
+        XCTAssertEqual(features.map(\.properties.name), ["Fuel", "Turn", "Home", "Zoo"])
+    }
+
+    func testTheSearchPinIsItsOwnPicture() throws {
+        let result = SearchResult(name: "Estes Park", detail: "Colorado",
+                                  coordinate: Coordinate(lat: 40.3772, lon: -105.5217), kind: .place)
+        let feature = try XCTUnwrap(OverlayGeoJSON.searchPin(result).features.first)
+        XCTAssertEqual(feature.properties.icon, SymbolCatalog.search.image)
+        XCTAssertEqual(feature.properties.anchor, "bottom")
+        XCTAssertEqual(feature.properties.name, "Estes Park")
+        XCTAssertTrue(OverlayGeoJSON.searchPin(nil).features.isEmpty)
+    }
 }

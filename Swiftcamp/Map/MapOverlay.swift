@@ -86,6 +86,9 @@ struct MapClick: Equatable, Sendable {
         case routeLine(routeID: String)
         case waypoint(id: String)
         case track(id: String)
+        /// The pin a search put down. There is only ever one, so it needs
+        /// no id.
+        case searchPin
         /// Empty map. The coordinate is still meaningful — this is how a new
         /// via point gets placed.
         case ground
@@ -124,7 +127,38 @@ struct MapMenuItem {
     var title: String
     /// Ticked, for one of a set of choices.
     var isChecked = false
+    /// A submenu. An item that has one runs nothing itself.
+    var children: [MapMenuItem] = []
+    /// A line between groups; nothing else on it means anything.
+    var isSeparator = false
     var action: @MainActor () -> Void
+
+    init(title: String, isChecked: Bool = false, action: @escaping @MainActor () -> Void) {
+        self.title = title
+        self.isChecked = isChecked
+        self.action = action
+    }
+
+    init(title: String, children: [MapMenuItem]) {
+        self.title = title
+        self.children = children
+        self.action = {}
+    }
+
+    static var separator: MapMenuItem {
+        var item = MapMenuItem(title: "") {}
+        item.isSeparator = true
+        return item
+    }
+
+    /// The items that can be chosen, submenus opened, in menu order. For
+    /// the harness, which names a choice rather than navigating to it.
+    static func leaves(of items: [MapMenuItem]) -> [MapMenuItem] {
+        items.flatMap { item -> [MapMenuItem] in
+            if item.isSeparator { return [] }
+            return item.children.isEmpty ? [item] : leaves(of: item.children)
+        }
+    }
 }
 
 /// A key the page saw and handed back, because the web view is first

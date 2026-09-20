@@ -106,18 +106,27 @@ enum OverlayGeoJSON {
     static func searchPin(_ result: SearchResult?) -> FeatureCollection {
         FeatureCollection(features: result.map {
             [Feature(geometry: .point($0.coordinate),
-                     properties: Properties(name: $0.name, lat: $0.coordinate.lat, lon: $0.coordinate.lon))]
+                     properties: Properties(name: $0.name, lat: $0.coordinate.lat, lon: $0.coordinate.lon,
+                                            icon: SymbolCatalog.search.image,
+                                            anchor: SymbolCatalog.search.anchor))]
         } ?? [])
     }
 
+    /// Each waypoint carries the sprite image for its Garmin symbol and
+    /// where that image sits on the place. Decided here rather than in the
+    /// style so an unknown symbol resolves to the generic marker once, in
+    /// Swift, instead of naming an image the sprite does not have.
     static func waypoints(_ waypoints: [Waypoint], selected: Set<String> = []) -> FeatureCollection {
         FeatureCollection(features: waypoints.map { waypoint in
-            Feature(geometry: .point(waypoint.coordinate),
-                    properties: Properties(id: waypoint.id,
-                                           name: waypoint.name,
-                                           selected: selected.contains(waypoint.id),
-                                           lat: waypoint.lat,
-                                           lon: waypoint.lon))
+            let symbol = SymbolCatalog.entry(for: waypoint.symbol)
+            return Feature(geometry: .point(waypoint.coordinate),
+                           properties: Properties(id: waypoint.id,
+                                                  name: waypoint.name,
+                                                  selected: selected.contains(waypoint.id),
+                                                  lat: waypoint.lat,
+                                                  lon: waypoint.lon,
+                                                  icon: symbol.image,
+                                                  anchor: symbol.anchor))
         })
     }
 
@@ -202,5 +211,8 @@ enum OverlayGeoJSON {
         var lon: Double?
         /// Metres from the start of the route, for route points.
         var distance: Double?
+        /// Sprite image and its anchor, for waypoints and the search pin.
+        var icon: String?
+        var anchor: String?
     }
 }

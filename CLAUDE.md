@@ -153,6 +153,7 @@ to whichever renderer the platform uses.
 | `../Model/ItemColor.swift` | The only colour palette, and it is Garmin's |
 | `BasemapSource.swift` | CDN URLs, bundled asset paths, attribution, max zoom |
 | `ShieldCatalog.swift` | **Generated.** Do not edit; see below |
+| `SymbolCatalog.swift` | **Generated.** Garmin waypoint symbols with artwork; do not edit |
 | `macOS/MapWebView.swift` | macOS host, MapLibre GL JS in a web view |
 | `macOS/BundleSchemeHandler.swift` | Serves bundle assets with HTTP range support |
 | `MapLibreMapView.swift` | iOS host, MapLibre Native |
@@ -178,7 +179,7 @@ the misconfiguration presents as a macOS rendering fault.
 
 ```bash
 ./scripts/fetch-basemap.sh        # bundled z0-6 world archive
-python3 scripts/make_shields.py   # sprite sheet + ShieldCatalog.swift
+python3 scripts/make_shields.py   # sprite sheet + ShieldCatalog.swift + SymbolCatalog.swift
 python3 scripts/audit_shields.py  # contrast/legibility check over all 108
 ```
 
@@ -187,6 +188,14 @@ python3 scripts/audit_shields.py  # contrast/legibility check over all 108
 (CC0), parsing their `shield_defs.js` for each network's artwork, numeral
 colour and text padding. It regenerates `ShieldCatalog.swift` in the same run
 so colours cannot drift from the sheet they describe.
+
+The same run packs the waypoint symbols from `make_symbols.py` into the
+sheet: Garmin's flags, pins, blocks and diamonds drawn there in `ItemColor`'s
+hexes, and pictograms as [Maki](https://github.com/mapbox/maki) glyphs (CC0)
+on a coloured pin. It writes `SymbolCatalog.swift` beside them, and
+`SymbolCatalogTests` checks every catalog image is in both sheets. A
+waypoint's feature carries its image name and anchor, so an unknown symbol
+resolves to the generic pin in Swift rather than naming a missing image.
 
 ## The product layer
 

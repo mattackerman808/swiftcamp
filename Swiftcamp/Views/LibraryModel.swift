@@ -177,6 +177,16 @@ final class LibraryModel {
     /// look, and most looks are not kept.
     private(set) var searchPin: SearchResult?
 
+    /// A rename asked for from the map, for the sidebar to open its field
+    /// on. The sidebar owns the field, and a name typed into the list row
+    /// is one place to rename rather than two.
+    struct RenameRequest: Equatable {
+        var id: String
+        /// Distinguishes two requests for the same item.
+        var token: Int
+    }
+    private(set) var renameRequest: RenameRequest?
+
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
         if UserDefaults.standard.string(forKey: "SwiftcampRouting") == nil,
@@ -209,7 +219,8 @@ final class LibraryModel {
     /// path. Actions are `newRoute`, `click`, `drag`, `hover`, `key`, `menu`,
     /// `mode`, `search`, `searchShow`, `searchSave`, `undo`, `redo`, `done`,
     /// `wait`, `probe` and `dump`, as JSON objects with an `action` key.
-    /// `menu` right-clicks and chooses the item named in `choose`; `mode`
+    /// `menu` right-clicks and chooses the item named in `choose`, which
+    /// may sit in a submenu ("Flag, Red" under Change Icon); `mode`
     /// sets the routing mode in `value`; `search` types `query` into the
     /// field, `searchShow` picks the first result, `searchSave` keeps the
     /// pin as a waypoint.
@@ -296,7 +307,8 @@ final class LibraryModel {
              }]
         }
         let payload: [String: Any] = ["routes": routes,
-                                      "waypoints": waypoints.map { ["name": $0.name, "lat": $0.lat, "lon": $0.lon] },
+                                      "waypoints": waypoints.map { ["name": $0.name, "lat": $0.lat, "lon": $0.lon,
+                                                                    "symbol": $0.symbol as Any] },
                                       "query": search.query,
                                       "search": search.results.map { ["name": $0.name, "detail": $0.detail, "kind": $0.kind.rawValue,
                                                                       "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] },
@@ -687,6 +699,8 @@ final class LibraryModel {
             selection = [id]
         case .track(let id):
             selection = [id]
+        case .searchPin:
+            break   // a look, not a library item; the menu is its interface
         case .ground:
             selection = []
         }
@@ -909,6 +923,13 @@ final class LibraryModel {
             // the leg runs to the road from there, as BaseCamp draws it.
             guard let waypoint = waypoints.first(where: { $0.id == id }) else { return false }
             appendPoint(waypoint.coordinate, isVia: true, name: waypoint.name, pinned: true)
+            return true
+
+        case .searchPin:
+            // The same, for the place a search found: named after it and
+            // kept exactly there.
+            guard let pin = searchPin else { return false }
+            appendPoint(pin.coordinate, isVia: true, name: pin.name, pinned: true)
             return true
 
         case .routeLine(let routeID) where routeID == detail.route.id:
@@ -1151,11 +1172,70 @@ final class LibraryModel {
             items.append(MapMenuItem(title: "New Route from \(waypoint.name)") {
                 self.startRoute(at: waypoint.coordinate, name: waypoint.name, pinned: true)
             })
-            return items
+            return items + [
+                .separator,
+                MapMenuItem(title: "Rename…") { self.requestRename(id) },
+                MapMenuItem(title: "Change Icon", children: symbolMenu(for: waypoint)),
+                .separator,
+                MapMenuItem(title: "Delete") { self.delete(id) },
+            ]
+
+        case .searchPin:
+            // The pin's own place, not the click's: a right-click lands
+            // anywhere on the pin's picture, and the route should start
+            // where the search put it.
+            guard let pin = searchPin else { return [] }
+            var items = [MapMenuItem(title: "Save as Waypoint") { self.saveSearchPin() }]
+            if editingRouteID != nil {
+                items.append(MapMenuItem(title: "Add Via Point at \(pin.name)") {
+                    self.appendPoint(pin.coordinate, isVia: true, name: pin.name, pinned: true)
+                })
+            }
+            items.append(MapMenuItem(title: "New Route from \(pin.name)") {
+                self.startRoute(at: pin.coordinate, name: pin.name, pinned: true)
+            })
+            return items + [.separator, MapMenuItem(title: "Dismiss") { self.dismissSearchPin() }]
 
         case .track:
             return []
         }
+    }
+
+    /// Garmin's symbols, in the catalog's groups, the waypoint's own ticked.
+    /// A symbol the catalog lacks ticks nothing: the waypoint keeps it, and
+    /// the generic marker it draws with is not a choice the user made.
+    private func symbolMenu(for waypoint: Waypoint) -> [MapMenuItem] {
+        let current = SymbolCatalog.known(waypoint.symbol)
+        var items: [MapMenuItem] = []
+        var group: String?
+        for entry in SymbolCatalog.entries {
+            if let group, group != entry.group { items.append(.separator) }
+            group = entry.group
+            items.append(MapMenuItem(title: entry.name, isChecked: entry == current) {
+                self.setSymbol(entry.name, forWaypoint: waypoint.id)
+            })
+        }
+        return items
+    }
+
+    /// Asks the sidebar to open its rename field on an item.
+    func requestRename(_ id: String) {
+        selection = [id]
+        renameRequest = RenameRequest(id: id, token: (renameRequest?.token ?? 0) + 1)
+    }
+
+    /// Changes a waypoint's Garmin symbol, which is what the device draws
+    /// it as, and undoably: an icon picked from a long menu is easy to
+    /// pick wrong.
+    func setSymbol(_ symbol: String?, forWaypoint id: String) {
+        guard let waypoint = waypoints.first(where: { $0.id == id }), waypoint.symbol != symbol else { return }
+        do {
+            try store.setSymbol(symbol, forWaypoint: id)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Change Icon") { model in model.setSymbol(waypoint.symbol, forWaypoint: id) }
     }
 
     /// Appends a point to the route being edited: a via point, or a
@@ -1262,6 +1342,9 @@ final class LibraryModel {
         do { try store.rename(id, to: name) } catch { failure = error.localizedDescription }
     }
 
+    /// Deleting a waypoint can be undone; it is one row, and Delete sits
+    /// on a right-click menu where a slip is easy. A route or a track is
+    /// not, yet: a day's track is a few hundred thousand rows to hold.
     func delete(_ id: String) {
         if id == editingRouteID { editingRouteID = nil }
         if drag?.routeID == id { drag = nil }
@@ -1270,6 +1353,9 @@ final class LibraryModel {
                 try store.deleteRoute(id: id)
             } else if tracks.contains(where: { $0.track.id == id }) {
                 try store.deleteTrack(id: id)
+            } else if let waypoint = waypoints.first(where: { $0.id == id }) {
+                try store.deleteWaypoint(id: id)
+                registerUndo("Delete Waypoint") { model in model.restore(waypoint) }
             } else {
                 try store.deleteWaypoint(id: id)
             }
@@ -1277,5 +1363,17 @@ final class LibraryModel {
         } catch {
             failure = error.localizedDescription
         }
+    }
+
+    /// Puts a deleted waypoint back as it was, id included, so anything
+    /// that remembered it finds it again.
+    private func restore(_ waypoint: Waypoint) {
+        do {
+            try store.save(waypoint)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Delete Waypoint") { model in model.delete(waypoint.id) }
     }
 }

@@ -754,5 +754,271 @@
   "width": 29,
   "x": 2811,
   "y": 2
+ },
+ "symbol-airport": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 2842,
+  "y": 2
+ },
+ "symbol-bar": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 2866,
+  "y": 2
+ },
+ "symbol-bike-trail": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 2890,
+  "y": 2
+ },
+ "symbol-block-blue": {
+  "height": 14,
+  "pixelRatio": 1,
+  "width": 14,
+  "x": 2914,
+  "y": 2
+ },
+ "symbol-block-green": {
+  "height": 14,
+  "pixelRatio": 1,
+  "width": 14,
+  "x": 2930,
+  "y": 2
+ },
+ "symbol-block-red": {
+  "height": 14,
+  "pixelRatio": 1,
+  "width": 14,
+  "x": 2946,
+  "y": 2
+ },
+ "symbol-campground": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 2962,
+  "y": 2
+ },
+ "symbol-circle-with-x": {
+  "height": 16,
+  "pixelRatio": 1,
+  "width": 16,
+  "x": 2986,
+  "y": 2
+ },
+ "symbol-danger-area": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3004,
+  "y": 2
+ },
+ "symbol-diamond-blue": {
+  "height": 16,
+  "pixelRatio": 1,
+  "width": 16,
+  "x": 3028,
+  "y": 2
+ },
+ "symbol-diamond-green": {
+  "height": 16,
+  "pixelRatio": 1,
+  "width": 16,
+  "x": 3046,
+  "y": 2
+ },
+ "symbol-diamond-red": {
+  "height": 16,
+  "pixelRatio": 1,
+  "width": 16,
+  "x": 3064,
+  "y": 2
+ },
+ "symbol-ferry": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3082,
+  "y": 2
+ },
+ "symbol-flag-blue": {
+  "height": 24,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3106,
+  "y": 2
+ },
+ "symbol-flag-green": {
+  "height": 24,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3130,
+  "y": 2
+ },
+ "symbol-flag-red": {
+  "height": 24,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3154,
+  "y": 2
+ },
+ "symbol-gas-station": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3178,
+  "y": 2
+ },
+ "symbol-information": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3202,
+  "y": 2
+ },
+ "symbol-lodging": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3226,
+  "y": 2
+ },
+ "symbol-medical-facility": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3250,
+  "y": 2
+ },
+ "symbol-museum": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3274,
+  "y": 2
+ },
+ "symbol-park": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3298,
+  "y": 2
+ },
+ "symbol-parking-area": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3322,
+  "y": 2
+ },
+ "symbol-picnic-area": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3346,
+  "y": 2
+ },
+ "symbol-pin-blue": {
+  "height": 26,
+  "pixelRatio": 1,
+  "width": 18,
+  "x": 3370,
+  "y": 2
+ },
+ "symbol-pin-green": {
+  "height": 26,
+  "pixelRatio": 1,
+  "width": 18,
+  "x": 3390,
+  "y": 2
+ },
+ "symbol-pin-red": {
+  "height": 26,
+  "pixelRatio": 1,
+  "width": 18,
+  "x": 3410,
+  "y": 2
+ },
+ "symbol-police-station": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3430,
+  "y": 2
+ },
+ "symbol-post-office": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3454,
+  "y": 2
+ },
+ "symbol-residence": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3478,
+  "y": 2
+ },
+ "symbol-restaurant": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3502,
+  "y": 2
+ },
+ "symbol-restroom": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3526,
+  "y": 2
+ },
+ "symbol-scenic-area": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3550,
+  "y": 2
+ },
+ "symbol-search": {
+  "height": 36,
+  "pixelRatio": 1,
+  "width": 26,
+  "x": 3574,
+  "y": 2
+ },
+ "symbol-shopping-center": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3602,
+  "y": 2
+ },
+ "symbol-summit": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3626,
+  "y": 2
+ },
+ "symbol-swimming-area": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3650,
+  "y": 2
+ },
+ "symbol-waypoint": {
+  "height": 30,
+  "pixelRatio": 1,
+  "width": 22,
+  "x": 3674,
+  "y": 2
  }
 }

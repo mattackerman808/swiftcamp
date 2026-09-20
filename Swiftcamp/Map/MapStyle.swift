@@ -183,8 +183,8 @@ enum MapStyle {
         static let routeCasing     = "#ffffff"
         static let trackLine       = "#1f7a8c"
         static let viaFill         = "#ffffff"
-        static let waypointFill    = "#f5a623"
-        static let searchPin       = "#d62828"
+        // A waypoint's orange and the search pin's red live in the sprite
+        // artwork now; scripts/make_symbols.py has them.
         static let selection       = "#111111"
 
         static let label           = "#40464e"
@@ -444,18 +444,29 @@ enum MapStyle {
 
     private static func overlayPointLayers() -> [[String: Any]] {
         [
-            geoJSONCircle("waypoint-dot", source: Overlay.waypoints,
-                          fill: Palette.waypointFill,
-                          radii: [[6, 3.0], [11, 5.0], [16, 7.0]]),
+            // A ring on the place, under the symbol. The symbol's own
+            // outline cannot change with selection, since it is a picture,
+            // and a ring at the anchor works for a pin's tip and a block's
+            // centre alike.
+            [
+                "id": "waypoint-selected",
+                "type": "circle",
+                "source": Overlay.waypoints,
+                "filter": ["==", ["coalesce", ["get", "selected"], false], true],
+                "paint": [
+                    "circle-radius": interpolate([[6, 5.0], [11, 7.0], [16, 9.0]]),
+                    "circle-color": "rgba(0, 0, 0, 0)",
+                    "circle-stroke-width": 2.0,
+                    "circle-stroke-color": Palette.selection,
+                ],
+            ],
 
-            // Where a search landed. Larger than a waypoint and red, and
-            // deliberately not among the layers a click hit-tests: a
-            // right-click on it falls through to empty map, whose menu
-            // already starts a route or drops a point exactly there.
-            geoJSONCircle("search-pin", source: Overlay.search,
-                          fill: Palette.searchPin,
-                          stroke: Palette.viaFill,
-                          radii: [[6, 5.0], [11, 8.0], [16, 10.0]]),
+            // A waypoint draws as its Garmin symbol, a pin by default, from
+            // the sprite sheet; `SymbolCatalog` names the images and the
+            // feature carries which. Every one is drawn: a waypoint hidden
+            // by another's collision box is one the user cannot find.
+            symbolIcons("waypoint-icon", source: Overlay.waypoints,
+                        size: [[6, 0.7], [11, 1.0]]),
 
             // Via points read as handles rather than as places: white with a
             // route-coloured ring, and larger, because they are the thing the
@@ -497,6 +508,29 @@ enum MapStyle {
                     "circle-stroke-width": 2.0,
                     "circle-stroke-color": Palette.selection,
                 ],
+            ],
+
+            // Where a search landed: the red pin, over everything, since it
+            // is the thing being looked at. It is hit-tested like a
+            // waypoint, so it has a menu of its own.
+            symbolIcons("search-pin", source: Overlay.search, size: [[6, 0.8], [11, 1.0]]),
+        ]
+    }
+
+    /// A picture per feature, from the sprite. The feature names its image
+    /// and its anchor, because MapLibre has no per-image anchor and a pin
+    /// stands on its tip where a block sits on its centre.
+    private static func symbolIcons(_ id: String, source: String, size: [[Double]]) -> [String: Any] {
+        [
+            "id": id,
+            "type": "symbol",
+            "source": source,
+            "layout": [
+                "icon-image": ["get", "icon"],
+                "icon-anchor": ["coalesce", ["get", "anchor"], "bottom"],
+                "icon-size": interpolate(size),
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
             ],
         ]
     }

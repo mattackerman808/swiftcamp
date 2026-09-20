@@ -25,12 +25,17 @@ sprite is padded with transparent margin until the padding-defined text
 box is centred in the image. Centred text then lands correctly, and the
 style stays free of per-shield special cases.
 
+The waypoint symbols from `make_symbols.py` go into the same sheet, because
+a style names one sprite and the shields and the symbols are drawn on the
+same map.
+
 Requires: rsvg-convert (brew install librsvg), Pillow.
 
     python3 scripts/make_shields.py
 """
 import io, json, os, re, subprocess, urllib.request
 from PIL import Image, ImageDraw
+import make_symbols
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "Swiftcamp", "Resources", "sprites")
@@ -142,6 +147,14 @@ def render(svg_name, scale):
         raise RuntimeError(f"rsvg-convert failed on {svg_name}: {p.stderr.decode()[:200]}")
     return Image.open(io.BytesIO(p.stdout)).convert("RGBA")
 
+def rasterize(name, svg_text, scale):
+    """An SVG drawn at its own size, times the scale."""
+    p = subprocess.run(["rsvg-convert", "-z", str(scale), "-f", "png"],
+                       input=svg_text.encode(), capture_output=True)
+    if p.returncode != 0:
+        raise RuntimeError(f"rsvg-convert failed on {name}: {p.stderr.decode()[:200]}")
+    return Image.open(io.BytesIO(p.stdout)).convert("RGBA")
+
 def plate(scale, digits):
     """Generic marker for a network americana has no artwork for. Its own
     fallback is a plain rectangle too, because those states' real markers
@@ -231,6 +244,9 @@ def build():
                     continue
                 images[f"{base}-{digits}"] = centre_text_box(art, d["pad"], scale)
 
+        for name, text in make_symbols.sources().items():
+            images[name] = rasterize(name, text, scale)
+
         pad = 2 * scale
         total_w = sum(im.width + pad for im in images.values()) + pad
         max_h = max(im.height for im in images.values()) + 2 * pad
@@ -251,6 +267,7 @@ def build():
     if missing:
         print(f"{len(set(missing))} using the generic plate: {' '.join(sorted(set(missing)))}")
     write_catalog(colors)
+    make_symbols.write_catalog()
 
 def write_catalog(colors):
     states = ", ".join(f'"{s}"' for s in STATES)

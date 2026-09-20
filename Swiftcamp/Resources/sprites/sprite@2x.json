@@ -754,5 +754,271 @@
   "width": 58,
   "x": 5621,
   "y": 4
+ },
+ "symbol-airport": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 5683,
+  "y": 4
+ },
+ "symbol-bar": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 5731,
+  "y": 4
+ },
+ "symbol-bike-trail": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 5779,
+  "y": 4
+ },
+ "symbol-block-blue": {
+  "height": 28,
+  "pixelRatio": 2,
+  "width": 28,
+  "x": 5827,
+  "y": 4
+ },
+ "symbol-block-green": {
+  "height": 28,
+  "pixelRatio": 2,
+  "width": 28,
+  "x": 5859,
+  "y": 4
+ },
+ "symbol-block-red": {
+  "height": 28,
+  "pixelRatio": 2,
+  "width": 28,
+  "x": 5891,
+  "y": 4
+ },
+ "symbol-campground": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 5923,
+  "y": 4
+ },
+ "symbol-circle-with-x": {
+  "height": 32,
+  "pixelRatio": 2,
+  "width": 32,
+  "x": 5971,
+  "y": 4
+ },
+ "symbol-danger-area": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6007,
+  "y": 4
+ },
+ "symbol-diamond-blue": {
+  "height": 32,
+  "pixelRatio": 2,
+  "width": 32,
+  "x": 6055,
+  "y": 4
+ },
+ "symbol-diamond-green": {
+  "height": 32,
+  "pixelRatio": 2,
+  "width": 32,
+  "x": 6091,
+  "y": 4
+ },
+ "symbol-diamond-red": {
+  "height": 32,
+  "pixelRatio": 2,
+  "width": 32,
+  "x": 6127,
+  "y": 4
+ },
+ "symbol-ferry": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6163,
+  "y": 4
+ },
+ "symbol-flag-blue": {
+  "height": 48,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6211,
+  "y": 4
+ },
+ "symbol-flag-green": {
+  "height": 48,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6259,
+  "y": 4
+ },
+ "symbol-flag-red": {
+  "height": 48,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6307,
+  "y": 4
+ },
+ "symbol-gas-station": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6355,
+  "y": 4
+ },
+ "symbol-information": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6403,
+  "y": 4
+ },
+ "symbol-lodging": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6451,
+  "y": 4
+ },
+ "symbol-medical-facility": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6499,
+  "y": 4
+ },
+ "symbol-museum": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6547,
+  "y": 4
+ },
+ "symbol-park": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6595,
+  "y": 4
+ },
+ "symbol-parking-area": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6643,
+  "y": 4
+ },
+ "symbol-picnic-area": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6691,
+  "y": 4
+ },
+ "symbol-pin-blue": {
+  "height": 52,
+  "pixelRatio": 2,
+  "width": 36,
+  "x": 6739,
+  "y": 4
+ },
+ "symbol-pin-green": {
+  "height": 52,
+  "pixelRatio": 2,
+  "width": 36,
+  "x": 6779,
+  "y": 4
+ },
+ "symbol-pin-red": {
+  "height": 52,
+  "pixelRatio": 2,
+  "width": 36,
+  "x": 6819,
+  "y": 4
+ },
+ "symbol-police-station": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6859,
+  "y": 4
+ },
+ "symbol-post-office": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6907,
+  "y": 4
+ },
+ "symbol-residence": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 6955,
+  "y": 4
+ },
+ "symbol-restaurant": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 7003,
+  "y": 4
+ },
+ "symbol-restroom": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 7051,
+  "y": 4
+ },
+ "symbol-scenic-area": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 7099,
+  "y": 4
+ },
+ "symbol-search": {
+  "height": 72,
+  "pixelRatio": 2,
+  "width": 52,
+  "x": 7147,
+  "y": 4
+ },
+ "symbol-shopping-center": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 7203,
+  "y": 4
+ },
+ "symbol-summit": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 7251,
+  "y": 4
+ },
+ "symbol-swimming-area": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 7299,
+  "y": 4
+ },
+ "symbol-waypoint": {
+  "height": 60,
+  "pixelRatio": 2,
+  "width": 44,
+  "x": 7347,
+  "y": 4
  }
 }

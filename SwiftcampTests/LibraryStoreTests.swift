@@ -39,6 +39,22 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(read.descriptionText, "east entrance")
     }
 
+    /// The symbol is the device's vocabulary and is stored verbatim; nil
+    /// takes it away rather than writing a name for "none".
+    func testWaypointSymbolChanges() throws {
+        let wpt = Waypoint(name: "Fuel", lat: 40.0, lon: -105.0, symbol: "Flag, Blue")
+        try store.save(wpt)
+
+        try store.setSymbol("Gas Station", forWaypoint: wpt.id)
+        XCTAssertEqual(try store.waypoints().first?.symbol, "Gas Station")
+
+        try store.setSymbol(nil, forWaypoint: wpt.id)
+        XCTAssertNil(try store.waypoints().first?.symbol)
+
+        try store.setSymbol("Summit", forWaypoint: "no-such-id")
+        XCTAssertEqual(try store.waypoints().count, 1)
+    }
+
     func testWaypointFilesIntoAList() throws {
         let list = LibraryList(name: "Colorado 2026")
         try store.save(list)

@@ -348,6 +348,18 @@ struct LibraryStore: Sendable {
         }
     }
 
+    /// Sets a waypoint's Garmin symbol; nil for none. Header-only, like
+    /// `rename`, and the name is stored verbatim for the same reason the
+    /// reader keeps it: it is the device's vocabulary, not ours.
+    func setSymbol(_ symbol: String?, forWaypoint id: String) throws {
+        try database.writer.write { db in
+            guard var waypoint = try Waypoint.fetchOne(db, key: id) else { return }
+            waypoint.symbol = symbol
+            waypoint.updatedAt = .now
+            try waypoint.update(db)
+        }
+    }
+
     // MARK: - Deleting
 
     func deleteRoute(id: String) throws {

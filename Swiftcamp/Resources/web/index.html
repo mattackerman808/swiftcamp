@@ -235,7 +235,7 @@ function post(message) {
   // at city zooms and the casing seven, and a line that is to be grabbed
   // needs the fatter target. Both draw from the same features, so a hit on
   // either carries the same properties.
-  var PICKABLE = ['via-point', 'waypoint-dot', 'route-casing', 'track-line'];
+  var PICKABLE = ['search-pin', 'via-point', 'waypoint-icon', 'route-casing', 'track-line'];
 
   // What is under a point, in the shape Swift decodes for a click.
   function describe(point, lngLat) {
@@ -294,7 +294,8 @@ function post(message) {
   var tipKey = null;
 
   function hover(hit, point) {
-    var pointLayer = hit && (hit.layer.id === 'via-point' || hit.layer.id === 'waypoint-dot');
+    var pointLayer = hit && (hit.layer.id === 'via-point' || hit.layer.id === 'waypoint-icon' ||
+                             hit.layer.id === 'search-pin');
     if (!pointLayer) { hideTip(); return; }
 
     var p = hit.properties;
@@ -331,9 +332,12 @@ function post(message) {
 
   function describePoint(layer, p) {
     var kind, title;
-    if (layer === 'waypoint-dot') {
+    if (layer === 'waypoint-icon') {
       kind = 'Waypoint';
       title = p.name || 'Waypoint';
+    } else if (layer === 'search-pin') {
+      kind = 'Search result';
+      title = p.name || kind;
     } else if (p.via === false) {
       kind = 'Shaping point';
       title = kind;

@@ -281,25 +281,49 @@ struct MapWebView: NSViewRepresentable {
 
             if let choice = scriptedMenuChoice {
                 scriptedMenuChoice = nil
-                NSLog("[Swiftcamp] menu: %@", items.map(\.title).joined(separator: " | "))
-                if let chosen = items.first(where: { $0.title == choice }) {
+                NSLog("[Swiftcamp] menu: %@", Self.describe(items))
+                // A choice names a leaf, wherever it sits: "Flag, Red"
+                // rather than a path through "Change Icon".
+                if let chosen = MapMenuItem.leaves(of: items).first(where: { $0.title == choice }) {
                     MainActor.assumeIsolated { chosen.action() }
                 }
                 return
             }
 
-            let menu = NSMenu()
+            Self.menu(from: items).popUp(positioning: nil, at: point, in: webView)
+        }
+
+        private static func menu(from items: [MapMenuItem]) -> NSMenu {
+            let out = NSMenu()
             for item in items {
-                let entry = NSMenuItem(title: item.title, action: #selector(MenuAction.fire), keyEquivalent: "")
-                // `target` is weak. The action object lives in
-                // `representedObject`, which is not, for as long as the menu.
-                let action = MenuAction(item.action)
-                entry.target = action
-                entry.representedObject = action
+                if item.isSeparator {
+                    out.addItem(.separator())
+                    continue
+                }
+                let entry = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+                if item.children.isEmpty {
+                    entry.action = #selector(MenuAction.fire)
+                    // `target` is weak. The action object lives in
+                    // `representedObject`, which is not, for as long as the menu.
+                    let action = MenuAction(item.action)
+                    entry.target = action
+                    entry.representedObject = action
+                } else {
+                    entry.submenu = menu(from: item.children)
+                }
                 entry.state = item.isChecked ? .on : .off
-                menu.addItem(entry)
+                out.addItem(entry)
             }
-            menu.popUp(positioning: nil, at: point, in: webView)
+            return out
+        }
+
+        /// The menu as one log line, submenus in brackets, for the harness.
+        private static func describe(_ items: [MapMenuItem]) -> String {
+            items.map { item in
+                if item.isSeparator { return "—" }
+                let tick = item.isChecked ? "✓" : ""
+                return item.children.isEmpty ? tick + item.title : "\(item.title) [\(describe(item.children))]"
+            }.joined(separator: " | ")
         }
 
         @MainActor @Sendable
@@ -384,9 +408,11 @@ struct MapWebView: NSViewRepresentable {
                 // layers drawn from the route source; either is the line.
                 guard let id else { return nil }
                 target = .routeLine(routeID: id)
-            case "waypoint-dot":
+            case "waypoint-icon":
                 guard let id else { return nil }
                 target = .waypoint(id: id)
+            case "search-pin":
+                target = .searchPin
             case "track-line":
                 guard let id else { return nil }
                 target = .track(id: id)

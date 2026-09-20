@@ -132,7 +132,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Feature | Status |
 | --- | --- |
 | Create, name, place | **Build** |
-| Garmin symbols | **Partial** — carried through GPX, not rendered or editable |
+| Garmin symbols | **Partial** — 37 of them drawn on the map and in the sidebar and picked from either's right-click menu (`SymbolCatalog`); the rest carried through GPX untouched and drawn as the generic pin |
 | Notes, description, comment | **Partial** — stored, not editable |
 | Proximity alarms | **Build**, low priority |
 | Categories | **Build**, low priority |
