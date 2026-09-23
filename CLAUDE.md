@@ -40,6 +40,11 @@ mode, Road, Adventure or Direct, which decides which ways its legs may use
 and whether a dropped point lands on one; `docs/routing.md` has the table. With a Valhalla graph loaded, legs follow roads and re-route live
 while dragging; without one they are straight lines. `docs/routing.md`.
 
+Each route also carries what its legs optimise for, Faster Time, Shorter
+Distance, Some Curves or Many Curves, and whether they avoid highways,
+tolls or ferries; the curvy levels are our own Valhalla patch on the
+edge curvature the graph already stores. `docs/routing.md`.
+
 Waypoints are made from the map's right-click menu, the toolbar or ⇧⌘N,
 dragged into place, and edited in the inspector under the sidebar, which
 also holds a route's or track's name, colour, comment and notes. A route
@@ -420,12 +425,23 @@ implements them; this is the index.
   exactly like routing being off. `RoutingEngine.raiseLimits` is the fix;
   the lesson is that a straight leg must log its reason, which is how this
   one was read off `valhalla_service` in a minute.
+- **Valhalla stores every edge's curvature and reads it nowhere.** The
+  graph builder scores each edge 0 to 15 from its shape, so "prefer twisty
+  roads" was a costing patch and a library rebuild, not a graph rebuild.
+  A discount on curvy edges then moved nothing, because the twisty
+  alternative was seventy percent longer; a penalty on straightness moved
+  the route and keeps A* admissible. Measured with `valhalla_service` on
+  the Colorado graph before a line of Swift, by tracing both candidate
+  routes' edges and costing them offline under each shape of penalty.
 - **A bare binary launched from a tool's shell gets no window.** The model
   runs, `dump` writes, and the page never fires `load`, which looked like
   the second-copy failure above with no second copy anywhere. `open -n
   Swiftcamp.app --args …` launches through LaunchServices and the window
   appears; the README says so. Two builds were compared before the launch
-  method was suspected.
+  method was suspected. And a copy run from Xcode survives `pkill`, since
+  the debugger holds it, while still taking the only window: check
+  `pgrep -l Swiftcamp` before a scripted run, and when one is there, drive
+  the model with `addPoint` and read `dump`.
 - **Caching a view's display leaves the sidebar blank.** `cacheDisplay`
   draws the views and not the vibrancy composited behind them, so a
   snapshot showed an empty white column beside a working map, on `main`

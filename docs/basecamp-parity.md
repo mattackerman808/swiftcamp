@@ -108,8 +108,8 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Route from a track | **Have** — the track is the route's shape, with its bends as shaping points |
 | Track from a route | **Have** — this is how riders defeat device re-routing |
 | Activity profiles: motorcycling, driving, walking | **Partial** — Road, Adventure and Direct per route, written as Garmin's transportation mode; driving and walking to come |
-| Routing preferences: faster time, shorter distance | **Build**, needs routing |
-| Avoidances: tolls, ferries, unpaved, highways | **Partial** — unpaved and tracks through the mode; tolls, ferries and highways to come |
+| Routing preferences: faster time, shorter distance | **Have** — plus Some Curves and Many Curves, the zūmo's curvy roads, from Valhalla's edge curvature |
+| Avoidances: tolls, ferries, unpaved, highways | **Have** — unpaved and tracks through the mode; highways, tolls and ferries per route |
 | Road snapping and recalculation on drag | **Have** — the whole US graph streams from the CDN, tile by tile, and is cached |
 | Trip planner with departure and arrival times | **Build**, later |
 

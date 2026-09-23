@@ -57,6 +57,52 @@ Direct is `Direct`; which of the first two it was is written in our own
 namespace so a re-import keeps it. New routes take their mode from
 Settings.
 
+## Preferences
+
+Each route also carries what its legs optimise for and which kinds of
+road they keep off, which is the zūmo's own route settings kept on the
+route. `RoutePreferences` in `Library.swift`; the inspector, both route
+menus and Settings expose it, and changing any of it routes every leg
+again, undoably, the way a change of mode does.
+
+| Prefer | Valhalla | Estes Park to Boulder |
+| --- | --- | --- |
+| Faster Time | the default | 37 mi, 49 min, US 36 |
+| Shorter Distance | `shortest` | 36.9 mi, 50 min |
+| Some Curves | `use_curvature: 0.4` | 38 mi, 52 min, a change of canyon |
+| Many Curves | `use_curvature: 1` | 47 mi, 84 min: Marys Lake Road, CO 7, the Peak to Peak, James Canyon, Lefthand Canyon, Lee Hill |
+
+Avoid highways, tolls and ferries are `use_highways`, `use_tolls` and
+`use_ferry` at zero, which Valhalla treats as a heavy penalty rather than
+a ban, so a route that can only end past the toll booth still gets there.
+Avoiding highways on the same leg gives 58 mi over the Peak to Peak.
+
+`use_curvature` is ours: `scripts/valhalla-curvature.patch`. Valhalla's
+graph builder already scores every edge's curvature 0 to 15 from its
+shape and stores it on the directed edge, and nothing upstream reads it.
+The patch adds the option to the motorcycle costing as a penalty on
+straightness: at full preference a straight edge costs thirteen times its
+time, falling quadratically to one at curvature 8 and above, with
+residential and service roads counted as straight whatever their shape so
+a rider is not steered through a winding subdivision. A discount on curvy
+edges was tried first and moved nothing, because the twisty alternative
+is seventy percent longer and no discount short of free pays for that; a
+penalty also keeps the A* heuristic admissible. The response is a step
+rather than a slope: on that leg nothing changes below 0.45 and
+everything above it, which is why the setting is levels and not a
+slider. The graph does not need rebuilding for the patch; the library
+does.
+
+In the file, the preference is Garmin's `trp:CalculationMode` on every
+via point, which a zūmo honours on import, with both curvy levels as its
+one Curvy Roads; which level it was, and the avoidances, are written in
+our namespace. A BaseCamp file's first via point speaks for the route.
+
+Scenic byways are the natural next preference, and the public-domain
+FHWA National Scenic Byways geometry is the source; Valhalla's
+`cost_factor_edges` request option can favour edges along supplied
+polylines without touching the graph, which is the way to try it.
+
 ## Streaming the graph
 
 The graph is not bundled and not downloaded up front. It is one gzipped
@@ -161,6 +207,7 @@ cd ~/git && git clone --recurse-submodules --shallow-submodules --depth 1 \
     https://github.com/valhalla/valhalla.git
 cd valhalla
 git apply ~/git/swiftcamp/scripts/valhalla-intersecting-edges.patch
+git apply ~/git/swiftcamp/scripts/valhalla-curvature.patch
 cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIBRARY_MODULES=ON \
   -DENABLE_SERVICES=OFF -DENABLE_PYTHON_BINDINGS=OFF -DENABLE_TESTS=OFF \
@@ -180,13 +227,15 @@ A few minutes on an M5 Max. What matters afterwards:
 | `build/valhalla_build_tiles` | The graph builder |
 | `scripts/valhalla_build_config` | Writes the JSON config the engine reads |
 
-The patch is one guard in the trip leg builder: when a request filters
+The first patch is one guard in the trip leg builder: when a request filters
 every intersecting-edge attribute out, as `RoutingEngine` does, the
 builder no longer follows each path node's transitions to the local level.
 Unpatched, a cross-country leg on the highway levels fetched every local
 tile along its corridor, twenty-four of them and seven seconds for a leg
 that needed none, because the builder lists the side streets at every
 node whether or not anyone asked. It is written to be sent upstream.
+The second adds `use_curvature` to the motorcycle costing; see
+Preferences above.
 
 `project.yml` points the macOS target at these under `$(HOME)/git/valhalla`,
 and links protobuf and its abseil dependencies from Homebrew. The abseil
