@@ -122,6 +122,26 @@ struct ItemInspector: View {
             }
             .labelsHidden()
         }
+        if route.mode != .direct {
+            labelled("Prefer") {
+                Picker("Prefer", selection: Binding(get: { route.preferences.prefer },
+                                                    set: { prefer in
+                                                        var next = route.preferences
+                                                        next.prefer = prefer
+                                                        model.setPreferences(next, forRoute: route.id)
+                                                    })) {
+                    ForEach(RoutePreferences.Preference.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+            }
+            labelled("Avoid") {
+                HStack(spacing: 10) {
+                    avoidToggle("Highways", route, \.avoidHighways)
+                    avoidToggle("Tolls", route, \.avoidTolls)
+                    avoidToggle("Ferries", route, \.avoidFerries)
+                }
+            }
+        }
         labelled("Comment") {
             TextField("Comment", text: $comment).focused($focused, equals: .comment).onSubmit(commit)
         }
@@ -142,6 +162,17 @@ struct ItemInspector: View {
         if let summary = model.summaries[track.id] {
             labelled("") { Text(summary).font(.caption).foregroundStyle(.secondary) }
         }
+    }
+
+    private func avoidToggle(_ title: String, _ route: Route,
+                             _ path: WritableKeyPath<RoutePreferences, Bool>) -> some View {
+        Toggle(title, isOn: Binding(get: { route.preferences[keyPath: path] },
+                                    set: { on in
+                                        var next = route.preferences
+                                        next[keyPath: path] = on
+                                        model.setPreferences(next, forRoute: route.id)
+                                    }))
+        .toggleStyle(.checkbox)
     }
 
     /// Garmin's sixteen and nothing else, as the sidebar's menu offers.

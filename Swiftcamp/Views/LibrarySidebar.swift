@@ -188,6 +188,8 @@ struct LibrarySidebar: View {
                             Button("Edit Route") { model.editRoute(detail.route.id) }
                             Button("Reverse Route") { model.reverseRoute(detail.route.id) }
                             routingMenu(for: detail)
+                            preferMenu(for: detail)
+                            avoidMenu(for: detail)
                             Button("Create Track from Route") { model.makeTrack(fromRoute: detail.route.id) }
                             Divider()
                             renameButton(detail.route.id, detail.route.name)
@@ -416,6 +418,40 @@ struct LibrarySidebar: View {
                 Text(mode.title).tag(mode)
             }
         }
+    }
+
+    /// What the legs optimise for: Garmin's calculation mode with curvy
+    /// split in two. See `RoutePreferences`.
+    private func preferMenu(for detail: RouteDetail) -> some View {
+        Picker("Prefer", selection: Binding(get: { detail.route.preferences.prefer },
+                                            set: { prefer in
+                                                var next = detail.route.preferences
+                                                next.prefer = prefer
+                                                model.setPreferences(next, forRoute: detail.route.id)
+                                            })) {
+            ForEach(RoutePreferences.Preference.allCases, id: \.self) { Text($0.title).tag($0) }
+        }
+    }
+
+    /// The kinds of road to keep off. Each is a heavy penalty rather than
+    /// a ban, so a route that can only end past the toll booth still gets
+    /// there.
+    private func avoidMenu(for detail: RouteDetail) -> some View {
+        Menu("Avoid") {
+            avoidToggle("Highways", detail, \.avoidHighways)
+            avoidToggle("Tolls", detail, \.avoidTolls)
+            avoidToggle("Ferries", detail, \.avoidFerries)
+        }
+    }
+
+    private func avoidToggle(_ title: String, _ detail: RouteDetail,
+                             _ path: WritableKeyPath<RoutePreferences, Bool>) -> some View {
+        Toggle(title, isOn: Binding(get: { detail.route.preferences[keyPath: path] },
+                                    set: { on in
+                                        var next = detail.route.preferences
+                                        next[keyPath: path] = on
+                                        model.setPreferences(next, forRoute: detail.route.id)
+                                    }))
     }
 
     // MARK: - Colour

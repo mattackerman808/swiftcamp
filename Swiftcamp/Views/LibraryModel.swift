@@ -315,6 +315,11 @@ final class LibraryModel {
                 saveSearchPin()
             case "newWaypoint":
                 newWaypoint(at: Coordinate(lat: number("lat", step), lon: number("lon", step)))
+            case "addPoint":
+                // Straight into the model, past the page: for checking
+                // routing while another copy of the app holds the only
+                // window, when a click has nothing to land on.
+                appendPoint(Coordinate(lat: number("lat", step), lon: number("lon", step)), isVia: true)
             case "select":
                 // By name, any kind, or nothing with no name.
                 let name = step["name"] as? String ?? ""
@@ -367,6 +372,16 @@ final class LibraryModel {
                 if let mode = (step["value"] as? String).flatMap(RoutingMode.init(rawValue:)),
                    let id = editingRouteID ?? routes.first(where: { selection.contains($0.route.id) })?.route.id {
                     setMode(mode, forRoute: id)
+                }
+            case "prefer", "avoid":
+                // `prefer` names a preference; `avoid` lists the kinds.
+                if let id = editingRouteID ?? routes.first(where: { selection.contains($0.route.id) })?.route.id,
+                   var preferences = routes.first(where: { $0.route.id == id })?.route.preferences {
+                    if let prefer = (step["value"] as? String).flatMap(RoutePreferences.Preference.init(rawValue:)) {
+                        preferences.prefer = prefer
+                    }
+                    if let kinds = step["kinds"] as? [String] { preferences.setAvoided(kinds) }
+                    setPreferences(preferences, forRoute: id)
                 }
             case "click", "drag", "key", "probe", "menu", "hover":
                 pageEvent = MapPageEvent(id: (pageEvent?.id ?? 0) + 1,
@@ -430,6 +445,9 @@ final class LibraryModel {
              "comment": detail.route.comment as Any,
              "color": detail.route.color as Any,
              "mode": detail.route.mode.rawValue,
+             "prefer": detail.route.preferences.prefer.rawValue,
+             "avoid": detail.route.preferences.avoided,
+             "miles": (detail.length / 1609.344 * 10).rounded() / 10,
              "points": detail.points.map { p -> [String: Any] in
                  var out: [String: Any] = ["seq": p.seq, "lat": p.lat, "lon": p.lon,
                                            "name": p.name ?? "", "via": p.isVia,
@@ -1044,7 +1062,8 @@ final class LibraryModel {
 
         let route = Route(name: "Route \(n)",
                           color: ItemColor.default(for: routes.count + tracks.count).name,
-                          mode: Self.defaultMode)
+                          mode: Self.defaultMode,
+                          preferences: RoutePreferences.stored)
         do {
             try store.insert(route)
         } catch {
@@ -1319,7 +1338,7 @@ final class LibraryModel {
         }
         routing.insert(routeID)
         let signature = Self.signature(of: detail)
-        let mode = detail.route.mode
+        let header = detail.route
 
         Task {
             // The tiles at each leg's ends, together, before the engine
@@ -1329,7 +1348,7 @@ final class LibraryModel {
 
             let started = ContinuousClock.now
             let routed = await Task.detached(priority: .userInitiated) { () -> [RoutePoint]? in
-                guard let shaping = RoutingEngine.shaping(for: mode) else { return nil }
+                guard let shaping = RoutingEngine.shaping(for: header) else { return nil }
                 var working = detail
                 working.reshape(legs: legs, snap: shaping.snap, shape: shaping.shape)
                 return working.points
@@ -1367,14 +1386,14 @@ final class LibraryModel {
 
     /// What an edit changes that would make a routing answer stale.
     private static func signature(of detail: RouteDetail) -> String {
-        detail.route.mode.rawValue + detail.points.map {
+        detail.route.routingKey + detail.points.map {
             "|\($0.seq):\($0.lat),\($0.lon),\($0.isVia),\($0.isPinned)"
         }.joined()
     }
 
     private static func legKey(_ detail: RouteDetail, _ leg: Int) -> String {
         let a = detail.points[leg], b = detail.points[leg + 1]
-        return "\(detail.route.mode.rawValue):\(a.lat),\(a.lon)->\(b.lat),\(b.lon)"
+        return "\(detail.route.routingKey):\(a.lat),\(a.lon)->\(b.lat),\(b.lon)"
     }
 
     /// The route being edited, as the editor sees it.
@@ -1507,7 +1526,7 @@ final class LibraryModel {
         var base = detail
         base.points = drag.base
         let seq = drag.seq
-        let mode = detail.route.mode
+        let header = detail.route
         Task {
             // The moving point and its neighbours: a preview routes the
             // two legs between them.
@@ -1517,7 +1536,7 @@ final class LibraryModel {
             let started = ContinuousClock.now
             let points = await Task.detached(priority: .userInitiated) { () -> [RoutePoint] in
                 var working = base
-                let shaping = RoutingEngine.previewShaping(for: mode) ?? (snap: .never, shape: RouteEditing.straight)
+                let shaping = RoutingEngine.previewShaping(for: header) ?? (snap: .never, shape: RouteEditing.straight)
                 working.moveVia(at: seq, to: target, snap: shaping.snap, shape: shaping.shape)
                 return working.points
             }.value
@@ -1572,31 +1591,51 @@ final class LibraryModel {
     /// there under Adventure, and the rider's off-road drop would be gone.
     func setMode(_ mode: RoutingMode, forRoute id: String) {
         guard let i = routes.firstIndex(where: { $0.route.id == id }), routes[i].route.mode != mode else { return }
-        let before = (mode: routes[i].route.mode, points: routes[i].points)
-        var detail = routes[i]
-        detail.route.mode = mode
-        detail.straightenAll()
-        apply(mode: mode, points: detail.points, to: id, undoing: before, actionName: "Change Routing")
+        var header = routes[i].route
+        header.mode = mode
+        reroute(id, with: header, actionName: "Change Routing")
     }
 
-    private func apply(mode: RoutingMode, points: [RoutePoint], to routeID: String,
-                       undoing before: (mode: RoutingMode, points: [RoutePoint]), actionName: String) {
+    /// Changes what a route's legs optimise for and avoid, and routes
+    /// every leg again to match, undoably like a change of mode.
+    func setPreferences(_ preferences: RoutePreferences, forRoute id: String) {
+        guard let i = routes.firstIndex(where: { $0.route.id == id }), routes[i].route.preferences != preferences else { return }
+        var header = routes[i].route
+        header.preferences = preferences
+        reroute(id, with: header, actionName: "Change Preferences")
+    }
+
+    /// Writes a new header and drops every leg's road so it is found
+    /// again under the new settings.
+    private func reroute(_ id: String, with header: Route, actionName: String) {
+        guard let i = routes.firstIndex(where: { $0.route.id == id }) else { return }
+        let before = (header: routes[i].route, points: routes[i].points)
+        var detail = routes[i]
+        detail.route = header
+        detail.straightenAll()
+        apply(header: header, points: detail.points, to: id, undoing: before, actionName: actionName)
+    }
+
+    private func apply(header: Route, points: [RoutePoint], to routeID: String,
+                       undoing before: (header: Route, points: [RoutePoint]), actionName: String) {
         do {
-            try store.setMode(mode, forRoute: routeID)
+            try store.update(header)
             try store.replacePoints(routeID: routeID, with: points)
         } catch {
             failure = error.localizedDescription
             return
         }
         if let i = routes.firstIndex(where: { $0.route.id == routeID }) {
-            routes[i].route.mode = mode
+            routes[i].route = header
             routes[i].points = points
+            rebuildSummaries()
+            rebuildShown()
             rebuildOverlay()
             routeStraightLegs(of: routeID)
         }
         registerUndo(actionName) { model in
-            model.apply(mode: before.mode, points: before.points, to: routeID,
-                        undoing: (mode, points), actionName: actionName)
+            model.apply(header: before.header, points: before.points, to: routeID,
+                        undoing: (header, points), actionName: actionName)
         }
     }
 
@@ -1637,6 +1676,8 @@ final class LibraryModel {
                     self.setMode(mode, forRoute: routeID)
                 }
             } + [
+                MapMenuItem(title: "Prefer", children: preferMenu(for: routeID)),
+                MapMenuItem(title: "Avoid", children: avoidMenu(for: routeID)),
                 .separator,
                 MapMenuItem(title: "Create Track from Route") { self.makeTrack(fromRoute: routeID) },
                 MapMenuItem(title: "Rename…") { self.requestRename(routeID) },
@@ -1704,6 +1745,33 @@ final class LibraryModel {
                 .separator,
                 MapMenuItem(title: "Delete") { self.delete(id) },
             ]
+        }
+    }
+
+    /// What the legs optimise for, the route's own ticked.
+    private func preferMenu(for routeID: String) -> [MapMenuItem] {
+        let current = routes.first { $0.route.id == routeID }?.route.preferences ?? RoutePreferences()
+        return RoutePreferences.Preference.allCases.map { prefer in
+            MapMenuItem(title: prefer.title, isChecked: prefer == current.prefer) {
+                var next = current
+                next.prefer = prefer
+                self.setPreferences(next, forRoute: routeID)
+            }
+        }
+    }
+
+    /// The kinds of road to keep off, each ticked while avoided.
+    private func avoidMenu(for routeID: String) -> [MapMenuItem] {
+        let current = routes.first { $0.route.id == routeID }?.route.preferences ?? RoutePreferences()
+        let kinds: [(String, WritableKeyPath<RoutePreferences, Bool>)] = [
+            ("Highways", \.avoidHighways), ("Tolls", \.avoidTolls), ("Ferries", \.avoidFerries),
+        ]
+        return kinds.map { title, path in
+            MapMenuItem(title: title, isChecked: current[keyPath: path]) {
+                var next = current
+                next[keyPath: path].toggle()
+                self.setPreferences(next, forRoute: routeID)
+            }
         }
     }
 
