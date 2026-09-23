@@ -345,4 +345,38 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(try store.tracks().first?.comment, "wet")
         XCTAssertEqual(try store.trackPoints(trackID: track.id).count, 1)
     }
+
+    // MARK: - Preferences
+
+    func testRoutePreferencesRoundTrip() throws {
+        var route = Route(name: "Loop")
+        route.preferences.prefer = .manyCurves
+        route.preferences.avoidTolls = true
+        try store.insert(route)
+        XCTAssertEqual(try store.routes().first?.preferences, route.preferences)
+
+        route.preferences.prefer = .shorterDistance
+        try store.update(route)
+        XCTAssertEqual(try store.routes().first?.preferences.prefer, .shorterDistance)
+        XCTAssertEqual(try store.routes().first?.preferences.avoidTolls, true)
+    }
+
+    /// A row written before a preference existed holds `{}`, or a JSON
+    /// without the new key, and reads with the default for it.
+    func testRoutePreferencesDecodeWithMissingFields() throws {
+        let empty = try JSONDecoder().decode(RoutePreferences.self, from: Data("{}".utf8))
+        XCTAssertEqual(empty, RoutePreferences())
+        let partial = try JSONDecoder().decode(RoutePreferences.self, from: Data(#"{"avoidTolls":true}"#.utf8))
+        XCTAssertEqual(partial.avoidTolls, true)
+        XCTAssertEqual(partial.prefer, .fasterTime)
+
+        try store.database.writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO routes (id, name, mode, created_at, updated_at)
+                VALUES ('old', 'Old', 'road', '2026-01-01', '2026-01-01')
+                """)
+        }
+        XCTAssertEqual(try store.routes().first?.preferences, RoutePreferences(),
+                       "the column default is {} and decodes to the defaults")
+    }
 }

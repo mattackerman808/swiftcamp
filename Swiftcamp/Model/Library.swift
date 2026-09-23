@@ -191,8 +191,112 @@ struct Route: LibraryRecord, Identifiable, Hashable, Sendable {
     var color: String?
     var comment: String?
     var mode: RoutingMode = .road
+    /// What the legs optimise for and what they keep off. Stored as JSON
+    /// in one column: nothing queries inside it, and a new preference
+    /// should not need a migration.
+    var preferences: RoutePreferences = RoutePreferences()
     var createdAt: Date = .now
     var updatedAt: Date = .now
+
+    /// Everything that changes how a leg is routed, as one string, so a
+    /// routing answer can be told stale and a refused leg remembered
+    /// against the settings that refused it.
+    var routingKey: String { "\(mode.rawValue):\(preferences.key)" }
+}
+
+/// What a route's legs optimise for, and which kinds of road they keep
+/// off. The zūmo's own route settings, kept on the route rather than in a
+/// preference so a library can hold a fast commute and a Sunday ride.
+///
+/// `prefer` is Garmin's calculation mode with the curvy setting split in
+/// two, because one level of curvy was measured to be too coarse: on the
+/// Estes Park to Boulder leg the router either stayed on US 36 or went
+/// over the Peak to Peak Highway, with nothing between. Some Curves takes
+/// the canyon road when it costs a few minutes; Many Curves goes looking
+/// for the ride.
+struct RoutePreferences: Codable, Hashable, Sendable {
+    enum Preference: String, Codable, CaseIterable, Sendable {
+        case fasterTime, shorterDistance, someCurves, manyCurves
+
+        var title: String {
+            switch self {
+            case .fasterTime: "Faster Time"
+            case .shorterDistance: "Shorter Distance"
+            case .someCurves: "Some Curves"
+            case .manyCurves: "Many Curves"
+            }
+        }
+
+        /// Garmin's `trp:CalculationMode`, which a zūmo honours on
+        /// import. Both curvy levels are its one Curvy Roads.
+        var garminCalculationMode: String {
+            switch self {
+            case .fasterTime: "FasterTime"
+            case .shorterDistance: "ShorterDistance"
+            case .someCurves, .manyCurves: "CurvyRoads"
+            }
+        }
+
+        /// Valhalla's `use_curvature`, from the patched motorcycle
+        /// costing. Measured on the Colorado graph: below 0.45 the Estes
+        /// Park to Boulder leg stays on US 36 with a small change of
+        /// canyon, above it the router takes the Peak to Peak Highway.
+        var curvature: Double {
+            switch self {
+            case .fasterTime, .shorterDistance: 0
+            case .someCurves: 0.4
+            case .manyCurves: 1
+            }
+        }
+    }
+
+    var prefer: Preference = .fasterTime
+    var avoidHighways = false
+    var avoidTolls = false
+    var avoidFerries = false
+
+    init() {}
+
+    /// Every field optional in the JSON, so a route written before a
+    /// preference existed reads with the default for it rather than
+    /// failing to decode at all.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        prefer = try c.decodeIfPresent(Preference.self, forKey: .prefer) ?? .fasterTime
+        avoidHighways = try c.decodeIfPresent(Bool.self, forKey: .avoidHighways) ?? false
+        avoidTolls = try c.decodeIfPresent(Bool.self, forKey: .avoidTolls) ?? false
+        avoidFerries = try c.decodeIfPresent(Bool.self, forKey: .avoidFerries) ?? false
+    }
+
+    /// The avoided kinds by name, in a fixed order, for the file and the
+    /// sidebar.
+    var avoided: [String] {
+        [avoidHighways ? "highways" : nil, avoidTolls ? "tolls" : nil, avoidFerries ? "ferries" : nil]
+            .compactMap { $0 }
+    }
+
+    /// Sets the avoided kinds from their names; unknown words are ignored.
+    mutating func setAvoided(_ names: [String]) {
+        avoidHighways = names.contains("highways")
+        avoidTolls = names.contains("tolls")
+        avoidFerries = names.contains("ferries")
+    }
+
+    var key: String { prefer.rawValue + ":" + avoided.joined(separator: ",") }
+
+    /// The `UserDefaults` key holding the preferences a new route starts
+    /// with, as JSON.
+    static let defaultKey = "defaultRoutePreferences"
+
+    static var stored: RoutePreferences {
+        guard let data = UserDefaults.standard.data(forKey: defaultKey),
+              let prefs = try? JSONDecoder().decode(RoutePreferences.self, from: data) else { return RoutePreferences() }
+        return prefs
+    }
+
+    func store() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: Self.defaultKey)
+    }
 }
 
 /// How a route's legs are found, and where a dropped point lands.

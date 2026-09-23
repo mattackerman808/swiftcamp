@@ -45,19 +45,36 @@ final class RoutingEngine: @unchecked Sendable {
     private let engine: OpaquePointer
     private let lock = NSLock()
 
-    /// Valhalla's costing options for a mode. Motorcycle either way, since
-    /// that is the product; the modes differ in which ways they will take.
+    /// Valhalla's costing options for a mode and a route's preferences.
+    /// Motorcycle either way, since that is the product; the modes differ
+    /// in which ways they will take.
     ///
     /// `exclude_unpaved` refuses to turn onto unpaved from paved, so a road
     /// route that starts on gravel can still get out, and tracks and trails
     /// are off entirely. Adventure opens all three: any way the map knows
     /// is a way a dual-sport can ride.
-    private static func costingOptions(for mode: RoutingMode) -> [String: Any] {
+    ///
+    /// An avoidance is the option at zero, which Valhalla treats as a heavy
+    /// penalty rather than a ban: a route that can only reach its end by
+    /// the toll road still gets there. `use_curvature` is ours, from
+    /// `scripts/valhalla-curvature.patch`; an unpatched engine warns and
+    /// ignores it.
+    static func costingOptions(for mode: RoutingMode, preferences: RoutePreferences) -> [String: Any] {
+        var options: [String: Any]
         switch mode {
-        case .road: ["exclude_unpaved": true, "use_tracks": 0, "use_trails": 0]
-        case .adventure: ["exclude_unpaved": false, "use_tracks": 1, "use_trails": 1]
-        case .direct: [:]   // never routed; here so the switch is total
+        case .road: options = ["exclude_unpaved": true, "use_tracks": 0, "use_trails": 0]
+        case .adventure: options = ["exclude_unpaved": false, "use_tracks": 1, "use_trails": 1]
+        case .direct: return [:]   // never routed; here so the switch is total
         }
+        if preferences.avoidHighways { options["use_highways"] = 0 }
+        if preferences.avoidTolls { options["use_tolls"] = 0 }
+        if preferences.avoidFerries { options["use_ferry"] = 0 }
+        switch preferences.prefer {
+        case .fasterTime: break
+        case .shorterDistance: options["shortest"] = true
+        case .someCurves, .manyCurves: options["use_curvature"] = preferences.prefer.curvature
+        }
+        return options
     }
 
     /// Opens Valhalla on a configuration document.
@@ -89,11 +106,11 @@ final class RoutingEngine: @unchecked Sendable {
     /// its mode: nil when no engine could be opened, so legs stay straight.
     /// Direct is straight by choice. Touches `shared`, so call it off the
     /// main actor: the first call opens the engine.
-    static func shaping(for mode: RoutingMode) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper)? {
-        guard mode != .direct, let engine = shared else { return nil }
-        switch mode {
-        case .road: return (.always, engine.legShaper(for: .road))
-        case .adventure: return (.within(adventureSnap), engine.legShaper(for: .adventure))
+    static func shaping(for route: Route) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper)? {
+        guard route.mode != .direct, let engine = shared else { return nil }
+        switch route.mode {
+        case .road: return (.always, engine.legShaper(for: .road, preferences: route.preferences))
+        case .adventure: return (.within(adventureSnap), engine.legShaper(for: .adventure, preferences: route.preferences))
         case .direct: return nil
         }
     }
@@ -106,8 +123,8 @@ final class RoutingEngine: @unchecked Sendable {
     /// The shaping for a drag preview: as `shaping(for:)`, but a leg longer
     /// than `previewLimit` previews straight and is routed on release. See
     /// `RouteEditing.straightBeyond`.
-    static func previewShaping(for mode: RoutingMode) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper)? {
-        guard let shaping = shaping(for: mode) else { return nil }
+    static func previewShaping(for route: Route) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper)? {
+        guard let shaping = shaping(for: route) else { return nil }
         return (shaping.snap, RouteEditing.straightBeyond(previewLimit, shaping.shape))
     }
 
@@ -188,11 +205,12 @@ final class RoutingEngine: @unchecked Sendable {
     /// The road between two points, as the full polyline including both
     /// snapped ends. Throws when Valhalla finds no path, which is the
     /// caller's cue to fall back to a straight leg and say so.
-    func route(from a: Coordinate, to b: Coordinate, mode: RoutingMode = .road) throws -> [Coordinate] {
+    func route(from a: Coordinate, to b: Coordinate, mode: RoutingMode = .road,
+               preferences: RoutePreferences = RoutePreferences()) throws -> [Coordinate] {
         let request: [String: Any] = [
             "locations": [["lat": a.lat, "lon": a.lon], ["lat": b.lat, "lon": b.lon]],
             "costing": "motorcycle",
-            "costing_options": ["motorcycle": Self.costingOptions(for: mode)],
+            "costing_options": ["motorcycle": Self.costingOptions(for: mode, preferences: preferences)],
             // No turn-by-turn narrative: the caller wants the shape only,
             // and generating maneuvers is a measurable share of the time.
             "directions_type": "none",
@@ -243,10 +261,10 @@ final class RoutingEngine: @unchecked Sendable {
     /// The engine as a `LegShaper` for a mode: the routed path with both
     /// landings, or a straight leg when there is no road, so an edit never
     /// fails outright.
-    func legShaper(for mode: RoutingMode) -> RouteEditing.LegShaper {
+    func legShaper(for mode: RoutingMode, preferences: RoutePreferences) -> RouteEditing.LegShaper {
         { [self] a, b in
             do {
-                let path = try route(from: a, to: b, mode: mode)
+                let path = try route(from: a, to: b, mode: mode, preferences: preferences)
                 return path.count >= 2 ? path : []
             } catch {
                 // Said, not swallowed. A straight leg that should have been

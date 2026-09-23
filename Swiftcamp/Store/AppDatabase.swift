@@ -242,6 +242,16 @@ final class AppDatabase: Sendable {
             }
         }
 
+        // The zūmo's route settings, per route: what the legs optimise
+        // for and what they avoid. JSON so the next preference is a field
+        // in `RoutePreferences` and not a migration; `{}` rather than
+        // NULL so every row decodes, each missing field at its default.
+        m.registerMigration("v5_route_preferences") { db in
+            try db.alter(table: "routes") { t in
+                t.add(column: "preferences", .text).notNull().defaults(to: "{}")
+            }
+        }
+
         return m
     }
 

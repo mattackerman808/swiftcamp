@@ -1,0 +1,99 @@
+diff --git a/proto/descriptors/options.proto b/proto/descriptors/options.proto
+index e77e3a3..ea67b40 100644
+--- a/proto/descriptors/options.proto
++++ b/proto/descriptors/options.proto
+@@ -351,7 +351,11 @@ message Costing {
+     bool exclude_ferries = 91;
+     map<uint32, HierarchyLimits> hierarchy_limits = 92;
+     bool ignore_construction = 93;
+-    repeated CostFactorEdge cost_factor_edges = 94;     // identified edges along user provided linear features, to which to apply special cost factors
++    repeated CostFactorEdge cost_factor_edges = 94;
++    // Swiftcamp: preference for curvy roads, 0 (none) to 1 (strong). Motorcycle only.
++    oneof has_use_curvature {
++      float use_curvature = 98;
++    }     // identified edges along user provided linear features, to which to apply special cost factors
+     oneof has_speed_penalty_factor {
+           float speed_penalty_factor = 95;
+         }
+diff --git a/src/sif/motorcyclecost.cc b/src/sif/motorcyclecost.cc
+index dbc6e11..7969777 100644
+--- a/src/sif/motorcyclecost.cc
++++ b/src/sif/motorcyclecost.cc
+@@ -27,6 +27,24 @@ namespace {
+ constexpr float kDefaultUseHighways = 0.5f; // Factor between 0 and 1
+ constexpr float kDefaultUseTolls = 0.5f;    // Factor between 0 and 1
+ constexpr float kDefaultUseTrails = 0.0f;   // Factor between 0 and 1
++// Swiftcamp: preference for curvy roads. The graph builder scores every
++// edge's curvature 0-15 from its shape and stores it on the directed edge,
++// and nothing in upstream costing reads it.
++//
++// A penalty on straightness rather than a discount on curves. A discount
++// was tried first and moved nothing: Estes Park to Boulder stayed on US 36
++// at full preference, because the twisty alternative over the Peak to Peak
++// Highway is seventy percent longer and a discount that could pay for
++// that would have to cut the curviest edges to nothing. Costs above one
++// also keep the A* heuristic admissible, which a discount does not. At
++// full preference a straight edge costs 1 + kMaxStraightPenalty times its
++// time, falling quadratically to 1 at kCurvatureCap; above the cap every
++// edge is simply curvy. Residential and service roads count as straight
++// whatever their shape, so a rider is not steered through a subdivision
++// because its streets wind.
++constexpr float kDefaultUseCurvature = 0.0f;
++constexpr float kMaxStraightPenalty = 12.0f;
++constexpr float kCurvatureCap = 8.0f;
+ 
+ constexpr Surface kMinimumMotorcycleSurface = Surface::kImpassable;
+ 
+@@ -54,6 +72,7 @@ constexpr float kLeftSideTurnCosts[] = {kTCStraight,         kTCSlight,  kTCUnfa
+ constexpr ranged_default_t<float> kUseHighwaysRange{0, kDefaultUseHighways, 1.0f};
+ constexpr ranged_default_t<float> kUseTollsRange{0, kDefaultUseTolls, 1.0f};
+ constexpr ranged_default_t<float> kUseTrailsRange{0, kDefaultUseTrails, 1.0f};
++constexpr ranged_default_t<float> kUseCurvatureRange{0, kDefaultUseCurvature, 1.0f};
+ constexpr ranged_default_t<uint32_t> kMotorcycleSpeedRange{10, baldr::kMaxAssumedSpeed,
+                                                            baldr::kMaxSpeedKph};
+ 
+@@ -291,6 +310,7 @@ public:
+   float toll_factor_;    // Factor applied when road has a toll
+   float surface_factor_; // How much the surface factors are applied when using trails
+   float highway_factor_; // Factor applied when road is a motorway or trunk
++  float curvature_factor_; // Swiftcamp: straight-road penalty, 0 to kMaxStraightPenalty
+ };
+ 
+ // Constructor
+@@ -319,6 +339,9 @@ MotorcycleCost::MotorcycleCost(const Costing& costing)
+     highway_factor_ = kMaxHighwayBiasFactor * (f * f);
+   }
+ 
++  // Swiftcamp: curvy road preference, linear in the request's value.
++  curvature_factor_ = costing_options.use_curvature() * kMaxStraightPenalty;
++
+   // Set toll factor based on preference to use tolls (value from 0 to 1).
+   // Toll factor of 0 would indicate no adjustment to weighting for toll roads.
+   // use_tolls = 1 would reduce weighting slightly (a negative delta) while
+@@ -444,6 +467,18 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
+     factor *= closure_factor_;
+   }
+ 
++  // Swiftcamp: a straight edge is dearer in proportion to how straight it
++  // is; see kMaxStraightPenalty. Multiplicative, after the road-class and
++  // surface factors, so a twisty motorway is still a motorway to a rider
++  // avoiding them.
++  if (curvature_factor_ > 0.0f) {
++    float curvature = edge->classification() >= baldr::RoadClass::kResidential
++                          ? 0.0f
++                          : std::min(static_cast<float>(edge->curvature()), kCurvatureCap);
++    float straightness = (kCurvatureCap - curvature) / kCurvatureCap;
++    factor *= 1.0f + curvature_factor_ * straightness * straightness;
++  }
++
+   factor *= EdgeFactor(edgeid);
+ 
+   return Cost((sec * inv_distance_factor_ + edge->length() * distance_factor_) * factor, sec);
+@@ -607,6 +642,7 @@ void ParseMotorcycleCostOptions(const rapidjson::Document& doc,
+   JSON_PBF_RANGED_DEFAULT(co, kUseTollsRange, json, "/use_tolls", use_tolls, warnings);
+   JSON_PBF_RANGED_DEFAULT(co, kUseTrailsRange, json, "/use_trails", use_trails, warnings);
+   JSON_PBF_RANGED_DEFAULT(co, kMotorcycleSpeedRange, json, "/top_speed", top_speed, warnings);
++  JSON_PBF_RANGED_DEFAULT(co, kUseCurvatureRange, json, "/use_curvature", use_curvature, warnings);
+ }
+ 
+ cost_ptr_t CreateMotorcycleCost(const Costing& costing_options) {

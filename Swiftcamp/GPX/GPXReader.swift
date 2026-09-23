@@ -41,6 +41,10 @@ final class GPXReader: NSObject {
 
     private var waypoint: Waypoint?
     private var route: Route?
+    /// Whether the route's preference has been read, from either
+    /// vocabulary, so a via point's calculation mode does not overwrite
+    /// our more specific word.
+    private var sawPreference = false
     private var routePoints: [RoutePoint] = []
     private var routePoint: RoutePoint?
     /// `gpxx:rpt` points accumulating inside the current `<rtept>`.
@@ -120,6 +124,7 @@ extension GPXReader: XMLParserDelegate {
 
         case "rte":
             route = Route(name: "")
+            sawPreference = false
             routePoints = []
 
         case "rtept":
@@ -319,17 +324,42 @@ extension GPXReader: XMLParserDelegate {
     private func endTripElement(_ element: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         text = ""
-        guard element == "TransportationMode", route != nil, routePoint == nil else { return }
-        if value == "Direct" { route?.mode = .direct }
+        guard route != nil else { return }
+        if routePoint == nil, element == "TransportationMode" {
+            if value == "Direct" { route?.mode = .direct }
+        } else if routePoint != nil, element == "CalculationMode", !sawPreference {
+            // BaseCamp's word for what the route optimises, on each via
+            // point. The first one speaks for the route, unless our own
+            // element already did: Garmin's curvy is one word and ours
+            // are two.
+            switch value {
+            case "ShorterDistance": route?.preferences.prefer = .shorterDistance
+            case "CurvyRoads": route?.preferences.prefer = .someCurves
+            case "FasterTime": route?.preferences.prefer = .fasterTime
+            default: return
+            }
+            sawPreference = true
+        }
     }
 
-    /// Our own word for what Garmin's cannot say; see `GPX.swiftcampExtensions`.
+    /// Our own words for what Garmin's cannot say; see `GPX.swiftcampExtensions`.
     private func endSwiftcampElement(_ element: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         text = ""
-        guard element == "RoutingMode", route != nil, routePoint == nil,
-              let mode = RoutingMode(rawValue: value) else { return }
-        route?.mode = mode
+        guard route != nil, routePoint == nil else { return }
+        switch element {
+        case "RoutingMode":
+            if let mode = RoutingMode(rawValue: value) { route?.mode = mode }
+        case "Prefer":
+            if let prefer = RoutePreferences.Preference(rawValue: value) {
+                route?.preferences.prefer = prefer
+                sawPreference = true
+            }
+        case "Avoid":
+            route?.preferences.setAvoided(value.split(separator: " ").map(String.init))
+        default:
+            break
+        }
     }
 
     // MARK: - Helpers

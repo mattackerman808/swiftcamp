@@ -86,10 +86,20 @@ enum GPXWriter {
         if mode == .adventure {
             out += "      <sc:RoutingMode>\(mode.rawValue)</sc:RoutingMode>\n"
         }
+        // The route's preferences. Garmin's own word for what to optimise
+        // goes on every via point below, as BaseCamp writes it; which
+        // curvy level it was, and what to avoid, are ours.
+        let preferences = detail.route.preferences
+        if preferences.prefer != .fasterTime {
+            out += "      <sc:Prefer>\(preferences.prefer.rawValue)</sc:Prefer>\n"
+        }
+        if !preferences.avoided.isEmpty {
+            out += "      <sc:Avoid>\(preferences.avoided.joined(separator: " "))</sc:Avoid>\n"
+        }
         out += "    </extensions>\n"
 
         for point in detail.points.sorted(by: { $0.seq < $1.seq }) {
-            out += routePoint(point)
+            out += routePoint(point, calculationMode: preferences.prefer.garminCalculationMode)
         }
         out += "  </rte>\n"
         return out
@@ -110,7 +120,7 @@ enum GPXWriter {
     /// every point, because a unit reading a file with neither treats the
     /// point as a stop, and a shaping point that is announced as a
     /// destination is the bug this distinction exists to prevent.
-    private static func routePoint(_ p: RoutePoint) -> String {
+    private static func routePoint(_ p: RoutePoint, calculationMode: String) -> String {
         var out = "    <rtept lat=\"\(number(p.lat))\" lon=\"\(number(p.lon))\">\n"
         out += element("name", p.name, indent: 6)
         out += element("sym", p.symbol, indent: 6)
@@ -118,7 +128,7 @@ enum GPXWriter {
         out += "      <extensions>\n"
         if p.isVia {
             out += "        <trp:ViaPoint>\n"
-            out += "          <trp:CalculationMode>FasterTime</trp:CalculationMode>\n"
+            out += "          <trp:CalculationMode>\(calculationMode)</trp:CalculationMode>\n"
             out += "          <trp:ElevationMode>Standard</trp:ElevationMode>\n"
             out += "        </trp:ViaPoint>\n"
         } else {

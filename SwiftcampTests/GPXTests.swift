@@ -289,6 +289,56 @@ final class GPXTests: XCTestCase {
         }
     }
 
+    /// Preferences travel in our namespace, and the calculation mode on
+    /// every via point in Garmin's, so a zūmo optimises the way the planner
+    /// did and a re-import keeps the finer distinction.
+    func testPreferencesSurviveTheFile() throws {
+        for prefer in RoutePreferences.Preference.allCases {
+            var route = Route(name: "Loop")
+            route.preferences.prefer = prefer
+            route.preferences.avoidHighways = true
+            route.preferences.avoidFerries = true
+            var document = GPXDocument()
+            document.routes = [RouteDetail(route: route, points: [
+                RoutePoint(routeID: route.id, seq: 0, lat: 40.0, lon: -105.0),
+                RoutePoint(routeID: route.id, seq: 1, lat: 40.1, lon: -105.1, isVia: false),
+                RoutePoint(routeID: route.id, seq: 2, lat: 40.2, lon: -105.2),
+            ])]
+
+            let text = GPXWriter.write(document)
+            XCTAssertEqual(text.components(separatedBy: "<trp:CalculationMode>\(prefer.garminCalculationMode)</trp:CalculationMode>").count - 1,
+                           2, "one per via point, none on the shaping point: \(prefer)")
+            XCTAssertEqual(text.contains("<sc:Prefer>"), prefer != .fasterTime, "\(prefer)")
+            XCTAssertTrue(text.contains("<sc:Avoid>highways ferries</sc:Avoid>"))
+
+            let back = try GPXReader.read(data: Data(text.utf8))
+            XCTAssertEqual(back.routes.first?.route.preferences, route.preferences, "\(prefer)")
+        }
+    }
+
+    /// A BaseCamp file says what it optimises only on its via points; the
+    /// first speaks for the route. Curvy Roads is our Some Curves.
+    func testGarminCalculationModeIsReadFromTheViaPoints() throws {
+        for (garmin, ours) in [("ShorterDistance", RoutePreferences.Preference.shorterDistance),
+                               ("CurvyRoads", .someCurves), ("FasterTime", .fasterTime)] {
+            let xml = """
+            <?xml version="1.0"?>
+            <gpx version="1.1" creator="BaseCamp" xmlns="http://www.topografix.com/GPX/1/1"
+                 xmlns:trp="http://www.garmin.com/xmlschemas/TripExtensions/v1">
+              <rte><name>Loop</name>
+                <rtept lat="40.0" lon="-105.0"><extensions><trp:ViaPoint>
+                  <trp:CalculationMode>\(garmin)</trp:CalculationMode></trp:ViaPoint></extensions></rtept>
+                <rtept lat="40.1" lon="-105.1"><extensions><trp:ViaPoint>
+                  <trp:CalculationMode>FasterTime</trp:CalculationMode></trp:ViaPoint></extensions></rtept>
+              </rte>
+            </gpx>
+            """
+            let document = try GPXReader.read(data: Data(xml.utf8))
+            XCTAssertEqual(document.routes.first?.route.preferences.prefer, ours, garmin)
+            XCTAssertEqual(document.routes.first?.route.preferences.avoided, [])
+        }
+    }
+
     /// A BaseCamp file with a Direct profile reads as a direct route, by
     /// namespace; any other profile it names is a road route.
     func testGarminTransportationModeIsReadByNamespace() throws {
