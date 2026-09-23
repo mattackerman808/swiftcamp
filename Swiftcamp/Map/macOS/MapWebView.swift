@@ -429,7 +429,10 @@ struct MapWebView: NSViewRepresentable {
                   let phase = (body["phase"] as? String).flatMap({ Self.phases[$0] }) else { return nil }
             // A grab on the line sends `seq: null`, which crosses the
             // bridge as NSNull and reads as nil here, the same as absent.
-            return MapDrag(routeID: id, seq: body["seq"] as? Int,
+            let subject: MapDrag.Subject = body["layer"] as? String == "waypoint-icon"
+                ? .waypoint(id: id)
+                : .routePoint(routeID: id, seq: body["seq"] as? Int)
+            return MapDrag(subject: subject,
                            coordinate: Coordinate(lat: lat, lon: lon),
                            phase: phase)
         }

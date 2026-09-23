@@ -18,6 +18,59 @@ final class LibraryModel {
     private(set) var tracks: [TrackDetail] = []
     private(set) var waypoints: [Waypoint] = []
 
+    /// What the sidebar lists: the library narrowed to the selected list
+    /// and the typed filter, in the chosen order. Derived once when any
+    /// of those change rather than in a view body, for the reason
+    /// `summaries` gives: a body runs far more often than the data moves.
+    private(set) var shownRoutes: [RouteDetail] = []
+    private(set) var shownTracks: [TrackDetail] = []
+    private(set) var shownWaypoints: [Waypoint] = []
+
+    /// The list whose contents are shown, or nil for the whole collection.
+    /// The map follows it too, as BaseCamp's does: with a few years of
+    /// rides in the library, picking a list is how the map is decluttered.
+    var selectedListID: String? {
+        didSet {
+            guard selectedListID != oldValue else { return }
+            rebuildShown()
+            rebuildOverlay()
+        }
+    }
+
+    /// Words typed into the sidebar's filter field. Narrows the sidebar
+    /// only, never the map: a route that vanished from the map as its
+    /// name was typed would read as deleted.
+    var filterText = "" {
+        didSet { if filterText != oldValue { rebuildShown() } }
+    }
+
+    var sort: LibrarySort = LibrarySort(rawValue: UserDefaults.standard.string(forKey: LibrarySort.key) ?? "") ?? .name {
+        didSet {
+            guard sort != oldValue else { return }
+            UserDefaults.standard.set(sort.rawValue, forKey: LibrarySort.key)
+            rebuildShown()
+        }
+    }
+
+    var sortDescending = UserDefaults.standard.bool(forKey: LibrarySort.descendingKey) {
+        didSet {
+            guard sortDescending != oldValue else { return }
+            UserDefaults.standard.set(sortDescending, forKey: LibrarySort.descendingKey)
+            rebuildShown()
+        }
+    }
+
+    /// Lengths in metres, for the sort; built with `summaries`.
+    @ObservationIgnored private var lengths: [String: Double] = [:]
+
+    /// Where the map is looking, for a waypoint made from the menu bar
+    /// rather than from a click on the map.
+    @ObservationIgnored private var viewCenter: Coordinate?
+
+    /// A waypoint being dragged on the map: where it is drawn between the
+    /// press and the release. The library is written once, at the end.
+    @ObservationIgnored private var waypointDrag: (id: String, to: Coordinate)?
+
     /// Whether there is anything to export.
     ///
     /// Stored, not computed, and that is the whole point. The File menu is
@@ -260,6 +313,47 @@ final class LibraryModel {
                 if let first = search.results.first { show(first) }
             case "searchSave":
                 saveSearchPin()
+            case "newWaypoint":
+                newWaypoint(at: Coordinate(lat: number("lat", step), lon: number("lon", step)))
+            case "select":
+                // By name, any kind, or nothing with no name.
+                let name = step["name"] as? String ?? ""
+                selection = Set([routes.first { $0.route.name == name }?.route.id,
+                                 tracks.first { $0.track.name == name }?.track.id,
+                                 waypoints.first { $0.name == name }?.id].compactMap { $0 })
+            case "rename":
+                if let id = selection.first { rename(id, to: step["name"] as? String ?? "") }
+            case "set":
+                // A field of the selected item, as the inspector would
+                // write it: comment, description, symbol, lat, lon,
+                // elevation, color.
+                setField(step["field"] as? String ?? "", to: step["value"])
+            case "trackFromRoute":
+                if let id = routes.first(where: { selection.contains($0.route.id) })?.route.id {
+                    makeTrack(fromRoute: id)
+                }
+            case "routeFromTrack":
+                if let id = tracks.first(where: { selection.contains($0.track.id) })?.track.id {
+                    makeRoute(fromTrack: id)
+                }
+            case "newList":
+                newList(in: (step["parent"] as? String).flatMap { name in lists.first { $0.name == name }?.id })
+            case "deleteList":
+                if let id = lists.first(where: { $0.name == step["name"] as? String })?.id { deleteList(id) }
+            case "selectList":
+                selectedListID = (step["name"] as? String).flatMap { name in lists.first { $0.name == name }?.id }
+            case "file":
+                // The selection into the list named, or out of any list.
+                file(selection, in: (step["list"] as? String).flatMap { name in lists.first { $0.name == name }?.id })
+            case "nest":
+                if let id = lists.first(where: { $0.name == step["name"] as? String })?.id {
+                    nest(id, under: (step["under"] as? String).flatMap { name in lists.first { $0.name == name }?.id })
+                }
+            case "filter":
+                filterText = step["text"] as? String ?? ""
+            case "sort":
+                if let sort = (step["by"] as? String).flatMap(LibrarySort.init(rawValue:)) { self.sort = sort }
+                sortDescending = step["descending"] as? Bool ?? false
             #if os(macOS)
             case "focusSearch":
                 _ = Harness.focusSearchField()
@@ -290,14 +384,52 @@ final class LibraryModel {
         }
     }
 
+    /// The inspector's fields, for a script. Nil and an empty string both
+    /// clear a text field.
+    private func setField(_ field: String, to value: Any?) {
+        let text = (value as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let number = value as? Double
+        if let id = selection.first, var waypoint = waypoints.first(where: { $0.id == id }) {
+            switch field {
+            case "comment": waypoint.comment = text
+            case "description": waypoint.descriptionText = text
+            case "symbol": waypoint.symbol = text
+            case "elevation": waypoint.elevation = number
+            case "lat": if let number { waypoint.lat = number }
+            case "lon": if let number { waypoint.lon = number }
+            default: return
+            }
+            update(waypoint)
+        } else if let id = selection.first, var route = routes.first(where: { $0.route.id == id })?.route {
+            switch field {
+            case "comment": route.comment = text
+            case "color": route.color = text
+            default: return
+            }
+            update(route)
+        } else if let id = selection.first, var track = tracks.first(where: { $0.track.id == id })?.track {
+            switch field {
+            case "comment": track.comment = text
+            case "color": track.color = text
+            default: return
+            }
+            update(track)
+        }
+    }
+
     /// The library's routes as JSON, for a script to assert against.
     /// With `geometry`, each point also carries its leg's path as
     /// `[lon, lat]` pairs, so a check can find a coordinate on the line to
     /// grab. Off by default because a road leg is thousands of them.
     private func dump(to path: String, geometry: Bool = false) {
+        let listNames = Dictionary(uniqueKeysWithValues: lists.map { ($0.id, $0.name) })
         let routes = self.routes.map { detail -> [String: Any] in
             ["name": detail.route.name,
              "editing": detail.route.id == editingRouteID,
+             "list": detail.route.listID.flatMap { listNames[$0] } as Any,
+             "comment": detail.route.comment as Any,
+             "color": detail.route.color as Any,
+             "mode": detail.route.mode.rawValue,
              "points": detail.points.map { p -> [String: Any] in
                  var out: [String: Any] = ["seq": p.seq, "lat": p.lat, "lon": p.lon,
                                            "name": p.name ?? "", "via": p.isVia,
@@ -308,7 +440,24 @@ final class LibraryModel {
         }
         let payload: [String: Any] = ["routes": routes,
                                       "waypoints": waypoints.map { ["name": $0.name, "lat": $0.lat, "lon": $0.lon,
-                                                                    "symbol": $0.symbol as Any] },
+                                                                    "symbol": $0.symbol as Any,
+                                                                    "comment": $0.comment as Any,
+                                                                    "description": $0.descriptionText as Any,
+                                                                    "elevation": $0.elevation as Any,
+                                                                    "list": $0.listID.flatMap { listNames[$0] } as Any] },
+                                      "tracks": tracks.map { ["name": $0.track.name, "points": $0.points.count,
+                                                              "segments": $0.segments.count,
+                                                              "comment": $0.track.comment as Any,
+                                                              "color": $0.track.color as Any,
+                                                              "list": $0.track.listID.flatMap { listNames[$0] } as Any] },
+                                      "lists": lists.map { ["name": $0.name,
+                                                            "parent": $0.parentID.flatMap { listNames[$0] } as Any] },
+                                      "selectedList": selectedListID.flatMap { listNames[$0] } as Any,
+                                      "shown": ["routes": shownRoutes.map(\.route.name),
+                                                "tracks": shownTracks.map(\.track.name),
+                                                "waypoints": shownWaypoints.map(\.name)],
+                                      "filter": filterText,
+                                      "sort": sort.rawValue,
                                       "query": search.query,
                                       "search": search.results.map { ["name": $0.name, "detail": $0.detail, "kind": $0.kind.rawValue,
                                                                       "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] },
@@ -344,6 +493,7 @@ final class LibraryModel {
             self?.routes = $0
             self?.refreshHasContent()
             self?.rebuildSummaries()
+            self?.rebuildShown()
             self?.rebuildOverlay()
             self?.applyPendingFocus()
         }
@@ -351,16 +501,178 @@ final class LibraryModel {
             self?.tracks = $0
             self?.refreshHasContent()
             self?.rebuildSummaries()
+            self?.rebuildShown()
             self?.rebuildOverlay()
             self?.applyPendingFocus()
         }
         track(store.observeWaypoints()) { [weak self] in
             self?.waypoints = $0
             self?.refreshHasContent()
+            self?.rebuildShown()
             self?.rebuildOverlay()
             self?.applyPendingFocus()
         }
-        track(store.observeLists()) { [weak self] in self?.lists = $0 }
+        track(store.observeLists()) { [weak self] in
+            guard let self else { return }
+            lists = $0
+            // A list deleted from under the selection leaves the whole
+            // collection showing, not an empty sidebar named after nothing.
+            if let selectedListID, !lists.contains(where: { $0.id == selectedListID }) {
+                self.selectedListID = nil
+            }
+            rebuildShown()
+            rebuildOverlay()
+        }
+    }
+
+    // MARK: - Lists, filter and order
+
+    /// The lists inside `id`, itself included, however deep. A list in
+    /// BaseCamp shows what its sublists hold as well as its own items.
+    func listIDs(under id: String) -> Set<String> {
+        var out: Set<String> = [id]
+        var frontier = [id]
+        while let parent = frontier.popLast() {
+            for child in lists where child.parentID == parent && !out.contains(child.id) {
+                out.insert(child.id)
+                frontier.append(child.id)
+            }
+        }
+        return out
+    }
+
+    /// The lists at the top, or inside one, in sidebar order.
+    func lists(in parentID: String?) -> [LibraryList] {
+        lists.filter { $0.parentID == parentID }
+    }
+
+    /// Whether an item filed in `listID` belongs on screen under the
+    /// selected list.
+    private func isShown(_ listID: String?) -> Bool {
+        guard let selectedListID else { return true }
+        guard let listID else { return false }
+        return listIDs(under: selectedListID).contains(listID)
+    }
+
+    /// The routes, tracks and waypoints the map draws: the selected list's,
+    /// or everything.
+    private var mappedRoutes: [RouteDetail] { routes.filter { isShown($0.route.listID) } }
+    private var mappedTracks: [TrackDetail] { tracks.filter { isShown($0.track.listID) } }
+    private var mappedWaypoints: [Waypoint] { waypoints.filter { isShown($0.listID) } }
+
+    private func rebuildShown() {
+        let query = filterText
+        let sort = self.sort, descending = sortDescending
+        shownRoutes = LibraryOrder.sorted(
+            mappedRoutes.filter { LibraryOrder.matches(query, $0.route.name, $0.route.comment) },
+            by: sort, descending: descending,
+            name: \.route.name, created: \.route.createdAt, updated: \.route.updatedAt,
+            length: { self.lengths[$0.route.id] })
+        shownTracks = LibraryOrder.sorted(
+            mappedTracks.filter { LibraryOrder.matches(query, $0.track.name, $0.track.comment) },
+            by: sort, descending: descending,
+            name: \.track.name, created: \.track.createdAt, updated: \.track.updatedAt,
+            length: { self.lengths[$0.track.id] })
+        shownWaypoints = LibraryOrder.sorted(
+            mappedWaypoints.filter { LibraryOrder.matches(query, $0.name, $0.comment, $0.descriptionText, $0.symbol) },
+            by: sort, descending: descending,
+            name: \.name, created: \.createdAt, updated: \.updatedAt, length: { _ in nil })
+    }
+
+    /// The list an item is in, for the sidebar's menu tick.
+    func listID(of id: String) -> String? {
+        routes.first { $0.route.id == id }?.route.listID
+            ?? tracks.first { $0.track.id == id }?.track.listID
+            ?? waypoints.first { $0.id == id }?.listID
+    }
+
+    /// Whether this id is a list.
+    func isList(_ id: String) -> Bool { lists.contains { $0.id == id } }
+
+    /// A new, empty list, named and ready to rename, at the top or inside
+    /// another. Undo removes it; it held nothing yet.
+    func newList(in parentID: String? = nil) {
+        let taken = Set(lists.map(\.name))
+        var n = lists.count + 1
+        while taken.contains("List \(n)") { n += 1 }
+        let list = LibraryList(name: "List \(n)", parentID: parentID, sortOrder: lists.count)
+        do {
+            try store.save(list)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("New List") { model in model.deleteList(list.id) }
+        lists.append(list)
+        requestRename(list.id)
+    }
+
+    /// Removes a list and unfiles what it held; undo puts both back.
+    func deleteList(_ id: String) {
+        guard let list = lists.first(where: { $0.id == id }) else { return }
+        let members = routes.filter { $0.route.listID == id }.map(\.route.id)
+            + tracks.filter { $0.track.listID == id }.map(\.track.id)
+            + waypoints.filter { $0.listID == id }.map(\.id)
+        let children = lists.filter { $0.parentID == id }
+        do {
+            try store.deleteList(id: id)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        if selectedListID == id { selectedListID = list.parentID }
+        selection.remove(id)
+        registerUndo("Delete List") { model in
+            model.restore(list, members: members, children: children)
+        }
+    }
+
+    private func restore(_ list: LibraryList, members: [String], children: [LibraryList]) {
+        do {
+            try store.save(list)
+            try store.file(members, in: list.id)
+            // Sublists cascade on delete, so they come back with it. Their
+            // own contents do not: a nested list two deep is rare enough
+            // that undo of its parent's deletion restoring it empty is a
+            // known gap rather than a promise broken silently.
+            for child in children { try store.save(child) }
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Delete List") { model in model.deleteList(list.id) }
+    }
+
+    /// Files items into a list, or with nil out of any, undoably. Undo
+    /// puts each back where it was, which may be several lists.
+    func file(_ ids: Set<String>, in listID: String?) {
+        let items = ids.filter { !isList($0) }
+        let before = items.map { ($0, self.listID(of: $0)) }
+        guard !items.isEmpty, before.contains(where: { $0.1 != listID }) else { return }
+        do {
+            try store.file(Array(items), in: listID)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        let name = listID.flatMap { id in lists.first { $0.id == id }?.name }
+        registerUndo(name.map { "Move to \($0)" } ?? "Remove from List") { model in
+            for (id, previous) in before { model.file([id], in: previous) }
+        }
+    }
+
+    /// Moves a list under another, or to the top. The store refuses a
+    /// cycle, so dropping a list on its own descendant does nothing.
+    func nest(_ id: String, under parentID: String?) {
+        guard let list = lists.first(where: { $0.id == id }), list.parentID != parentID, id != parentID,
+              parentID.map({ !listIDs(under: id).contains($0) }) ?? true else { return }
+        do {
+            try store.setParent(parentID, forList: id)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Move List") { model in model.nest(id, under: list.parentID) }
     }
 
     /// Only ever writes when the answer changes, so a menu bound to it is not
@@ -410,12 +722,16 @@ final class LibraryModel {
     /// long ride into a frozen window. Publishing unconditionally is what
     /// turns a redundant rebuild into another round of view invalidation.
     private func rebuildOverlay() {
-        var routes = self.routes
+        var routes = mappedRoutes
         if let drag, let i = routes.firstIndex(where: { $0.route.id == drag.routeID }) {
             routes[i].points = drag.points
         }
-        let tracks = self.tracks
-        let waypoints = self.waypoints
+        let tracks = mappedTracks
+        var waypoints = mappedWaypoints
+        if let waypointDrag, let i = waypoints.firstIndex(where: { $0.id == waypointDrag.id }) {
+            waypoints[i].lat = waypointDrag.to.lat
+            waypoints[i].lon = waypointDrag.to.lon
+        }
         let selection = self.selection
         let searchPin = self.searchPin
 
@@ -443,12 +759,15 @@ final class LibraryModel {
         defer { Timing.log("summaries", since: started) }
         var out: [String: String] = [:]
         var points: [String: String] = [:]
+        var metres: [String: Double] = [:]
         for detail in routes {
             let vias = detail.viaPoints.count
             let shaping = detail.points.count - vias
+            let length = detail.length
+            metres[detail.route.id] = length
             var summary = "\(vias) via point\(vias == 1 ? "" : "s")"
             if shaping > 0 { summary += ", \(shaping) shaping" }
-            summary += " · \(Self.miles(detail.length))"
+            summary += " · \(Self.miles(length))"
             if detail.route.mode != .road { summary += " · \(detail.route.mode.title)" }
             out[detail.route.id] = summary
 
@@ -457,10 +776,13 @@ final class LibraryModel {
             }
         }
         for detail in tracks {
-            out[detail.track.id] = "\(detail.points.count) points · \(Self.miles(detail.length))"
+            let length = detail.length
+            metres[detail.track.id] = length
+            out[detail.track.id] = "\(detail.points.count) points · \(Self.miles(length))"
         }
         summaries = out
         pointSummaries = points
+        lengths = metres
     }
 
     /// Miles, because this is a US touring app and the GPS it feeds is set
@@ -773,6 +1095,7 @@ final class LibraryModel {
     /// The map moved. From zoom 9 the local tiles under it are worth
     /// having before a drag asks for them.
     func viewChanged(_ box: BoundingBox, zoom: Double) {
+        viewCenter = box.center
         search.prepare(near: box.center)
         guard zoom >= 9 else { return }
         prefetch?.warm(box)
@@ -813,6 +1136,162 @@ final class LibraryModel {
         refreshHasContent()
         searchPin = nil
         selection = [waypoint.id]
+    }
+
+    // MARK: - Waypoints
+
+    /// A new waypoint where the right-click landed, or at the middle of
+    /// the map from the menu bar, named and ready to rename. Garmin's
+    /// default symbol, so the device draws it the way BaseCamp's would.
+    /// Filed in the selected list: what is made while looking at a list
+    /// belongs to it, or it would vanish on creation.
+    func newWaypoint(at coordinate: Coordinate? = nil) {
+        guard let coordinate = coordinate ?? viewCenter else { return }
+        let taken = Set(waypoints.map(\.name))
+        var n = waypoints.count + 1
+        while taken.contains("Waypoint \(n)") { n += 1 }
+        let waypoint = Waypoint(listID: selectedListID, name: "Waypoint \(n)",
+                                lat: coordinate.lat, lon: coordinate.lon, symbol: "Flag, Blue")
+        do {
+            try store.save(waypoint)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("New Waypoint") { model in model.delete(waypoint.id) }
+        waypoints.append(waypoint)
+        refreshHasContent()
+        rebuildShown()
+        requestRename(waypoint.id)
+    }
+
+    /// Writes a waypoint's fields as the inspector has them, undoably.
+    /// The whole record, because the inspector edits several fields and
+    /// one undo per field typed would be a stack of nothing.
+    func update(_ waypoint: Waypoint, actionName: String = "Edit Waypoint") {
+        guard let before = waypoints.first(where: { $0.id == waypoint.id }), before != waypoint else { return }
+        do {
+            try store.save(waypoint)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        if let i = waypoints.firstIndex(where: { $0.id == waypoint.id }) {
+            waypoints[i] = waypoint
+            rebuildShown()
+            rebuildOverlay()
+        }
+        registerUndo(actionName) { model in model.update(before, actionName: actionName) }
+    }
+
+    /// A route's header, from the inspector. The points are untouched.
+    func update(_ route: Route, actionName: String = "Edit Route") {
+        guard let i = routes.firstIndex(where: { $0.route.id == route.id }), routes[i].route != route else { return }
+        let before = routes[i].route
+        do {
+            try store.update(route)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        routes[i].route = route
+        rebuildSummaries()
+        rebuildShown()
+        rebuildOverlay()
+        registerUndo(actionName) { model in model.update(before, actionName: actionName) }
+    }
+
+    func update(_ track: Track, actionName: String = "Edit Track") {
+        guard let i = tracks.firstIndex(where: { $0.track.id == track.id }), tracks[i].track != track else { return }
+        let before = tracks[i].track
+        do {
+            try store.update(track)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        tracks[i].track = track
+        rebuildShown()
+        rebuildOverlay()
+        registerUndo(actionName) { model in model.update(before, actionName: actionName) }
+    }
+
+    /// Moves a waypoint, from a drag on the map or coordinates typed into
+    /// the inspector.
+    func moveWaypoint(_ id: String, to coordinate: Coordinate) {
+        guard var waypoint = waypoints.first(where: { $0.id == id }) else { return }
+        waypoint.lat = coordinate.lat
+        waypoint.lon = coordinate.lon
+        update(waypoint, actionName: "Move Waypoint")
+    }
+
+    /// A waypoint being dragged. Drawn where the pointer is between the
+    /// press and the release; the release is the edit.
+    private func dragWaypoint(_ id: String, _ event: MapDrag) {
+        switch event.phase {
+        case .begin:
+            selection = [id]
+            waypointDrag = (id, event.coordinate)
+        case .move:
+            waypointDrag = (id, event.coordinate)
+            rebuildOverlay()
+        case .end:
+            waypointDrag = nil
+            moveWaypoint(id, to: event.coordinate)
+        }
+    }
+
+    // MARK: - Conversions
+
+    /// A track that follows the route exactly, so a device draws the line
+    /// that was planned rather than re-routing between the stops. See
+    /// `TrackDetail.init(fromRoute:)`.
+    func makeTrack(fromRoute id: String) {
+        guard let source = routes.first(where: { $0.route.id == id }), !source.points.isEmpty else { return }
+        var detail = TrackDetail(fromRoute: source)
+        detail.track.name = uniqueName(source.route.name, among: tracks.map(\.track.name))
+        do {
+            try store.save(detail.track, points: detail.points)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Create Track") { model in model.delete(detail.track.id) }
+        tracks.append(detail)
+        refreshHasContent()
+        rebuildSummaries()
+        rebuildShown()
+        selection = [detail.track.id]
+    }
+
+    /// A route whose legs are the track, with a few of its points as
+    /// handles. See `RouteDetail.init(fromTrack:mode:)`.
+    func makeRoute(fromTrack id: String) {
+        guard let source = tracks.first(where: { $0.track.id == id }), !source.points.isEmpty else { return }
+        var detail = RouteDetail(fromTrack: source, mode: Self.defaultMode)
+        detail.route.name = uniqueName(source.track.name, among: routes.map(\.route.name))
+        do {
+            try store.save(detail)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Create Route") { model in model.delete(detail.route.id) }
+        routes.append(detail)
+        refreshHasContent()
+        rebuildSummaries()
+        rebuildShown()
+        selection = [detail.route.id]
+    }
+
+    /// `name`, or `name 2`, `name 3`… when it is taken. Two rows called
+    /// the same thing in one section are indistinguishable on a device.
+    private func uniqueName(_ name: String, among taken: [String]) -> String {
+        let taken = Set(taken)
+        guard taken.contains(name) else { return name }
+        var n = 2
+        while taken.contains("\(name) \(n)") { n += 1 }
+        return "\(name) \(n)"
     }
 
     // MARK: - Routing after an edit
@@ -954,12 +1433,22 @@ final class LibraryModel {
     /// points by clicking, which needs a mode because a click on empty map
     /// otherwise means nothing.
     func drag(_ event: MapDrag) {
-        guard var detail = routes.first(where: { $0.route.id == event.routeID }) else { return }
+        let routeID: String
+        let grabbedSeq: Int?
+        switch event.subject {
+        case .waypoint(let id):
+            dragWaypoint(id, event)
+            return
+        case .routePoint(let id, let seq):
+            routeID = id
+            grabbedSeq = seq
+        }
+        guard var detail = routes.first(where: { $0.route.id == routeID }) else { return }
 
         switch event.phase {
         case .begin:
             let seq: Int
-            if let grabbed = event.seq {
+            if let grabbed = grabbedSeq {
                 seq = grabbed
             } else {
                 // The line was grabbed: it grows a point where the press
@@ -979,15 +1468,15 @@ final class LibraryModel {
             // with its straight legs would otherwise flash for a frame
             // before the first move routes them.
             selection = [OverlayGeoJSON.handle(detail.route.id, seq), detail.route.id]
-            drag = Drag(routeID: detail.route.id, seq: seq, inserted: event.seq == nil, base: detail.points)
+            drag = Drag(routeID: detail.route.id, seq: seq, inserted: grabbedSeq == nil, base: detail.points)
 
         case .move:
-            guard let drag, drag.routeID == event.routeID else { return }
+            guard let drag, drag.routeID == routeID else { return }
             drag.pending = event.coordinate
             if !drag.inFlight { routeDrag(drag) }
 
         case .end:
-            guard let drag, drag.routeID == event.routeID else { return }
+            guard let drag, drag.routeID == routeID else { return }
             self.drag = nil
             if drag.shapedFor == event.coordinate {
                 // The release is where the last move was routed, which is
@@ -1147,7 +1636,11 @@ final class LibraryModel {
                 MapMenuItem(title: "\(mode.title) Routing", isChecked: mode == current) {
                     self.setMode(mode, forRoute: routeID)
                 }
-            }
+            } + [
+                .separator,
+                MapMenuItem(title: "Create Track from Route") { self.makeTrack(fromRoute: routeID) },
+                MapMenuItem(title: "Rename…") { self.requestRename(routeID) },
+            ]
 
         case .ground:
             // While a route is being edited, the point is the likelier
@@ -1159,6 +1652,7 @@ final class LibraryModel {
                 items.append(MapMenuItem(title: "Add Shaping Point Here") { self.appendPoint(click.coordinate, isVia: false) })
             }
             items.append(MapMenuItem(title: "New Route Here") { self.startRoute(at: click.coordinate) })
+            items.append(MapMenuItem(title: "New Waypoint Here") { self.newWaypoint(at: click.coordinate) })
             return items
 
         case .waypoint(let id):
@@ -1196,8 +1690,20 @@ final class LibraryModel {
             })
             return items + [.separator, MapMenuItem(title: "Dismiss") { self.dismissSearchPin() }]
 
-        case .track:
-            return []
+        case .track(let id):
+            guard let detail = tracks.first(where: { $0.track.id == id }) else { return [] }
+            return [
+                MapMenuItem(title: "Create Route from Track") { self.makeRoute(fromTrack: id) },
+                .separator,
+                MapMenuItem(title: "Rename…") { self.requestRename(id) },
+                MapMenuItem(title: "Colour", children: ItemColor.palette.map { color in
+                    MapMenuItem(title: color.name, isChecked: color.name == detail.track.color) {
+                        self.setColor(color, for: id)
+                    }
+                }),
+                .separator,
+                MapMenuItem(title: "Delete") { self.delete(id) },
+            ]
         }
     }
 
@@ -1218,9 +1724,10 @@ final class LibraryModel {
         return items
     }
 
-    /// Asks the sidebar to open its rename field on an item.
+    /// Asks the sidebar to open its rename field on an item or a list.
+    /// A list is not selectable, so the selection is left alone for one.
     func requestRename(_ id: String) {
-        selection = [id]
+        if !isList(id) { selection = [id] }
         renameRequest = RenameRequest(id: id, token: (renameRequest?.token ?? 0) + 1)
     }
 
@@ -1346,8 +1853,13 @@ final class LibraryModel {
     /// on a right-click menu where a slip is easy. A route or a track is
     /// not, yet: a day's track is a few hundred thousand rows to hold.
     func delete(_ id: String) {
+        if isList(id) {
+            deleteList(id)
+            return
+        }
         if id == editingRouteID { editingRouteID = nil }
         if drag?.routeID == id { drag = nil }
+        if waypointDrag?.id == id { waypointDrag = nil }
         do {
             if routes.contains(where: { $0.route.id == id }) {
                 try store.deleteRoute(id: id)

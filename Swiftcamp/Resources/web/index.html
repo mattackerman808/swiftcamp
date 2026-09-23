@@ -275,7 +275,8 @@ function post(message) {
     var hit = hits.length ? hits[0] : null;
     hover(hit, e.point);
     var cursor = '';
-    if (hit && (hit.layer.id === 'via-point' || hit.layer.id === 'route-casing')) {
+    if (hit && (hit.layer.id === 'via-point' || hit.layer.id === 'route-casing' ||
+                hit.layer.id === 'waypoint-icon')) {
       cursor = 'grab';
     } else if (hit) {
       cursor = 'pointer';
@@ -454,18 +455,18 @@ function post(message) {
 
   map.on('mousedown', function () { swallowClick = false; });
 
-  function beginDrag(e, id, seq) {
+  function beginDrag(e, layer, id, seq) {
     // The left button only. The right one is the context menu, and a
     // drag begun by it would still be waiting for its release when the
     // native menu takes the pointer.
     if (e.originalEvent.button !== 0) return;
     e.preventDefault();
-    dragging = { id: id, seq: seq, down: e.lngLat, downPoint: e.point,
+    dragging = { layer: layer, id: id, seq: seq, down: e.lngLat, downPoint: e.point,
                  moved: false, pending: null, frame: null };
     map.getCanvas().style.cursor = 'grabbing';
 
     function report(phase, lngLat) {
-      post({ type: 'drag', phase: phase, id: dragging.id, seq: dragging.seq,
+      post({ type: 'drag', phase: phase, layer: dragging.layer, id: dragging.id, seq: dragging.seq,
              lon: lngLat.lng, lat: lngLat.lat });
     }
 
@@ -506,7 +507,16 @@ function post(message) {
     if (dragging) return;
     var feature = e.features && e.features[0];
     if (!feature) return;
-    beginDrag(e, feature.properties.id, feature.properties.seq);
+    beginDrag(e, 'via-point', feature.properties.id, feature.properties.seq);
+  });
+
+  // A waypoint moves whole. Its name and symbol travel with it, and the
+  // release is the edit, the same as a via point.
+  map.on('mousedown', 'waypoint-icon', function (e) {
+    if (dragging) return;
+    var feature = e.features && e.features[0];
+    if (!feature) return;
+    beginDrag(e, 'waypoint-icon', feature.properties.id, null);
   });
 
   // Registered after the via-point handler, and MapLibre fires them in
@@ -516,7 +526,7 @@ function post(message) {
     if (dragging) return;
     var feature = e.features && e.features[0];
     if (!feature) return;
-    beginDrag(e, feature.properties.id, null);
+    beginDrag(e, 'route-casing', feature.properties.id, null);
   });
 
   // Keys the app cares about, forwarded because the web view is first

@@ -40,6 +40,12 @@ struct SwiftcampApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("New Route") { model.newRoute() }
                     .keyboardShortcut("n")
+                // At the middle of the map, since a menu command has no
+                // click to place it at; the right-click menu has the click.
+                Button("New Waypoint") { model.newWaypoint() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("New List") { model.newList() }
+                    .keyboardShortcut("n", modifiers: [.command, .option])
             }
             // Undo and redo go to the model's own manager rather than the
             // responder chain's. The web view is first responder whenever

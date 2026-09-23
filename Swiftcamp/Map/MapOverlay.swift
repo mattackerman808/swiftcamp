@@ -111,8 +111,14 @@ struct MapClick: Equatable, Sendable {
 struct MapDrag: Equatable, Sendable {
     enum Phase: Equatable, Sendable { case begin, move, end }
 
-    var routeID: String
-    var seq: Int?
+    /// What was grabbed. A waypoint moves whole; a route's point, or its
+    /// line when `seq` is nil, edits the route.
+    enum Subject: Equatable, Sendable {
+        case routePoint(routeID: String, seq: Int?)
+        case waypoint(id: String)
+    }
+
+    var subject: Subject
     var coordinate: Coordinate
     var phase: Phase
 }

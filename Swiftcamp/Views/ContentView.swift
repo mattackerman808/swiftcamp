@@ -180,6 +180,10 @@ struct ContentView: View {
                 Label("New Route", systemImage: "plus")
             }
             .help("Start a route and place its points by clicking the map")
+            Button { model.newWaypoint() } label: {
+                Label("New Waypoint", systemImage: "mappin.and.ellipse")
+            }
+            .help("Drop a waypoint at the middle of the map; drag it into place")
             Button { openWindow(id: TransferWindow.id) } label: {
                 Label("Transfer", systemImage: "arrow.left.arrow.right")
             }
