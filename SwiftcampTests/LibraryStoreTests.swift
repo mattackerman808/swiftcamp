@@ -272,4 +272,77 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(read.points.count, 2)
         XCTAssertEqual(read.points[0].geometry?.count, 1)
     }
+
+    // MARK: - Lists
+
+    func testFilingMovesAnyMixOfKindsAndNilUnfiles() throws {
+        let list = LibraryList(name: "Rockies")
+        try store.save(list)
+        let wpt = Waypoint(name: "Estes", lat: 40, lon: -105)
+        try store.save(wpt)
+        let route = Route(name: "Loop")
+        try store.insert(route)
+        let track = Track(name: "Ride")
+        try store.save(track, points: [])
+
+        try store.file([wpt.id, route.id, track.id, "no-such-id"], in: list.id)
+        XCTAssertEqual(try store.waypoints().first?.listID, list.id)
+        XCTAssertEqual(try store.routes().first?.listID, list.id)
+        XCTAssertEqual(try store.tracks().first?.listID, list.id)
+
+        try store.file([route.id], in: nil)
+        XCTAssertNil(try store.routes().first?.listID)
+        XCTAssertEqual(try store.waypoints().first?.listID, list.id, "the others stay filed")
+    }
+
+    func testRenamingAList() throws {
+        let list = LibraryList(name: "Old")
+        try store.save(list)
+        try store.rename(list.id, to: "  New  ")
+        XCTAssertEqual(try store.lists().first?.name, "New")
+    }
+
+    func testNestingRefusesACycle() throws {
+        let a = LibraryList(name: "A"), b = LibraryList(name: "B"), c = LibraryList(name: "C")
+        try store.save(a); try store.save(b); try store.save(c)
+        try store.setParent(a.id, forList: b.id)
+        try store.setParent(b.id, forList: c.id)
+        func parent(_ id: String) throws -> String? { try store.lists().first { $0.id == id }?.parentID }
+        XCTAssertEqual(try parent(c.id), b.id)
+
+        try store.setParent(c.id, forList: a.id)
+        XCTAssertNil(try parent(a.id), "A under C would put A under itself")
+        try store.setParent(a.id, forList: a.id)
+        XCTAssertNil(try parent(a.id))
+
+        try store.setParent(nil, forList: c.id)
+        XCTAssertNil(try parent(c.id))
+    }
+
+    func testUpdatingARouteHeaderKeepsItsPoints() throws {
+        let route = Route(name: "Loop")
+        try store.save(RouteDetail(route: route, points: [
+            RoutePoint(routeID: route.id, seq: 0, lat: 40, lon: -105),
+            RoutePoint(routeID: route.id, seq: 1, lat: 41, lon: -105),
+        ]))
+        var header = try XCTUnwrap(try store.routes().first)
+        header.comment = "fuel at Granby"
+        header.color = "Red"
+        try store.update(header)
+
+        let read = try XCTUnwrap(try store.routeDetail(id: route.id))
+        XCTAssertEqual(read.route.comment, "fuel at Granby")
+        XCTAssertEqual(read.route.color, "Red")
+        XCTAssertEqual(read.points.count, 2)
+    }
+
+    func testUpdatingATrackHeaderKeepsItsPoints() throws {
+        let track = Track(name: "Ride")
+        try store.save(track, points: [TrackPoint(trackID: track.id, seq: 0, lat: 40, lon: -105)])
+        var header = try XCTUnwrap(try store.tracks().first)
+        header.comment = "wet"
+        try store.update(header)
+        XCTAssertEqual(try store.tracks().first?.comment, "wet")
+        XCTAssertEqual(try store.trackPoints(trackID: track.id).count, 1)
+    }
 }

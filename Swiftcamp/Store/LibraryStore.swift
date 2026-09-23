@@ -344,7 +344,63 @@ struct LibraryStore: Sendable {
                 waypoint.name = trimmed
                 waypoint.updatedAt = .now
                 try waypoint.update(db)
+            } else if var list = try LibraryList.fetchOne(db, key: id) {
+                list.name = trimmed
+                list.updatedAt = .now
+                try list.update(db)
             }
+        }
+    }
+
+    /// Writes a route's header and leaves its points alone: the inspector's
+    /// fields, name and notes and colour, none of which touch the line.
+    /// `update`, not `save`, so a route that has gone meanwhile is not
+    /// re-created from a stale copy.
+    func update(_ route: Route) throws {
+        var route = route
+        route.updatedAt = .now
+        try database.writer.write { db in try route.update(db) }
+    }
+
+    /// The same for a track.
+    func update(_ track: Track) throws {
+        var track = track
+        track.updatedAt = .now
+        try database.writer.write { db in try track.update(db) }
+    }
+
+    // MARK: - Lists
+
+    /// Files items into a list, or with nil takes them out of whichever
+    /// list they were in. One statement per table rather than a lookup per
+    /// id: the ids may be any mix of the three kinds, and an id no table
+    /// knows matches nothing.
+    func file(_ ids: [String], in listID: String?) throws {
+        guard !ids.isEmpty else { return }
+        try database.writer.write { db in
+            for table in ["waypoints", "routes", "tracks"] {
+                try db.execute(sql: """
+                    UPDATE \(table) SET list_id = ?, updated_at = ?
+                    WHERE id IN (\(databaseQuestionMarks(count: ids.count)))
+                    """, arguments: [listID, Date.now] + StatementArguments(ids))
+            }
+        }
+    }
+
+    /// Moves a list under another, or with nil to the top. A list cannot
+    /// go under itself or under one of its own descendants; that would
+    /// detach the whole branch from the tree, and the request is ignored.
+    func setParent(_ parentID: String?, forList id: String) throws {
+        try database.writer.write { db in
+            guard var list = try LibraryList.fetchOne(db, key: id) else { return }
+            var ancestor = parentID
+            while let current = ancestor {
+                if current == id { return }
+                ancestor = try LibraryList.fetchOne(db, key: current)?.parentID
+            }
+            list.parentID = parentID
+            list.updatedAt = .now
+            try list.update(db)
         }
     }
 
