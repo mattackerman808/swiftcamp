@@ -175,26 +175,39 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // Named, not just pictured. Five glyphs in a row read as a puzzle,
+        // and the tooltip that would solve it arrives after macOS's own
+        // second of hover, which nobody waits for. The words are the
+        // affordance; the help text is only the longer explanation.
         ToolbarItemGroup {
             Button { model.newRoute() } label: {
-                Label("New Route", systemImage: "plus")
+                Label("Route", systemImage: "plus")
             }
-            .help("Start a route and place its points by clicking the map")
+            .labelStyle(.titleAndIcon)
+            .help("New route: start one and place its points by clicking the map (⌘N)")
             Button { model.newWaypoint() } label: {
-                Label("New Waypoint", systemImage: "mappin.and.ellipse")
+                Label("Waypoint", systemImage: "mappin.and.ellipse")
             }
-            .help("Drop a waypoint at the middle of the map; drag it into place")
-            Button { openWindow(id: TransferWindow.id) } label: {
-                Label("Transfer", systemImage: "arrow.left.arrow.right")
-            }
-            .help("Move routes and tracks between the library and a device")
+            .labelStyle(.titleAndIcon)
+            .help("New waypoint at the middle of the map; drag it into place (⇧⌘N)")
+        }
+        ToolbarItemGroup {
             Button { model.isImporting = true } label: {
-                Label("Import GPX", systemImage: "square.and.arrow.down")
+                Label("Import", systemImage: "square.and.arrow.down")
             }
+            .labelStyle(.titleAndIcon)
+            .help("Import a GPX file into the library (⌘O)")
             Button { model.isExporting = true } label: {
-                Label("Export GPX", systemImage: "square.and.arrow.up")
+                Label("Export", systemImage: "square.and.arrow.up")
             }
+            .labelStyle(.titleAndIcon)
+            .help("Export the selection, or the whole library, as a GPX file (⌘E)")
             .disabled(model.routes.isEmpty && model.waypoints.isEmpty && model.tracks.isEmpty)
+            Button { openWindow(id: TransferWindow.id) } label: {
+                Label("Device", systemImage: "arrow.left.arrow.right")
+            }
+            .labelStyle(.titleAndIcon)
+            .help("Send routes to a Garmin over USB, or bring its rides in (⇧⌘T)")
         }
     }
 }
