@@ -21,8 +21,8 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 
 ## Current state
 
-**The map, the library, GPX and the device are built. The planner is in
-progress.**
+**The map, the library, GPX, the device and the planner are built. Stage A
+of `docs/basecamp-parity.md` is done; Stage B, migration, is next.**
 
 Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route
@@ -40,6 +40,14 @@ mode, Road, Adventure or Direct, which decides which ways its legs may use
 and whether a dropped point lands on one; `docs/routing.md` has the table. With a Valhalla graph loaded, legs follow roads and re-route live
 while dragging; without one they are straight lines. `docs/routing.md`.
 
+Waypoints are made from the map's right-click menu, the toolbar or ⇧⌘N,
+dragged into place, and edited in the inspector under the sidebar, which
+also holds a route's or track's name, colour, comment and notes. A route
+becomes a track and a track a route from either's menu; the track's shape
+is kept as the route's leg geometry. Lists file items by drag or menu, nest,
+and the map follows the selected list. The sidebar filters by typed words
+and sorts by name, date or length.
+
 Search: coordinates in any common form; places, streets and points of
 interest from our own index on the CDN; house numbers from our own index
 of the National Address Database, on the roof or the parcel and offline
@@ -47,8 +55,9 @@ once the tile is fetched; and the US Census geocoder for addresses that
 index lacks. A result pins on the map and can be kept as a waypoint.
 `docs/data-architecture.md` has the four sources.
 
-Not started: waypoint editing, lists, library search and sort, GDB
-import, region packs. `docs/basecamp-parity.md` has the full inventory.
+Not started: duplicate, GDB import, restoring BaseCamp's own files, track
+split and join, elevation profiles. `docs/basecamp-parity.md` has the full
+inventory.
 
 Only macOS is being actively worked on. iOS builds but has no overlay path.
 
@@ -411,6 +420,18 @@ implements them; this is the index.
   exactly like routing being off. `RoutingEngine.raiseLimits` is the fix;
   the lesson is that a straight leg must log its reason, which is how this
   one was read off `valhalla_service` in a minute.
+- **A bare binary launched from a tool's shell gets no window.** The model
+  runs, `dump` writes, and the page never fires `load`, which looked like
+  the second-copy failure above with no second copy anywhere. `open -n
+  Swiftcamp.app --args …` launches through LaunchServices and the window
+  appears; the README says so. Two builds were compared before the launch
+  method was suspected.
+- **Caching a view's display leaves the sidebar blank.** `cacheDisplay`
+  draws the views and not the vibrancy composited behind them, so a
+  snapshot showed an empty white column beside a working map, on `main`
+  as much as on the branch. The harness now asks the window server for
+  the window's picture, which an app may do for its own windows without
+  Screen Recording permission.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

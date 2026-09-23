@@ -72,7 +72,7 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
-| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field and `snapshotWindows` photographs every window, the suggestion list included. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field and `snapshotWindows` photographs every window, the suggestion list included. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \
@@ -84,6 +84,12 @@ Swiftcamp.app/Contents/MacOS/Swiftcamp \
 Always pass `-SwiftcampLibrary` alongside `-SwiftcampImport`: the import runs
 on every launch, and against the real library that accumulates copies.
 
+Launch through `open -n Swiftcamp.app --args …` from anything that is not
+a Terminal window. Run as a bare binary from a tool's shell, the app gets no
+window at all: the model runs, `dump` writes, and the page never loads, which
+looks exactly like a broken map. `open` also detaches the log; read it with
+`log stream --predicate 'process == "Swiftcamp"'`.
+
 `-SwiftcampScript` exists because route editing is clicks and drags, and
 nothing can script those against a real window without Accessibility
 permission. The page dispatches DOM events on its own canvas instead, so
@@ -93,7 +99,11 @@ click did not do what it should. `menu` right-clicks and chooses the item
 named in `choose`, running it rather than showing a menu nothing could
 dismiss; a choice inside a submenu is named by itself, `"Flag, Red"` rather
 than a path through Change Icon. `dump` writes the routes as JSON for a check to read; with `"geometry": true` each point also carries its leg's path, which
-is how a check finds a spot on the line to grab.
+is how a check finds a spot on the line to grab. `select` picks an item by
+name and `set` writes one of the inspector's fields to it (`comment`,
+`description`, `symbol`, `elevation`, `lat`, `lon`, `color`); `file` moves
+the selection into the list named in `list`, and `selectList`, `filter` and
+`sort` drive the sidebar, whose result `dump` reports under `shown`.
 
 ```json
 [

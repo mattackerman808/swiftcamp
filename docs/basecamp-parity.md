@@ -58,15 +58,15 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Feature | Status |
 | --- | --- |
 | Waypoints, routes, tracks as first-class types | **Have** |
-| Lists and list folders, nested | **Partial** — schema exists, no UI |
-| Rename, duplicate, delete | **Partial** — delete only |
+| Lists and list folders, nested | **Have** — a lists pane above the items; the map follows the selected list |
+| Rename, duplicate, delete | **Partial** — rename and delete; duplicate to come |
 | Cut, copy, paste between lists | **Build** |
-| Drag items between lists | **Build** |
-| Search within the collection | **Build** |
-| Sort and filter by type, name, date, length | **Build** |
+| Drag items between lists | **Have** — drag onto a list, or Move to List in the menu; a list dragged onto a list nests |
+| Search within the collection | **Have** — the filter field, over name, comment and notes |
+| Sort and filter by type, name, date, length | **Have** |
 | Multiple databases | **Build**, low priority |
 | Backup and restore | **Build** — `VACUUM INTO` makes this nearly free |
-| Undo and redo | **Partial** — route edits and route creation; nothing else yet |
+| Undo and redo | **Partial** — every edit in the planner; deleting a route or a track is not undoable yet |
 
 ### Import and export
 
@@ -105,12 +105,12 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Delete a point | **Have** |
 | Via points versus shaping points | **Have** — dragging the line makes a shaping point, clicking makes a via point, either converts; written as `trp:ShapingPoint` and `trp:ViaPoint` |
 | Reverse a route | **Have** |
-| Route from a track | **Build** |
-| Track from a route | **Build** — this is how riders defeat device re-routing |
+| Route from a track | **Have** — the track is the route's shape, with its bends as shaping points |
+| Track from a route | **Have** — this is how riders defeat device re-routing |
 | Activity profiles: motorcycling, driving, walking | **Partial** — Road, Adventure and Direct per route, written as Garmin's transportation mode; driving and walking to come |
 | Routing preferences: faster time, shorter distance | **Build**, needs routing |
 | Avoidances: tolls, ferries, unpaved, highways | **Partial** — unpaved and tracks through the mode; tolls, ferries and highways to come |
-| Road snapping and recalculation on drag | **Partial** — live against a local Valhalla graph; region packs and streaming to come |
+| Road snapping and recalculation on drag | **Have** — the whole US graph streams from the CDN, tile by tile, and is cached |
 | Trip planner with departure and arrival times | **Build**, later |
 
 ### Tracks
@@ -121,7 +121,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Segments preserved | **Have** |
 | Split and join | **Build** |
 | Invert | **Build** |
-| Filter and simplify, point count reduction | **Build** — also needed for device limits |
+| Filter and simplify, point count reduction | **Build** — `Simplify` exists, used by route-from-track; no UI yet |
 | Insert, move, erase points | **Build** |
 | Elevation profile | **Build** — we already stream the DEM |
 | Playback along a track | **Build**, low priority |
@@ -131,9 +131,9 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 
 | Feature | Status |
 | --- | --- |
-| Create, name, place | **Build** |
+| Create, name, place | **Have** — from the map's right-click menu, the toolbar or ⇧⌘N; dragged into place |
 | Garmin symbols | **Partial** — 37 of them drawn on the map and in the sidebar and picked from either's right-click menu (`SymbolCatalog`); the rest carried through GPX untouched and drawn as the generic pin |
-| Notes, description, comment | **Partial** — stored, not editable |
+| Notes, description, comment | **Have** — in the inspector under the sidebar, for waypoints, routes and tracks |
 | Proximity alarms | **Build**, low priority |
 | Categories | **Build**, low priority |
 | Photos attached to a waypoint | **Build**, low priority |
@@ -276,11 +276,11 @@ does not.
 Each stage is useful on its own, which matters because the deadline is real
 and a half-finished replacement that nobody can use is worth nothing.
 
-**Stage A — a usable planner.** Route editing: click, drag, insert, delete,
-undo. Via versus shaping points, honoured on export. Waypoint creation and
-editing. Reverse a route, route from track, track from route. Lists in the
-sidebar with drag and drop. Search and sort. *At the end of this, someone can
-plan a ride and hand it to a device by hand.*
+**Stage A — a usable planner. Done 2026-09-23.** Route editing: click, drag,
+insert, delete, undo. Via versus shaping points, honoured on export. Waypoint
+creation and editing. Reverse a route, route from track, track from route.
+Lists in the sidebar with drag and drop. Search and sort. *Someone can plan a
+ride and hand it to a device.*
 
 **Stage B — migration.** GDB import, and restoring straight from BaseCamp's
 own database and backup files. Backup and restore of our own. Rename and
@@ -307,10 +307,9 @@ sits after Stage D because it is built on the same road data as snapping.
 
 - **Is MTP ever needed?** Overtaken: it was built, and it is the path the
   zūmo XT3 uses. The card path remains for units that mount as a volume.
-- **Address search needs a geocoder.** Self-hosting Nominatim is a real
-  service with real cost, and every hosted option has terms. This is the first
-  feature that would put a vendor back in the serving path, which
-  `docs/data-architecture.md` deliberately avoided.
+- **Address search needs a geocoder.** Settled: our own index of places,
+  streets and addresses on the CDN, with the US Census geocoder only for
+  what it lacks. `docs/data-architecture.md` has the four sources.
 - **Is GDB export needed, or only import?** Export matters only for users
   keeping a foot in BaseCamp during the transition.
 - **Trips, as distinct from routes.** BaseCamp models an itinerary with

@@ -105,15 +105,35 @@ enum Harness {
     }
 
     /// Writes a PNG of every visible window, `<prefix>-<n>-<class>.png`,
-    /// including the popover a search puts up. The frame view rather than
-    /// the content view, so the toolbar is in the picture.
+    /// including the popover a search puts up.
+    ///
+    /// Read back from the window server rather than drawn by asking the
+    /// views to cache their display. Caching skips the sidebar entirely:
+    /// its vibrancy is composited from behind the window, and what the
+    /// views draw over it is a blank column, which looked exactly like a
+    /// sidebar that had failed to lay out. An app may picture its own
+    /// windows this way without the Screen Recording permission that
+    /// pictures of other apps' need; the cached drawing stays as the
+    /// fallback for a window the server will not hand over.
     static func snapshotWindows(to prefix: String) {
         for (index, window) in NSApp.windows.filter({ $0.isVisible }).enumerated() {
-            guard let view = window.contentView?.superview ?? window.contentView,
-                  let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
-            view.cacheDisplay(in: view.bounds, to: rep)
             let name = String(describing: Swift.type(of: window)).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
             let path = "\(prefix)-\(index)-\(name).png"
+            let image: CGImage?
+            if let composited = CGWindowListCreateImage(.null, .optionIncludingWindow,
+                                                        CGWindowID(window.windowNumber),
+                                                        [.boundsIgnoreFraming, .bestResolution]),
+               composited.width > 1 {
+                image = composited
+            } else if let view = window.contentView?.superview ?? window.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                image = rep.cgImage
+            } else {
+                continue
+            }
+            guard let image else { continue }
+            let rep = NSBitmapImageRep(cgImage: image)
             if let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: URL(fileURLWithPath: path))
                 NSLog("[Swiftcamp] harness: window %d %@ %@ -> %@", index, name,
