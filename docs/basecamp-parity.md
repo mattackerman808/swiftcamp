@@ -75,8 +75,8 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | GPX import, including Garmin extensions | **Have** |
 | GPX export with shaping points | **Have** |
 | GPX 1.0 read | **Have** |
-| **GDB import** | **Have** for BaseCamp's Export and MapSource files, verified against a BaseCamp 4.7.5 export with a City Navigator route; the autosaved `AllData.gdb` layout is written from the notes and unverified until a real one is read; see below |
-| **Restore from BaseCamp's own files** | **Build** — its on-disk library and its backups, read in place; see below |
+| **GDB import** | **Have** — BaseCamp's Export and MapSource files, and BaseCamp's autosaved `AllData.gdb` in its newer layout, each verified against a real file of the same route; see below |
+| **Restore from BaseCamp's own files** | **Have** — File, Import BaseCamp Library finds the autosave under Application Support and brings it across with its lists from `FolderData.gfi`; a Backup bundle is the same two files and is next |
 | GDB export | **Build**, low priority |
 | KML/KMZ export, "view in Google Earth" | **Build**, low priority |
 | Loc, TCX, FIT | **Build**, low priority |
@@ -256,12 +256,24 @@ vertex for vertex, 343 miles. The 1,081 turn points BaseCamp places fold
 into the road on import, as BaseCamp's own GPX export folds them, rather
 than becoming 1,081 shaping points.
 
-Two things wait on a real BaseCamp library from Windows. The autosaved
-`AllData.gdb` uses a second layout, from format 1.46, that the notes
-describe with gaps; the reader has it, guarded so a misjudged field costs
-a waypoint's altitude and not the file, and it is untested. And BaseCamp's
-lists live beside it in `FolderData.gfi`, a sibling format the notes also
-cover, which is how a library's lists come across.
+**Update, later the same day:** BaseCamp 4.8 still runs on this Mac
+under Rosetta, and its library turned out to be the Windows layout
+exactly: `AllData.gdb` in format 1.88 and `FolderData.gfi` beside it,
+under `~/Library/Application Support/Garmin/BaseCamp/Database/4.8/`. The
+newer layout was corrected against that file byte by byte, where the
+notes had it wrong: the autosave keeps the router's turns inside the via
+point they follow, each with its class, an eighteen-byte subclass, a leg
+time in seconds and the turn instruction as text, and the same road came
+out as the export's to a hundredth of a metre. The folder file's items
+are the user's lists and its folders group them; BaseCamp's own Unlisted
+Data and smart lists stay out. `GFIReader`, and `FileImport` reads the
+folder file beside any library. File, Import BaseCamp Library does the
+whole thing from where BaseCamp keeps it, without opening BaseCamp.
+
+Still open: whether a shaping point the user placed in BaseCamp can be
+told from a turn point in either file; a BaseCamp Backup bundle, which
+should be these two files under another name; and what BaseCamp's
+Windows autosave adds, if anything, that the Mac's does not.
 
 **This deserves to be earlier than its glamour suggests.**
 

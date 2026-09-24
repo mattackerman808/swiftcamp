@@ -60,14 +60,14 @@ once the tile is fetched; and the US Census geocoder for addresses that
 index lacks. A result pins on the map and can be kept as a waypoint.
 `docs/data-architecture.md` has the four sources.
 
-GDB import reads MapSource files and BaseCamp exports, routes with their
-road shape included, through the same Import as GPX; the file's signature
-decides. BaseCamp's autosaved `AllData.gdb` and its `FolderData.gfi` lists
-wait on a real library to read against. `Swiftcamp/GDB/`.
+GDB import reads MapSource files, BaseCamp exports and BaseCamp's own
+autosaved library, routes with their road shape included, through the
+same Import as GPX; the file's signature decides. File, Import BaseCamp
+Library finds the autosave under Application Support and brings it across
+with its lists from the folder file beside it. `Swiftcamp/GDB/`.
 
-Not started: duplicate, restoring BaseCamp's own files in place, track
-split and join, elevation profiles. `docs/basecamp-parity.md` has the full
-inventory.
+Not started: duplicate, BaseCamp Backup bundles, track split and join,
+elevation profiles. `docs/basecamp-parity.md` has the full inventory.
 
 Only macOS is being actively worked on. iOS builds but has no overlay path.
 
@@ -223,7 +223,7 @@ resolves to the generic pin in Swift rather than naming a missing image.
 | `Swiftcamp/Model/` | Records, and the only copy of the geo math |
 | `Swiftcamp/Store/` | GRDB database, migrations, and the library store |
 | `Swiftcamp/GPX/` | GPX 1.1 and 1.0 reader, GPX 1.1 writer |
-| `Swiftcamp/GDB/` | Garmin GDB reader, the MapSource symbol table, and the one import door |
+| `Swiftcamp/GDB/` | Garmin GDB and BaseCamp folder-file readers, the MapSource symbol table, and the one import door |
 | `Swiftcamp/Search/` | The search field's sources: coordinates, our own place index, the Census geocoder |
 | `Swiftcamp/Views/` | Window shell, sidebar, and the library model |
 | `SwiftcampTests/` | The whole of it, minus the renderer |
@@ -451,6 +451,15 @@ implements them; this is the index.
   of them on one 343-mile route: kept as shaping points they were a map
   of dots and a sidebar of a thousand rows. Fold them into the road, as
   BaseCamp's own GPX export does.
+- **The format notes were wrong about the autosave's turn points, and a
+  file was right.** The 2024 notes describe the newer layout's auto-route
+  point as fixed bytes; a BaseCamp 4.8 autosave has a class, a subclass,
+  a leg time and the instruction text there, and the waypoint's subclass
+  is eighteen bytes, not twenty-two. Written from the notes the reader
+  threw on the first record. Walked in Python against the real file,
+  field by field, until the walk landed on the second via point's name
+  and the record's end, it read the same road as the export. When a
+  layout is uncertain, get the file and walk it before writing Swift.
 - **A bare binary launched from a tool's shell gets no window.** The model
   runs, `dump` writes, and the page never fires `load`, which looked like
   the second-copy failure above with no second copy anywhere. `open -n

@@ -4,7 +4,8 @@ A native macOS and iOS reimagining of Garmin BaseCamp, for planning, sharing and
 managing GPS routes, tracks and waypoints. Focused on motorcycle and auto
 touring: plan a road route, export GPX, load it on a navigator.
 
-Early. Routes, tracks and waypoints import from GPX and from Garmin's GDB, draw on the map, and
+Early. Routes, tracks and waypoints import from GPX and from Garmin's GDB, including BaseCamp's own
+library in place, lists and all; they draw on the map and
 export back out with their Garmin shaping points intact. Route editing does
 not exist yet. The basemap is complete — street detail to z15, terrain and hillshade,
 buildings, labels, and authentic route shields for all 50 states, streamed from
@@ -72,7 +73,7 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
-| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field and `snapshotWindows` photographs every window, the suggestion list included. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `importBaseCamp`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field and `snapshotWindows` photographs every window, the suggestion list included. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \
