@@ -67,8 +67,11 @@ struct SwiftcampApp: App {
             // first, and a Mac app that answers it with nothing feels
             // broken before anything has been tried.
             CommandGroup(replacing: .importExport) {
-                Button("Import GPX…") { model.isImporting = true }
+                Button("Import GPX or GDB…") { model.isImporting = true }
                     .keyboardShortcut("o")
+                // The whole of BaseCamp's library, from where BaseCamp
+                // keeps it, with its lists. The migration in one click.
+                Button("Import BaseCamp Library") { model.importBaseCampLibrary() }
                 Button("Export GPX…") { model.isExporting = true }
                     .keyboardShortcut("e")
                     // One flag, not three collections. See `hasContent`:

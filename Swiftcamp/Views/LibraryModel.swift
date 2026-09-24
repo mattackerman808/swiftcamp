@@ -315,6 +315,8 @@ final class LibraryModel {
                 saveSearchPin()
             case "newWaypoint":
                 newWaypoint(at: Coordinate(lat: number("lat", step), lon: number("lon", step)))
+            case "importBaseCamp":
+                importBaseCampLibrary()
             case "addPoint":
                 // Straight into the model, past the page: for checking
                 // routing while another copy of the app holds the only
@@ -952,6 +954,16 @@ final class LibraryModel {
         try? store.exportGPX(waypointIDs: waypoints.map(\.id).filter(isSelectedOrNothingIs),
                              routeIDs: routes.map(\.route.id).filter(isSelectedOrNothingIs),
                              trackIDs: tracks.map(\.track.id).filter(isSelectedOrNothingIs))
+    }
+
+    /// Brings BaseCamp's own library on this Mac across, lists included,
+    /// without opening BaseCamp. Says so when there is none.
+    func importBaseCampLibrary() {
+        guard let url = FileImport.baseCampLibrary() else {
+            failure = "No BaseCamp library was found on this Mac. BaseCamp keeps one under Library/Application Support/Garmin once it has run."
+            return
+        }
+        importGPX(from: url)
     }
 
     /// Imports GPX that came from somewhere other than a file, such as a
