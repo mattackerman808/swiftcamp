@@ -339,6 +339,35 @@ final class GPXTests: XCTestCase {
         }
     }
 
+    /// A real export from BaseCamp 4.7 on Windows, made for this suite. It
+    /// opens with a byte-order mark, names itself "Garmin Desktop App",
+    /// binds a dozen Garmin namespaces, and carries extensions the reader
+    /// does not know (creation time, subclass, a second waypoint
+    /// extension); all of that must pass without a mark on the data.
+    func testBaseCampWindowsExportReadsWhole() throws {
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "basecamp-windows-export", withExtension: "gpx"))
+        let data = try Data(contentsOf: url)
+        XCTAssertEqual(Array(data.prefix(3)), [0xEF, 0xBB, 0xBF], "the fixture keeps its byte-order mark")
+
+        let document = try FileImport.read(data: data)
+        XCTAssertEqual(document.waypoints.map(\.name), ["Reno", "Santa Clara"])
+        let reno = try XCTUnwrap(document.waypoints.first)
+        XCTAssertEqual(reno.symbol, "City (Medium)")
+        XCTAssertEqual(reno.comment, "Reno")
+        XCTAssertEqual(reno.descriptionText, "Reno")
+        XCTAssertEqual(reno.lat, 39.539794921875, accuracy: 1e-12)
+        XCTAssertEqual(reno.lon, -119.8223876953125, accuracy: 1e-12)
+
+        let route = try XCTUnwrap(document.routes.first)
+        XCTAssertEqual(route.route.name, "Santa Clara to Reno")
+        XCTAssertEqual(route.route.color, "Magenta")
+        XCTAssertEqual(route.route.mode, .road)
+        XCTAssertEqual(route.route.preferences, RoutePreferences())
+        XCTAssertEqual(route.points.map(\.name), ["Santa Clara", "Reno"])
+        XCTAssertEqual(route.points.map(\.isVia), [true, true])
+        XCTAssertTrue(route.straightLegs == [0], "no road in the file; the leg is straight until routed here")
+    }
+
     /// A BaseCamp file with a Direct profile reads as a direct route, by
     /// namespace; any other profile it names is a road route.
     func testGarminTransportationModeIsReadByNamespace() throws {
