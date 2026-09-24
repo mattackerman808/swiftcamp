@@ -446,7 +446,11 @@ implements them; this is the index.
   GDB it made cannot test the shape, which is why the geometry fixture is
   built by hand and the real check was MapSource's own files. Parse every
   record from its own length-delimited slice: a misjudged field then
-  spoils that record and never the file, and the notes have gaps.
+  spoils that record and never the file, and the notes have gaps. And a
+  BaseCamp route's turn points are route points of a higher class, 1,081
+  of them on one 343-mile route: kept as shaping points they were a map
+  of dots and a sidebar of a thousand rows. Fold them into the road, as
+  BaseCamp's own GPX export does.
 - **A bare binary launched from a tool's shell gets no window.** The model
   runs, `dump` writes, and the page never fires `load`, which looked like
   the second-copy failure above with no second copy anywhere. `open -n

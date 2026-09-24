@@ -97,8 +97,9 @@ final class GDBReaderTests: XCTestCase {
 
     /// The point of the format: a route point's links, less the point
     /// itself and the next one, are the road the planner chose, and a
-    /// point of a class above zero is the router's, not the rider's.
-    func testRoadShapeAndShapingPointsFromALinkedRoute() throws {
+    /// point of a class above zero is the router's turn, which folds into
+    /// the road rather than becoming a point of its own.
+    func testRoadShapeAndTurnPointsFromALinkedRoute() throws {
         var file = GDBBytes()
         file.waypoint("Start", lat: 40.0, lon: -105.0)
         file.waypoint("End", lat: 40.2, lon: -105.2)
@@ -113,8 +114,8 @@ final class GDBReaderTests: XCTestCase {
         let route = try XCTUnwrap(document.routes.first)
         XCTAssertEqual(route.route.name, "Linked")
         XCTAssertEqual(route.route.color, "Magenta")
-        XCTAssertEqual(route.points.map(\.isVia), [true, false, true])
-        XCTAssertEqual(route.points.map(\.name), ["Start", nil, "End"])
+        XCTAssertEqual(route.points.map(\.isVia), [true, true])
+        XCTAssertEqual(route.points.map(\.name), ["Start", "End"])
         // Semicircles round at the eighth decimal, so near rather than equal.
         func near(_ got: [Coordinate]?, _ want: [Coordinate], line: UInt = #line) {
             XCTAssertEqual(got?.count, want.count, line: line)
@@ -123,11 +124,38 @@ final class GDBReaderTests: XCTestCase {
                 XCTAssertEqual(g.lon, w.lon, accuracy: 1e-6, line: line)
             }
         }
-        near(route.points[0].geometry, [Coordinate(lat: 40.05, lon: -105.05)])
-        near(route.points[1].geometry, [Coordinate(lat: 40.15, lon: -105.12), Coordinate(lat: 40.18, lon: -105.15)])
-        XCTAssertNil(route.points[2].geometry)
-        XCTAssertEqual(route.points[2].lat, 40.2, accuracy: 1e-6, "a point without links takes its waypoint's position")
+        // Start's own road, then the turn point and its road, one leg.
+        near(route.points[0].geometry, [Coordinate(lat: 40.05, lon: -105.05), Coordinate(lat: 40.1, lon: -105.1),
+                                        Coordinate(lat: 40.15, lon: -105.12), Coordinate(lat: 40.18, lon: -105.15)])
+        XCTAssertNil(route.points[1].geometry)
+        XCTAssertEqual(route.points[1].lat, 40.2, accuracy: 1e-6, "a point without links takes its waypoint's position")
         XCTAssertEqual(route.path.count, 6)
+    }
+
+    /// A real export from BaseCamp 4.7.5 on Windows with City Navigator:
+    /// two waypoints and a route it calculated, Santa Clara to Reno, which
+    /// GPSBabel reads as 1,083 route points and 8,290 road vertices. Ours
+    /// is the same road, vertex for vertex against GPSBabel's decode, with
+    /// the 1,081 turn points folded into it.
+    func testBaseCampWindowsExport() throws {
+        let document = try GDBReader.read(data: try fixture("basecamp-windows-export.gdb"))
+        XCTAssertEqual(document.waypoints.map(\.name), ["Reno", "Santa Clara"])
+        XCTAssertEqual(document.waypoints.map(\.symbol), ["City (Medium)", "City (Medium)"])
+        XCTAssertEqual(document.waypoints.first?.comment, "Reno")
+        XCTAssertEqual(document.waypoints.first?.createdAt.timeIntervalSince1970,
+                       ISO8601DateFormatter().date(from: "2026-09-24T02:03:24Z")?.timeIntervalSince1970)
+
+        let route = try XCTUnwrap(document.routes.first)
+        XCTAssertEqual(route.route.name, "Santa Clara to Reno")
+        XCTAssertEqual(route.route.color, "Magenta")
+        XCTAssertEqual(route.route.mode, .road)
+        XCTAssertEqual(route.points.map(\.name), ["Santa Clara", "Reno"])
+        XCTAssertEqual(route.points.map(\.isVia), [true, true])
+        XCTAssertGreaterThan(route.points[0].geometry?.count ?? 0, 7_000, "the road is on the one leg")
+        XCTAssertNil(route.points[1].geometry)
+        XCTAssertEqual(route.length / 1609.344, 343.4, accuracy: 0.2)
+        XCTAssertEqual(route.points[0].lat, 37.364501953125, accuracy: 1e-9)
+        XCTAssertEqual(route.points[1].lon, -119.8223876953125, accuracy: 1e-9)
     }
 
     // MARK: - Tracks

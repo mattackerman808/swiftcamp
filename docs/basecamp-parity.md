@@ -75,7 +75,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | GPX import, including Garmin extensions | **Have** |
 | GPX export with shaping points | **Have** |
 | GPX 1.0 read | **Have** |
-| **GDB import** | **Partial** — MapSource files and BaseCamp's Export read, waypoints, routes with their road shape, and tracks; the autosaved `AllData.gdb` layout is written from the notes and unverified until a real one is read; see below |
+| **GDB import** | **Have** for BaseCamp's Export and MapSource files, verified against a BaseCamp 4.7.5 export with a City Navigator route; the autosaved `AllData.gdb` layout is written from the notes and unverified until a real one is read; see below |
 | **Restore from BaseCamp's own files** | **Build** — its on-disk library and its backups, read in place; see below |
 | GDB export | **Build**, low priority |
 | KML/KMZ export, "view in Google Earth" | **Build**, low priority |
@@ -249,7 +249,12 @@ auto-route settings as our preferences. Written from Herbert Oppmann's
 2024 notes on the format, checked against MapSource's own files from the
 GPSBabel repository, and imported through the same door as GPX, decided
 by the file's signature. The one thing GPSBabel never writes is the road
-shape, so the geometry test is a hand-built record.
+shape, so the geometry test is a hand-built record, and the real one is a
+BaseCamp 4.7.5 export of a route it calculated on City Navigator, Santa
+Clara to Reno: 1,083 route points, the same road as GPSBabel's decode
+vertex for vertex, 343 miles. The 1,081 turn points BaseCamp places fold
+into the road on import, as BaseCamp's own GPX export folds them, rather
+than becoming 1,081 shaping points.
 
 Two things wait on a real BaseCamp library from Windows. The autosaved
 `AllData.gdb` uses a second layout, from format 1.46, that the notes

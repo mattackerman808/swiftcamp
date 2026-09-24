@@ -311,6 +311,9 @@ private struct Parser {
         }
 
         guard !points.isEmpty else { return nil }
+        // The last point leads nowhere; anything folded onto it was the
+        // road to a via point that never came.
+        points[points.count - 1].geometry = nil
         for i in points.indices { points[i].routeID = route.id; points[i].seq = i }
         route.createdAt = .now
         route.updatedAt = .now
@@ -318,11 +321,21 @@ private struct Parser {
     }
 
     /// The route's points. A user's via point is class 0 and has a waypoint
-    /// of its own; anything else is a point the router placed, which is a
-    /// shaping point here. Each point carries the links to the next one,
-    /// beginning with its own position: that list, less its two ends, is
-    /// the leg's geometry, and it is the reason a GDB route arrives on a
-    /// device following the road MapSource chose.
+    /// of its own; anything else is a point the router placed at a turn,
+    /// and those fold into the road rather than becoming points here. Each
+    /// point carries the links to the next one, beginning with its own
+    /// position, so a via point's geometry is its own links and every
+    /// hidden point's after it, less the final vertex, which is the next
+    /// via point. That is the reason a GDB route arrives on a device
+    /// following the road MapSource chose.
+    ///
+    /// Folding the turn points is what BaseCamp's own GPX export and
+    /// GPSBabel both do. A real BaseCamp route from Santa Clara to Reno
+    /// carried 1,081 of them, and kept as shaping points they were a map of
+    /// dots and a sidebar of 1,081 rows; folded, they are the line. A
+    /// shaping point the user placed in BaseCamp is not distinguishable
+    /// from a turn point in a file seen so far and folds with them: the
+    /// line is unchanged, only the handle is lost.
     private mutating func routePoints(count: Int, _ c: inout Cursor) throws -> [RoutePoint] {
         var points: [RoutePoint] = []
         for _ in 0..<min(count, 100_000) {
@@ -378,10 +391,22 @@ private struct Parser {
             } else {
                 throw GDBError.malformed("route point \"\(name)\" has no position")
             }
+            // The links less their last vertex, which is the next point's
+            // own position and will be supplied by it.
+            let road = links.count > 1 ? Array(links.dropLast()) : []
+
+            if wptClass != 0, !points.isEmpty {
+                // A turn point: its position and its road extend the
+                // previous point's leg.
+                var geometry = points[points.count - 1].geometry ?? []
+                geometry.append(contentsOf: road.isEmpty ? [position] : road)
+                points[points.count - 1].geometry = geometry
+                continue
+            }
             var point = RoutePoint(routeID: "", seq: points.count, lat: position.lat, lon: position.lon,
                                    name: wptClass == 0 ? nonEmpty(name) : nil,
                                    isVia: wptClass == 0)
-            if links.count > 2 { point.geometry = Array(links[1..<(links.count - 1)]) }
+            if road.count > 1 { point.geometry = Array(road.dropFirst()) }
             points.append(point)
         }
         return points
