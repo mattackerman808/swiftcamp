@@ -869,7 +869,7 @@ final class LibraryModel {
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
-                let document = try GPXReader.read(contentsOf: url)
+                let document = try FileImport.read(contentsOf: url)
                 guard !document.isEmpty else {
                     return .success(GPXImportResult(count: GPXImportCount(), ids: []))
                 }
@@ -958,7 +958,7 @@ final class LibraryModel {
     /// device.
     func importGPX(data: Data, named name: String) {
         do {
-            let document = try GPXReader.read(data: data)
+            let document = try FileImport.read(data: data)
             guard !document.isEmpty else {
                 failure = "\(name) has no waypoints, routes or tracks in it."
                 return

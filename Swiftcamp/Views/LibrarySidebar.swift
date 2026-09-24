@@ -271,7 +271,7 @@ struct LibrarySidebar: View {
                 ContentUnavailableView {
                     Label("Nothing here yet", systemImage: "map")
                 } description: {
-                    Text("Import a GPX file to get started.")
+                    Text("Import a GPX or GDB file to get started.")
                 } actions: {
                     Button("New Route") { model.newRoute() }
                     Button("Import GPX…") { model.isImporting = true }

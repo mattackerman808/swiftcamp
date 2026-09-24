@@ -47,7 +47,7 @@ struct ContentView: View {
         .onSubmit(of: .search) {
             if let first = model.search.results.first { model.show(first) }
         }
-        .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.gpx], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.gpx, .gdb], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): urls.forEach(model.importGPX(from:))
             case .failure(let error): model.failure = error.localizedDescription
@@ -196,7 +196,7 @@ struct ContentView: View {
                 Label("Import", systemImage: "square.and.arrow.down")
             }
             .labelStyle(.titleAndIcon)
-            .help("Import a GPX file into the library (⌘O)")
+            .help("Import a GPX or Garmin GDB file into the library (⌘O)")
             Button { model.isExporting = true } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
@@ -220,6 +220,10 @@ struct ContentView: View {
 /// launched once.
 extension UTType {
     static let gpx = UTType(importedAs: "com.topografix.gpx", conformingTo: .xml)
+    /// Garmin's GDB. macOS knows no owner for the extension, so the type
+    /// is whatever the system makes of `.gdb`; the importer decides by the
+    /// file's own signature, not by this.
+    static let gdb = UTType(filenameExtension: "gdb") ?? .data
 }
 
 /// A placeholder for `fileExporter`, which insists on a document.
