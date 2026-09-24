@@ -91,9 +91,19 @@ struct LibrarySidebar: View {
             ForEach(model.lists(in: nil)) { list in
                 listRows(list, depth: 0)
             }
+            if model.lists.isEmpty {
+                // The one gesture that makes a list, said once. Gone the
+                // moment a list exists, so the pane never grows a button
+                // for it; a row of controls is the BaseCamp look this
+                // sidebar is deliberately not.
+                Text("Right-click to add a list")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .selectionDisabled()
+            }
         }
         .listStyle(.sidebar)
-        .frame(height: CGFloat(min(rows, 8)) * 24 + 20)
+        .frame(height: CGFloat(min(rows, 8)) * 24 + 20 + (model.lists.isEmpty ? 20 : 0))
     }
 
     /// A list and, under it, its sublists, indented. Recursion through a
