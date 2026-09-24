@@ -75,7 +75,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | GPX import, including Garmin extensions | **Have** |
 | GPX export with shaping points | **Have** |
 | GPX 1.0 read | **Have** |
-| **GDB import** | **Build** — see below, this is the migration blocker |
+| **GDB import** | **Partial** — MapSource files and BaseCamp's Export read, waypoints, routes with their road shape, and tracks; the autosaved `AllData.gdb` layout is written from the notes and unverified until a real one is read; see below |
 | **Restore from BaseCamp's own files** | **Build** — its on-disk library and its backups, read in place; see below |
 | GDB export | **Build**, low priority |
 | KML/KMZ export, "view in Google Earth" | **Build**, low priority |
@@ -240,10 +240,23 @@ format. A user with years of waypoints and routes cannot move to Swiftcamp
 without it, and telling them to export everything to GPX first is both a chore
 and lossy.
 
-It is tractable: GPSBabel implements GDB read and write, and there is a
-published reverse-engineering write-up of the format. Reimplementing the read
-path is real work but bounded, and it is the single feature most likely to
-decide whether someone actually switches.
+**Update, 2026-09-23:** `GDBReader` reads the format through 1.9, which is
+what MapSource wrote, what BaseCamp's Export writes as "version 3", and
+what GPSBabel writes: waypoints with symbol and notes, routes with their
+via points, hidden turn points as shaping points and the road between
+them as leg geometry, tracks with times and elevation, colours, and the
+auto-route settings as our preferences. Written from Herbert Oppmann's
+2024 notes on the format, checked against MapSource's own files from the
+GPSBabel repository, and imported through the same door as GPX, decided
+by the file's signature. The one thing GPSBabel never writes is the road
+shape, so the geometry test is a hand-built record.
+
+Two things wait on a real BaseCamp library from Windows. The autosaved
+`AllData.gdb` uses a second layout, from format 1.46, that the notes
+describe with gaps; the reader has it, guarded so a misjudged field costs
+a waypoint's altitude and not the file, and it is untested. And BaseCamp's
+lists live beside it in `FolderData.gfi`, a sibling format the notes also
+cover, which is how a library's lists come across.
 
 **This deserves to be earlier than its glamour suggests.**
 

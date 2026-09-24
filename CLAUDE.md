@@ -60,7 +60,12 @@ once the tile is fetched; and the US Census geocoder for addresses that
 index lacks. A result pins on the map and can be kept as a waypoint.
 `docs/data-architecture.md` has the four sources.
 
-Not started: duplicate, GDB import, restoring BaseCamp's own files, track
+GDB import reads MapSource files and BaseCamp exports, routes with their
+road shape included, through the same Import as GPX; the file's signature
+decides. BaseCamp's autosaved `AllData.gdb` and its `FolderData.gfi` lists
+wait on a real library to read against. `Swiftcamp/GDB/`.
+
+Not started: duplicate, restoring BaseCamp's own files in place, track
 split and join, elevation profiles. `docs/basecamp-parity.md` has the full
 inventory.
 
@@ -218,6 +223,7 @@ resolves to the generic pin in Swift rather than naming a missing image.
 | `Swiftcamp/Model/` | Records, and the only copy of the geo math |
 | `Swiftcamp/Store/` | GRDB database, migrations, and the library store |
 | `Swiftcamp/GPX/` | GPX 1.1 and 1.0 reader, GPX 1.1 writer |
+| `Swiftcamp/GDB/` | Garmin GDB reader, the MapSource symbol table, and the one import door |
 | `Swiftcamp/Search/` | The search field's sources: coordinates, our own place index, the Census geocoder |
 | `Swiftcamp/Views/` | Window shell, sidebar, and the library model |
 | `SwiftcampTests/` | The whole of it, minus the renderer |
@@ -433,6 +439,14 @@ implements them; this is the index.
   the route and keeps A* admissible. Measured with `valhalla_service` on
   the Colorado graph before a line of Swift, by tracing both candidate
   routes' edges and costing them offline under each shape of penalty.
+- **A GDB route's road is in its links, and GPSBabel never writes them.**
+  Each route point carries the polyline to the next one, itself and the
+  next point included; the interior is the leg geometry, the same thing
+  `gpxx:rpt` carries. GPSBabel's writer stores only the two ends, so a
+  GDB it made cannot test the shape, which is why the geometry fixture is
+  built by hand and the real check was MapSource's own files. Parse every
+  record from its own length-delimited slice: a misjudged field then
+  spoils that record and never the file, and the notes have gaps.
 - **A bare binary launched from a tool's shell gets no window.** The model
   runs, `dump` writes, and the page never fires `load`, which looked like
   the second-copy failure above with no second copy anywhere. `open -n

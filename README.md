@@ -4,7 +4,7 @@ A native macOS and iOS reimagining of Garmin BaseCamp, for planning, sharing and
 managing GPS routes, tracks and waypoints. Focused on motorcycle and auto
 touring: plan a road route, export GPX, load it on a navigator.
 
-Early. Routes, tracks and waypoints import from GPX, draw on the map, and
+Early. Routes, tracks and waypoints import from GPX and from Garmin's GDB, draw on the map, and
 export back out with their Garmin shaping points intact. Route editing does
 not exist yet. The basemap is complete — street detail to z15, terrain and hillshade,
 buildings, labels, and authentic route shields for all 50 states, streamed from
