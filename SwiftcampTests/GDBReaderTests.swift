@@ -158,6 +158,30 @@ final class GDBReaderTests: XCTestCase {
         XCTAssertEqual(route.points[1].lon, -119.8223876953125, accuracy: 1e-9)
     }
 
+    /// BaseCamp 4.8's own autosave on the Mac, format 1.88, holding the
+    /// same library after importing the Windows export: the newer layout,
+    /// with the router's turns kept inside the via point they follow. It
+    /// reads to the same road as the export, to a hundredth of a metre.
+    func testBaseCampMacAutosave() throws {
+        let document = try GDBReader.read(data: try fixture("basecamp-mac-AllData.gdb"))
+        XCTAssertEqual(document.waypoints.map(\.name), ["Reno", "Santa Clara"])
+        XCTAssertEqual(document.waypoints.map(\.symbol), ["City (Medium)", "City (Medium)"])
+        XCTAssertEqual(document.waypoints.first?.createdAt.timeIntervalSince1970,
+                       ISO8601DateFormatter().date(from: "2026-09-24T02:03:24Z")?.timeIntervalSince1970)
+
+        let route = try XCTUnwrap(document.routes.first)
+        let export = try XCTUnwrap(try GDBReader.read(data: try fixture("basecamp-windows-export.gdb")).routes.first)
+        XCTAssertEqual(route.route.name, "Santa Clara to Reno")
+        XCTAssertEqual(route.route.color, "Magenta")
+        XCTAssertEqual(route.points.map(\.name), ["Santa Clara", "Reno"])
+        XCTAssertEqual(route.path.count, export.path.count)
+        for (a, b) in zip(route.path, export.path) {
+            XCTAssertEqual(a.lat, b.lat, accuracy: 1e-8)
+            XCTAssertEqual(a.lon, b.lon, accuracy: 1e-8)
+        }
+        XCTAssertEqual(route.length, export.length, accuracy: 1)
+    }
+
     // MARK: - Tracks
 
     func testTrackPointsComeBackWithTimesAndElevation() throws {

@@ -28,8 +28,10 @@ import Foundation
 /// is what MapSource wrote, what BaseCamp's Export writes as "version 3"
 /// and what GPSBabel writes, has one layout of waypoint, route and track.
 /// From 1.46, which is BaseCamp's autosaved `AllData.gdb`, they are laid
-/// out differently. Both are here; the newer one is written from the notes
-/// alone until a real autosave has been read against it, and says so.
+/// out differently, and the notes describe that layout with gaps. Both are
+/// here; the newer one was corrected against a real BaseCamp 4.8 autosave
+/// on the Mac, format 1.88, whose route walks field by field to the byte
+/// and reproduces the same road as BaseCamp's export of it.
 enum GDBReader {
     static func read(contentsOf url: URL) throws -> GPXDocument {
         try read(data: Data(contentsOf: url))
@@ -77,7 +79,7 @@ private struct Parser {
 
     mutating func read() throws -> GPXDocument {
         guard GDBReader.looksLikeGDB(data) else { throw GDBError.notGDB }
-        var cursor = Cursor(data, from: 4)
+        var cursor = GDBCursor(data, from: 4)
         let primary = try cursor.u16()  // 0x64 MPS, 0x65 early GDB, 0x66 GDB and GFI
 
         var document = GPXDocument()
@@ -86,7 +88,7 @@ private struct Parser {
             let length = Int(try cursor.u32())
             let type = try cursor.u8()
             guard cursor.remaining >= length else { throw GDBError.truncated }
-            let slice = Cursor(data, from: cursor.offset, count: length)
+            let slice = GDBCursor(data, from: cursor.offset, count: length)
             cursor.skip(length)
 
             switch type {
@@ -139,7 +141,7 @@ private struct Parser {
     /// a hidden waypoint of a higher class, and a library import that put
     /// two hundred "turn left" points beside the user's forty campsites
     /// would be the migration nobody thanks you for.
-    private mutating func waypoint(from slice: Cursor) throws -> ReadWaypoint? {
+    private mutating func waypoint(from slice: GDBCursor) throws -> ReadWaypoint? {
         var c = slice
         let name = try c.string(utf8: utf8)
         let wptClass = Int(try c.u32())
@@ -147,10 +149,10 @@ private struct Parser {
         var waypoint = Waypoint(name: name, lat: 0, lon: 0)
         var symbol = 18
         if newLayout {
-            // BaseCamp's autosave layout, from the notes and not yet from a
-            // file. The fields up to the icon are certain; after them the
-            // subclass blocks are the uncertain part, so altitude and time
-            // are read only while the bytes still make sense.
+            // BaseCamp's autosave layout, as a 4.8 autosave has it. The
+            // subclass is eighteen bytes here, not the older twenty-two,
+            // and is followed by four bytes the notes do not name; a
+            // creation time comes twice, the first taken as created.
             waypoint.lat = try c.coordinate()
             waypoint.lon = try c.coordinate()
             waypoint.comment = nonEmpty(try c.string(utf8: true))
@@ -160,17 +162,23 @@ private struct Parser {
             _ = try c.u32()                              // colour
             _ = try c.u8()
             if version >= 154 {
-                if try c.u8() == 1 { c.skip(22) }        // subclass 1
-                if try c.u8() == 1 { c.skip(22) }        // subclass 2
+                if try c.u8() == 1 { c.skip(18) }        // subclass 1
+                if try c.u8() == 1 { c.skip(18) }        // subclass 2
             } else {
-                c.skip(22)
+                c.skip(18)
             }
-            if let altitude = try? c.fdouble() { waypoint.elevation = altitude }
-            _ = try? c.u8()
-            if let links = try? c.u32(), links < 64 {
-                for _ in 0..<links { _ = try? c.string(utf8: true) }
-                _ = try? c.fdouble()                     // temperature
-                if let time = try? c.fint() { waypoint.createdAt = Date(timeIntervalSince1970: TimeInterval(time)) }
+            c.skip(4)
+            do {
+                waypoint.elevation = try c.fdouble()
+                _ = try c.u8()
+                let links = try c.u32()
+                for _ in 0..<min(links, 64) { _ = try c.string(utf8: true) }
+                _ = try c.fdouble()                      // temperature
+                _ = try c.u8()
+                if let time = try c.fint() { waypoint.createdAt = Date(timeIntervalSince1970: TimeInterval(time)) }
+            } catch {
+                // Name, position, notes and symbol are read; the rest of
+                // this record was not where a 4.8 autosave puts it.
             }
         } else {
             _ = try c.string(utf8: utf8)                 // country code
@@ -224,7 +232,7 @@ private struct Parser {
 
     // MARK: Routes
 
-    private mutating func route(from slice: Cursor) throws -> RouteDetail? {
+    private mutating func route(from slice: GDBCursor) throws -> RouteDetail? {
         var c = slice
         var route = Route(name: try c.string(utf8: utf8))
         _ = try c.u8()                                   // auto-name flag
@@ -232,7 +240,6 @@ private struct Parser {
         var points: [RoutePoint] = []
         if newLayout {
             points = try routePoints(count: Int(try c.u32()), &c)
-            c.skip(3)
             if try c.u8() == 0 {                         // bounds present
                 c.skip(16)
             }
@@ -292,18 +299,22 @@ private struct Parser {
                     if calculation == 1 { route.preferences.prefer = .shorterDistance }
                 }
                 route.comment = nonEmpty(try c.string(utf8: utf8))
-                if version >= 115 {
-                    _ = try c.u8()                       // filtered route
-                    let filtered = try c.u32()
-                    for _ in 0..<min(filtered, 100_000) { try skipLinkPoint(&c) }
-                    if try c.u8() == 0 { try skipLinkPoint(&c); try skipLinkPoint(&c) }
-                }
-                if version >= 129 { _ = try c.u8() }
-                if version >= 146 {
+                if newLayout {
+                    // Observed in a 4.8 autosave: a flag, a count, three
+                    // bytes, then the activity profile.
+                    _ = try c.u8()
+                    _ = try c.u32()
+                    c.skip(3)
                     switch try c.u32() {                 // activity profile
                     case 6: route.mode = .direct
                     default: break
                     }
+                } else if version >= 115 {
+                    _ = try c.u8()                       // filtered route
+                    let filtered = try c.u32()
+                    for _ in 0..<min(filtered, 100_000) { try skipLinkPoint(&c) }
+                    if try c.u8() == 0 { try skipLinkPoint(&c); try skipLinkPoint(&c) }
+                    if version >= 129 { _ = try c.u8() }
                 }
             }
         } catch {
@@ -336,7 +347,7 @@ private struct Parser {
     /// shaping point the user placed in BaseCamp is not distinguishable
     /// from a turn point in a file seen so far and folds with them: the
     /// line is unchanged, only the handle is lost.
-    private mutating func routePoints(count: Int, _ c: inout Cursor) throws -> [RoutePoint] {
+    private mutating func routePoints(count: Int, _ c: inout GDBCursor) throws -> [RoutePoint] {
         var points: [RoutePoint] = []
         for _ in 0..<min(count, 100_000) {
             let name = try c.string(utf8: utf8)
@@ -346,22 +357,7 @@ private struct Parser {
                 c.skip(version > 100 ? 22 : 21)          // subclass
             }
             if try c.u8() == 1 { _ = try c.string(utf8: utf8) }   // unknown string
-            c.skip(12)                                   // unknown 2, 3, 4
-            c.skip(version > 100 ? 2 : 1)                // unknown 5
-            _ = try c.u32()                              // unknown 6
-
-            let linkCount = Int(try c.u32())
-            var links: [Coordinate] = []
-            links.reserveCapacity(min(linkCount, 100_000))
-            for _ in 0..<min(linkCount, 100_000) {
-                let lat = try c.coordinate(), lon = try c.coordinate()
-                if !newLayout { _ = try c.fdouble() }
-                links.append(Coordinate(lat: lat, lon: lon))
-            }
-            if try c.u8() == 0 {                         // bounds present
-                c.skip(8); if !newLayout { _ = try c.fdouble() }
-                c.skip(8); if !newLayout { _ = try c.fdouble() }
-            }
+            let links = try linkedPointTail(&c)
             if version >= 108 { c.skip(8) }
             if version >= 115, !newLayout { _ = try c.u32(); _ = try c.u8() }
             if version >= 109 {
@@ -372,54 +368,89 @@ private struct Parser {
                 let some = Int(try c.u32())
                 c.skip(some)
             }
+            try append(name: name, wptClass: wptClass, links: links, to: &points)
+
             if newLayout {
-                let autoroute = try c.u32()
-                for _ in 0..<min(autoroute, 100_000) {
-                    c.skip(8 + 4 + 18 + 11 + 4 + 6 + 4)
-                    let n = try c.u32()
-                    for _ in 0..<min(n, 100_000) { c.skip(8) }
-                    if try c.u8() == 0 { c.skip(16) }
-                    c.skip(8)
+                // The autosave keeps the turns the router placed inside
+                // the via point they follow, each with its own links, its
+                // instruction and its leg time: the same thing an older
+                // file spreads over hidden route points.
+                c.skip(13)
+                let turns = try c.u32()
+                for _ in 0..<min(turns, 100_000) {
+                    let lat = try c.coordinate(), lon = try c.coordinate()
+                    let turnClass = Int(try c.u32())
+                    c.skip(18)                           // subclass
+                    _ = try c.u32()                      // leg time, seconds
+                    _ = try c.string(utf8: true)         // the instruction
+                    c.skip(2)
+                    let turnLinks = try linkedPointTail(&c)
+                    c.skip(8 + 3)
+                    try append(name: "", wptClass: max(turnClass, 1),
+                               links: turnLinks.isEmpty ? [Coordinate(lat: lat, lon: lon)] : turnLinks,
+                               to: &points)
                 }
             }
-
-            let position: Coordinate
-            if let first = links.first {
-                position = first
-            } else if let known = waypointsByName[name] {
-                position = known.coordinate
-            } else {
-                throw GDBError.malformed("route point \"\(name)\" has no position")
-            }
-            // The links less their last vertex, which is the next point's
-            // own position and will be supplied by it.
-            let road = links.count > 1 ? Array(links.dropLast()) : []
-
-            if wptClass != 0, !points.isEmpty {
-                // A turn point: its position and its road extend the
-                // previous point's leg.
-                var geometry = points[points.count - 1].geometry ?? []
-                geometry.append(contentsOf: road.isEmpty ? [position] : road)
-                points[points.count - 1].geometry = geometry
-                continue
-            }
-            var point = RoutePoint(routeID: "", seq: points.count, lat: position.lat, lon: position.lon,
-                                   name: wptClass == 0 ? nonEmpty(name) : nil,
-                                   isVia: wptClass == 0)
-            if road.count > 1 { point.geometry = Array(road.dropFirst()) }
-            points.append(point)
         }
         return points
     }
 
-    private func skipLinkPoint(_ c: inout Cursor) throws {
+    /// The part a via point and a turn share: five fields nobody has
+    /// named, then the links to the next point, then bounds.
+    private func linkedPointTail(_ c: inout GDBCursor) throws -> [Coordinate] {
+        c.skip(12)                                       // unknown 2, 3, 4
+        c.skip(version > 100 ? 2 : 1)                    // unknown 5
+        _ = try c.u32()                                  // unknown 6
+        let linkCount = Int(try c.u32())
+        var links: [Coordinate] = []
+        links.reserveCapacity(min(linkCount, 100_000))
+        for _ in 0..<min(linkCount, 100_000) {
+            let lat = try c.coordinate(), lon = try c.coordinate()
+            if !newLayout { _ = try c.fdouble() }
+            links.append(Coordinate(lat: lat, lon: lon))
+        }
+        if try c.u8() == 0 {                             // bounds present
+            c.skip(8); if !newLayout { _ = try c.fdouble() }
+            c.skip(8); if !newLayout { _ = try c.fdouble() }
+        }
+        return links
+    }
+
+    /// Adds a route point, or folds a turn into the previous one's leg.
+    /// A point's links begin with its own position and end with the next
+    /// point's, so the road it contributes is its links less the last.
+    private func append(name: String, wptClass: Int, links: [Coordinate], to points: inout [RoutePoint]) throws {
+        let position: Coordinate
+        if let first = links.first {
+            position = first
+        } else if let known = waypointsByName[name] {
+            position = known.coordinate
+        } else {
+            throw GDBError.malformed("route point \"\(name)\" has no position")
+        }
+        let road = links.count > 1 ? Array(links.dropLast()) : []
+
+        if wptClass != 0, !points.isEmpty {
+            var geometry = points[points.count - 1].geometry ?? []
+            geometry.append(contentsOf: road.isEmpty ? [position] : road)
+            points[points.count - 1].geometry = geometry
+            return
+        }
+        var point = RoutePoint(routeID: "", seq: points.count, lat: position.lat, lon: position.lon,
+                               name: wptClass == 0 ? nonEmpty(name) : nil,
+                               isVia: wptClass == 0)
+        if road.count > 1 { point.geometry = Array(road.dropFirst()) }
+        points.append(point)
+    }
+
+    private func skipLinkPoint(_ c: inout GDBCursor) throws {
         c.skip(8)
         if !newLayout { _ = try c.fdouble() }
     }
 
     // MARK: Tracks
 
-    private mutating func track(from slice: Cursor) throws -> TrackDetail? {
+    private mutating func track(from slice: GDBCursor) throws -> TrackDetail? {
         var c = slice
         var track = Track(name: try c.string(utf8: utf8))
         _ = try c.u8()                                   // display
@@ -496,7 +527,7 @@ private struct Parser {
 /// A little-endian reader over a slice of the file. Every read is bounds
 /// checked and throws `truncated` rather than trapping, because the input
 /// is a file from somewhere else.
-private struct Cursor {
+struct GDBCursor {
     let data: Data
     private(set) var offset: Int
     let end: Int

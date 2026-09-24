@@ -206,11 +206,15 @@ struct LibraryStore: Sendable {
     func importGPX(_ document: GPXDocument, into listID: String? = nil) throws -> GPXImportResult {
         try database.writer.write { db in
             var ids: [String] = []
+            var importedWaypoints: [String: [String]] = [:]
+            var importedRoutes: [String: [String]] = [:]
+            var importedTracks: [String: [String]] = [:]
 
             for var waypoint in document.waypoints {
                 waypoint.listID = listID
                 try waypoint.insert(db)
                 ids.append(waypoint.id)
+                importedWaypoints[waypoint.name, default: []].append(waypoint.id)
             }
 
             // Anything arriving without a colour gets one, counting on from
@@ -228,6 +232,7 @@ struct LibraryStore: Sendable {
                 }
                 try route.insert(db)
                 ids.append(route.id)
+                importedRoutes[route.name, default: []].append(route.id)
                 for (index, point) in detail.points.enumerated() {
                     var point = point
                     point.id = nil
@@ -246,6 +251,7 @@ struct LibraryStore: Sendable {
                 }
                 try track.insert(db)
                 ids.append(track.id)
+                importedTracks[track.name, default: []].append(track.id)
                 for (index, point) in detail.points.enumerated() {
                     var point = point
                     point.id = nil
@@ -255,10 +261,59 @@ struct LibraryStore: Sendable {
                 }
             }
 
+            try Self.file(document, importedWaypointIDs: importedWaypoints,
+                          routeIDs: importedRoutes, trackIDs: importedTracks, in: db)
+
             return GPXImportResult(count: GPXImportCount(waypoints: document.waypoints.count,
                                                          routes: document.routes.count,
                                                          tracks: document.tracks.count),
                                    ids: ids)
+        }
+    }
+
+    /// Recreates the document's lists, parents before children, and files
+    /// the members it names in them, matched by name among the items this
+    /// import just made and never against the rest of the library. A name
+    /// in two lists lands in the first; an item can be in one list here.
+    /// An item nobody names stays where `listID` put it.
+    private static func file(_ document: GPXDocument,
+                             importedWaypointIDs: [String: [String]],
+                             routeIDs: [String: [String]],
+                             trackIDs: [String: [String]],
+                             in db: Database) throws {
+        guard !document.lists.isEmpty else { return }
+        var idByName: [String: String] = [:]
+        var pending = document.lists
+        var order = try LibraryList.fetchCount(db)
+        // Each pass creates the lists whose parent exists; a list whose
+        // parent is never created goes to the top rather than nowhere.
+        while !pending.isEmpty {
+            let ready = pending.filter { $0.parent == nil || idByName[$0.parent!] != nil }
+            let batch = ready.isEmpty ? pending.map { var l = $0; l.parent = nil; return l } : ready
+            for imported in batch {
+                let list = LibraryList(name: imported.name, parentID: imported.parent.flatMap { idByName[$0] },
+                                       sortOrder: order)
+                order += 1
+                try list.insert(db)
+                idByName[imported.name] = list.id
+            }
+            let done = Set(batch.map(\.name))
+            pending.removeAll { done.contains($0.name) }
+        }
+
+        var filed: Set<String> = []
+        func file(_ table: String, _ names: [String], _ ids: [String: [String]], listID: String) throws {
+            for name in names {
+                guard let id = ids[name]?.first(where: { !filed.contains($0) }) else { continue }
+                filed.insert(id)
+                try db.execute(sql: "UPDATE \(table) SET list_id = ? WHERE id = ?", arguments: [listID, id])
+            }
+        }
+        for imported in document.lists {
+            guard let listID = idByName[imported.name] else { continue }
+            try file("waypoints", imported.members.waypoints, importedWaypointIDs, listID: listID)
+            try file("routes", imported.members.routes, routeIDs, listID: listID)
+            try file("tracks", imported.members.tracks, trackIDs, listID: listID)
         }
     }
 

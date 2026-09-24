@@ -18,6 +18,9 @@ struct GPXDocument: Equatable, Sendable {
     var waypoints: [Waypoint] = []
     var routes: [RouteDetail] = []
     var tracks: [TrackDetail] = []
+    /// Lists from a library that has them, BaseCamp's folder file beside
+    /// its autosave. GPX has none, so this is empty for a GPX.
+    var lists: [ImportedList] = []
 
     var isEmpty: Bool { waypoints.isEmpty && routes.isEmpty && tracks.isEmpty }
 }
