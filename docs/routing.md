@@ -196,29 +196,25 @@ libcurl to the link.
 ## Building libvalhalla for the Mac
 
 There is no Homebrew formula and the `valhalla-mobile` Swift package targets
-iOS and Android only, so the Mac links a CMake build from a sibling checkout.
-This is a developer-machine dependency for now, in the same spirit as the
-fetched basemap; packaging it as an XCFramework is the next step.
+iOS and Android only, so the Mac links a CMake build. It lives inside the
+repo at `Vendor/valhalla`, gitignored in the same spirit as the fetched
+basemap; packaging it as an XCFramework is the next step.
 
 ```bash
 brew install cmake ninja pkgconf boost protobuf geos libspatialite \
              spatialite-tools luajit openssl@3 expat
-cd ~/git && git clone --recurse-submodules --shallow-submodules --depth 1 \
-    https://github.com/valhalla/valhalla.git
-cd valhalla
-git apply ~/git/swiftcamp/scripts/valhalla-intersecting-edges.patch
-git apply ~/git/swiftcamp/scripts/valhalla-curvature.patch
-cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIBRARY_MODULES=ON \
-  -DENABLE_SERVICES=OFF -DENABLE_PYTHON_BINDINGS=OFF -DENABLE_TESTS=OFF \
-  -DENABLE_HTTP=ON -DENABLE_GEOTIFF=OFF -DENABLE_CCACHE=OFF \
-  -DENABLE_TOOLS=ON -DENABLE_DATA_TOOLS=ON -DENABLE_SINGLE_FILES_WERROR=OFF \
-  -DCMAKE_PREFIX_PATH="/opt/homebrew;/opt/homebrew/opt/openssl@3" \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
-cmake --build build
+./scripts/build-valhalla.sh
 ```
 
-A few minutes on an M5 Max. What matters afterwards:
+The script clones Valhalla at a pinned release tag, applies both patches
+below, configures CMake with the options explained at the end of this
+section, and builds. Rerunning it is cheap: it reapplies the patches only
+when one has changed and lets ninja rebuild what they touched. The pin is
+3.9.0; upstream had not touched any of the three patched files since
+before that release when it was chosen, so moving it means checking the
+patches still apply and re-measuring what they fix.
+
+A few minutes on an M5 Max. What matters afterwards, under `Vendor/valhalla`:
 
 | Path | What |
 | --- | --- |
@@ -237,9 +233,10 @@ node whether or not anyone asked. It is written to be sent upstream.
 The second adds `use_curvature` to the motorcycle costing; see
 Preferences above.
 
-`project.yml` points the macOS target at these under `$(HOME)/git/valhalla`,
-and links protobuf and its abseil dependencies from Homebrew. The abseil
-list came from `pkg-config --libs protobuf`; regenerate it if protobuf is
+`project.yml` points the macOS target at these under
+`$(SRCROOT)/Vendor/valhalla`, with a Check Valhalla build phase that stops
+early, and says what to run, when the library is missing. It links protobuf
+and its abseil dependencies from Homebrew. The abseil list came from `pkg-config --libs protobuf`; regenerate it if protobuf is
 upgraded, because abseil's library names carry its release date.
 
 Services and Python bindings are off because the app needs neither and
@@ -252,11 +249,11 @@ Data tools are on so the same build produces `valhalla_build_tiles`.
 ```bash
 mkdir -p ~/valhalla-data/colorado && cd ~/valhalla-data
 curl -sLO https://download.geofabrik.de/north-america/us/colorado-latest.osm.pbf
-python3 ~/git/valhalla/scripts/valhalla_build_config \
+python3 ~/git/swiftcamp/Vendor/valhalla/scripts/valhalla_build_config \
   --mjolnir-tile-dir ~/valhalla-data/colorado/tiles \
   --mjolnir-tile-extract ~/valhalla-data/colorado/tiles.tar \
   --mjolnir-timezone "" --mjolnir-admin "" > colorado/valhalla.json
-~/git/valhalla/build/valhalla_build_tiles -c colorado/valhalla.json colorado-latest.osm.pbf
+~/git/swiftcamp/Vendor/valhalla/build/valhalla_build_tiles -c colorado/valhalla.json colorado-latest.osm.pbf
 ```
 
 Admin and timezone databases are left empty here. Routing works without

@@ -7,12 +7,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 git clone https://github.com/mattackerman808/swiftcamp.git && cd swiftcamp
 brew install xcodegen pmtiles librsvg rclone
+brew install cmake ninja pkgconf boost protobuf geos libspatialite \
+             spatialite-tools luajit openssl@3 expat
 ./scripts/fetch-basemap.sh      # ~43 MB, not in git, ~1 second
+./scripts/build-valhalla.sh     # routing engine into Vendor/, a few minutes
 xcodegen generate               # .xcodeproj is gitignored
 open Swiftcamp.xcodeproj
 ```
 
 Without the basemap fetch the app builds but asserts at launch with no map.
+Without the Valhalla build the macOS target stops at its Check Valhalla
+phase. Rerun `build-valhalla.sh` after pulling a change to its pin or to
+`scripts/valhalla-*.patch`.
 
 Only `rclone` needs configuring, and only to publish tiles. Set up a remote
 named `r2` against Cloudflare R2 with `no_check_bucket = true`; a
@@ -198,6 +204,7 @@ the misconfiguration presents as a macOS rendering fault.
 
 ```bash
 ./scripts/fetch-basemap.sh        # bundled z0-6 world archive
+./scripts/build-valhalla.sh       # pinned, patched libvalhalla in Vendor/valhalla
 python3 scripts/make_shields.py   # sprite sheet + ShieldCatalog.swift + SymbolCatalog.swift
 python3 scripts/audit_shields.py  # contrast/legibility check over all 108
 ```

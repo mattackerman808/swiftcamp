@@ -20,9 +20,9 @@
 # US extract, aborts the build ten minutes in. Both are build-time inputs
 # baked into the tiles and never shipped.
 #
-#   cd ~/valhalla-data && ~/git/valhalla/scripts/valhalla_build_timezones > timezones.sqlite
+#   cd ~/valhalla-data && ~/git/swiftcamp/Vendor/valhalla/scripts/valhalla_build_timezones > timezones.sqlite
 #
-# Requires: the libvalhalla build in docs/routing.md, python3, curl.
+# Requires: scripts/build-valhalla.sh, python3, curl.
 
 set -euo pipefail
 
@@ -31,7 +31,7 @@ NAME=${2:?short name, e.g. us}
 DATE=$(date +%Y%m%d)
 
 DATA=${VALHALLA_DATA:-$HOME/valhalla-data}
-SRC=${VALHALLA_SRC:-$HOME/git/valhalla}
+SRC=${VALHALLA_SRC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/Vendor/valhalla}
 # The tools can live apart from the source build, so a library rebuild
 # cannot replace a binary that is part way through a long graph build.
 BIN=${VALHALLA_BIN:-$SRC/build}

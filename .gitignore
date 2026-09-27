@@ -14,6 +14,10 @@ Swiftcamp.xcodeproj/
 # Kept out of git so repeated refreshes don't accumulate in history.
 Swiftcamp/Resources/basemap/*.pmtiles
 
+# Valhalla source and CMake build, pinned and patched by
+# scripts/build-valhalla.sh.
+Vendor/
+
 # Shield SVG download cache for scripts/make_shields.py
 scripts/.shield-cache/
 scripts/.symbol-cache/

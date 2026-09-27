@@ -88,6 +88,16 @@ targets:
       # The Valhalla config template; see RoutingEngine.init(streaming:).
       - path: Swiftcamp/Resources/routing
         type: folder
+    # Without this, a missing Valhalla build surfaces as a missing header
+    # deep in the C++ bridge, which does not say what to run.
+    preBuildScripts:
+      - name: Check Valhalla
+        basedOnDependencyAnalysis: false
+        script: |
+          if [ ! -f "$SRCROOT/Vendor/valhalla/build/src/libvalhalla.a" ]; then
+            echo "error: Valhalla is not built. Run scripts/build-valhalla.sh once, then build again."
+            exit 1
+          fi
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app.mac
@@ -101,33 +111,33 @@ targets:
         # USB interfaces do not exist on iOS, where the same .c compiles to
         # stubs.
         SWIFT_OBJC_BRIDGING_HEADER: Swiftcamp/Device/Swiftcamp-Bridging-Header.h
-        # Valhalla, the routing engine, linked statically from a sibling
-        # checkout built with CMake: see docs/routing.md. A developer-machine
-        # dependency for now, like the fetched basemap; packaging it as an
-        # XCFramework is the step after the spike.
+        # Valhalla, the routing engine, linked statically from the CMake
+        # build scripts/build-valhalla.sh makes in Vendor/valhalla: see
+        # docs/routing.md. Gitignored and fetched, like the basemap;
+        # packaging it as an XCFramework is the step after the spike.
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/Swiftcamp/Device
           - $(SRCROOT)/Swiftcamp/Routing
-          - $(HOME)/git/valhalla
-          - $(HOME)/git/valhalla/build
-          - $(HOME)/git/valhalla/build/src
-          - $(HOME)/git/valhalla/third_party/rapidjson/include
-          - $(HOME)/git/valhalla/third_party/date/include
-          - $(HOME)/git/valhalla/third_party/unordered_dense/include
+          - $(SRCROOT)/Vendor/valhalla
+          - $(SRCROOT)/Vendor/valhalla/build
+          - $(SRCROOT)/Vendor/valhalla/build/src
+          - $(SRCROOT)/Vendor/valhalla/third_party/rapidjson/include
+          - $(SRCROOT)/Vendor/valhalla/third_party/date/include
+          - $(SRCROOT)/Vendor/valhalla/third_party/unordered_dense/include
           - /opt/homebrew/include
         LIBRARY_SEARCH_PATHS:
-          - $(HOME)/git/valhalla/build/src
-          - $(HOME)/git/valhalla/build/src/tyr
-          - $(HOME)/git/valhalla/build/src/loki
-          - $(HOME)/git/valhalla/build/src/thor
-          - $(HOME)/git/valhalla/build/src/odin
-          - $(HOME)/git/valhalla/build/src/sif
-          - $(HOME)/git/valhalla/build/src/meili
-          - $(HOME)/git/valhalla/build/src/skadi
-          - $(HOME)/git/valhalla/build/src/baldr
-          - $(HOME)/git/valhalla/build/src/midgard
-          - $(HOME)/git/valhalla/build/src/valhalla/proto
+          - $(SRCROOT)/Vendor/valhalla/build/src
+          - $(SRCROOT)/Vendor/valhalla/build/src/tyr
+          - $(SRCROOT)/Vendor/valhalla/build/src/loki
+          - $(SRCROOT)/Vendor/valhalla/build/src/thor
+          - $(SRCROOT)/Vendor/valhalla/build/src/odin
+          - $(SRCROOT)/Vendor/valhalla/build/src/sif
+          - $(SRCROOT)/Vendor/valhalla/build/src/meili
+          - $(SRCROOT)/Vendor/valhalla/build/src/skadi
+          - $(SRCROOT)/Vendor/valhalla/build/src/baldr
+          - $(SRCROOT)/Vendor/valhalla/build/src/midgard
+          - $(SRCROOT)/Vendor/valhalla/build/src/valhalla/proto
           - /opt/homebrew/lib
         OTHER_LDFLAGS:
           - -lvalhalla
