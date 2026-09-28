@@ -76,7 +76,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | GPX export with shaping points | **Have** |
 | GPX 1.0 read | **Have** |
 | **GDB import** | **Have** — BaseCamp's Export and MapSource files, and BaseCamp's autosaved `AllData.gdb` in its newer layout, each verified against a real file of the same route; see below |
-| **Restore from BaseCamp's own files** | **Have** — File, Import BaseCamp Library finds the autosave under Application Support and brings it across with its lists from `FolderData.gfi`; a Backup bundle is the same two files and is next |
+| **Restore from BaseCamp's own files** | **Have** — File, Import BaseCamp Library finds the autosave under Application Support and brings it across with its lists from `FolderData.gfi`; a BaseCamp Backup file goes through Import and is read the same way from inside its zip |
 | GDB export | **Build**, low priority |
 | KML/KMZ export, "view in Google Earth" | **Build**, low priority |
 | Loc, TCX, FIT | **Build**, low priority |
@@ -271,9 +271,19 @@ folder file beside any library. File, Import BaseCamp Library does the
 whole thing from where BaseCamp keeps it, without opening BaseCamp.
 
 Still open: whether a shaping point the user placed in BaseCamp can be
-told from a turn point in either file; a BaseCamp Backup bundle, which
-should be these two files under another name; and what BaseCamp's
-Windows autosave adds, if anything, that the Mac's does not.
+told from a turn point in either file; and what BaseCamp's Windows
+autosave adds, if anything, that the Mac's does not.
+
+**Backups, 2026-09-27.** BaseCamp's File, Back Up writes a plain zip under
+a `.backup` name, holding its Application Support folder as it stands, the
+same on the Mac and on Windows; Garmin's forums say so, and renaming one to
+`.zip` opens it in Finder. So the library inside is `Database/<version>/
+AllData.gdb` with `FolderData.gfi` beside it, and Import reads a backup by
+its zip signature, takes the newest version folder, and inflates only those
+two files, since a backup can carry photos. `ZipArchive` is the reader,
+central directory only, on Apple's Compression. The fixture is built by
+hand in that layout from the real Mac autosave; **no backup BaseCamp wrote
+has been read yet**, and one should be before this is called verified.
 
 **This deserves to be earlier than its glamour suggests.**
 

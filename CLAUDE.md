@@ -70,10 +70,12 @@ GDB import reads MapSource files, BaseCamp exports and BaseCamp's own
 autosaved library, routes with their road shape included, through the
 same Import as GPX; the file's signature decides. File, Import BaseCamp
 Library finds the autosave under Application Support and brings it across
-with its lists from the folder file beside it. `Swiftcamp/GDB/`.
+with its lists from the folder file beside it. A BaseCamp Backup file,
+which is a zip of that same folder, goes through Import and comes across
+the same way. `Swiftcamp/GDB/`.
 
-Not started: duplicate, BaseCamp Backup bundles, track split and join,
-elevation profiles. `docs/basecamp-parity.md` has the full inventory.
+Not started: duplicate, track split and join, elevation profiles.
+`docs/basecamp-parity.md` has the full inventory.
 
 Only macOS is being actively worked on. iOS builds but has no overlay path.
 
@@ -230,7 +232,7 @@ resolves to the generic pin in Swift rather than naming a missing image.
 | `Swiftcamp/Model/` | Records, and the only copy of the geo math |
 | `Swiftcamp/Store/` | GRDB database, migrations, and the library store |
 | `Swiftcamp/GPX/` | GPX 1.1 and 1.0 reader, GPX 1.1 writer |
-| `Swiftcamp/GDB/` | Garmin GDB and BaseCamp folder-file readers, the MapSource symbol table, and the one import door |
+| `Swiftcamp/GDB/` | Garmin GDB and BaseCamp folder-file readers, BaseCamp backups, the MapSource symbol table, and the one import door |
 | `Swiftcamp/Search/` | The search field's sources: coordinates, our own place index, the Census geocoder |
 | `Swiftcamp/Views/` | Window shell, sidebar, and the library model |
 | `SwiftcampTests/` | The whole of it, minus the renderer |

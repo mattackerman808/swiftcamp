@@ -47,7 +47,7 @@ struct ContentView: View {
         .onSubmit(of: .search) {
             if let first = model.search.results.first { model.show(first) }
         }
-        .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.gpx, .gdb], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.gpx, .gdb, .baseCampBackup, .zip], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): urls.forEach(model.importGPX(from:))
             case .failure(let error): model.failure = error.localizedDescription
@@ -224,6 +224,9 @@ extension UTType {
     /// is whatever the system makes of `.gdb`; the importer decides by the
     /// file's own signature, not by this.
     static let gdb = UTType(filenameExtension: "gdb") ?? .data
+    /// BaseCamp's File, Back Up writes a zip named `.backup`. `.zip` is
+    /// allowed as well, for one renamed to open it in Finder.
+    static let baseCampBackup = UTType(filenameExtension: "backup") ?? .data
 }
 
 /// A placeholder for `fileExporter`, which insists on a document.
