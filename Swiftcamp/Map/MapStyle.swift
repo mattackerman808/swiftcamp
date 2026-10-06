@@ -117,8 +117,11 @@ enum MapStyle {
         static let waypoints  = "sc-waypoints"
         /// The one place a search landed on, until it is saved or dismissed.
         static let search     = "sc-search"
+        /// The ruler: the points clicked while measuring and the line
+        /// through them.
+        static let measure    = "sc-measure"
 
-        static let all = [trackLines, routeLines, viaPoints, waypoints, search]
+        static let all = [trackLines, routeLines, viaPoints, waypoints, search, measure]
     }
 
     private static func overlaySources() -> [String: Any] {
@@ -439,6 +442,17 @@ enum MapStyle {
             geoJSONLine("route-line", source: Overlay.routeLines,
                         color: ["coalesce", ["get", "color"], Palette.routeLine],
                         widths: [[6, 2.0], [11, 4.0], [16, 7.0]]),
+
+            // The ruler, dashed so it reads as a measurement and not a
+            // route, over the routes since it is what is being looked at.
+            [
+                "id": "measure-line",
+                "type": "line",
+                "source": Overlay.measure,
+                "filter": ["==", ["geometry-type"], "LineString"],
+                "layout": ["line-cap": "round", "line-join": "round"],
+                "paint": ["line-color": Palette.selection, "line-width": 2.5, "line-dasharray": [2, 1.5]],
+            ],
         ]
     }
 
@@ -514,6 +528,20 @@ enum MapStyle {
             // is the thing being looked at. It is hit-tested like a
             // waypoint, so it has a menu of its own.
             symbolIcons("search-pin", source: Overlay.search, size: [[6, 0.8], [11, 1.0]]),
+
+            // The ruler's points.
+            [
+                "id": "measure-point",
+                "type": "circle",
+                "source": Overlay.measure,
+                "filter": ["==", ["geometry-type"], "Point"],
+                "paint": [
+                    "circle-radius": 4.5,
+                    "circle-color": "#ffffff",
+                    "circle-stroke-width": 2.0,
+                    "circle-stroke-color": Palette.selection,
+                ],
+            ],
         ]
     }
 

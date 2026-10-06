@@ -102,6 +102,17 @@ enum OverlayGeoJSON {
         return out
     }
 
+    /// The ruler: a point per click and the line through them.
+    static func measure(_ points: [Coordinate]) -> FeatureCollection {
+        var features = points.enumerated().map { i, c in
+            Feature(geometry: .point(c), properties: Properties(seq: i, lat: c.lat, lon: c.lon))
+        }
+        if points.count >= 2 {
+            features.append(Feature(geometry: .lineString(points), properties: Properties()))
+        }
+        return FeatureCollection(features: features)
+    }
+
     /// The pin for a search result, or nothing.
     static func searchPin(_ result: SearchResult?) -> FeatureCollection {
         FeatureCollection(features: result.map {

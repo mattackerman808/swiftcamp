@@ -99,6 +99,32 @@ final class LibraryModel {
         }
     }
 
+    /// The map in 3-D, tilted over the DEM. Remembered.
+    var showsTerrain: Bool = UserDefaults.standard.bool(forKey: "showTerrain") {
+        didSet { UserDefaults.standard.set(showsTerrain, forKey: "showTerrain") }
+    }
+
+    /// The ruler while it is out: the points clicked so far. Nil when
+    /// not measuring. While it is out, every click on the map adds a
+    /// point, whatever is under it, and Delete takes the last one back.
+    private(set) var measurement: Measurement?
+
+    func startMeasuring() {
+        finishEditing()
+        measurement = Measurement()
+        rebuildOverlay()
+    }
+
+    func stopMeasuring() {
+        guard measurement != nil else { return }
+        measurement = nil
+        rebuildOverlay()
+    }
+
+    func toggleMeasuring() {
+        if measurement == nil { startMeasuring() } else { stopMeasuring() }
+    }
+
     private static var storedKinds: Visibility.Kinds {
         let defaults = UserDefaults.standard
         func flag(_ key: String) -> Bool { defaults.object(forKey: key) == nil ? true : defaults.bool(forKey: key) }
@@ -398,6 +424,11 @@ final class LibraryModel {
                 }
             case "showEverything":
                 showEverything()
+            case "measure":
+                // Out or away; `click` then adds points.
+                if step["on"] as? Bool ?? (measurement == nil) { startMeasuring() } else { stopMeasuring() }
+            case "terrain":
+                showsTerrain = step["on"] as? Bool ?? !showsTerrain
             case "showKinds":
                 // Which kinds the View menu draws; a kind not named is left.
                 var kinds = shownKinds
@@ -647,6 +678,11 @@ final class LibraryModel {
                                                          "min": p.minimum.rounded(), "max": p.maximum.rounded(),
                                                          "ascent": p.ascent.rounded(), "descent": p.descent.rounded()])
                                       }),
+                                      "measurement": measurement.map { m in
+                                          ["points": m.points.count,
+                                           "miles": (m.total / 1609.344 * 100).rounded() / 100,
+                                           "bearing": m.lastLeg.map { $0.bearing.rounded() } as Any] } as Any,
+                                      "terrain": showsTerrain,
                                       "elevation": lastElevation.map { ["lat": $0.0.lat, "lon": $0.0.lon, "metres": $0.1 as Any] } as Any,
                                       "selection": Array(selection).sorted(),
                                       "canUndo": undoManager.canUndo,
@@ -989,6 +1025,7 @@ final class LibraryModel {
         }
         let selection = self.selection
         let searchPin = self.searchPin
+        let measure = measurement?.points ?? []
 
         // Only the newest rebuild matters. Three observations can land in
         // quick succession on one import, and the first two describe a state
@@ -998,7 +1035,8 @@ final class LibraryModel {
             let started = ContinuousClock.now
             let built = await Task.detached(priority: .userInitiated) {
                 MapOverlay.make(routes: routes, tracks: tracks,
-                                waypoints: waypoints, selection: selection, searchPin: searchPin)
+                                waypoints: waypoints, selection: selection, searchPin: searchPin,
+                                measure: measure)
             }.value
             Timing.log("overlay.encode", since: started,
                        "\(built.sources.values.reduce(0) { $0 + $1.utf8.count } / 1000) KB")
@@ -1370,6 +1408,11 @@ final class LibraryModel {
     }
 
     func select(_ click: MapClick) {
+        if measurement != nil {
+            measurement?.add(click.coordinate)
+            rebuildOverlay()
+            return
+        }
         if editingRouteID != nil, edit(with: click) { return }
 
         switch click.target {
@@ -2482,6 +2525,16 @@ final class LibraryModel {
     }
 
     func key(_ key: MapKey) {
+        if measurement != nil {
+            switch key {
+            case .delete:
+                measurement?.removeLast()
+                rebuildOverlay()
+            case .escape:
+                stopMeasuring()
+            }
+            return
+        }
         switch key {
         case .delete: deleteSelectedViaPoint()
         case .escape: finishEditing()

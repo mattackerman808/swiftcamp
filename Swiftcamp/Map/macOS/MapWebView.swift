@@ -33,6 +33,8 @@ struct MapWebView: NSViewRepresentable {
     var onContextMenu: ((MapClick) -> [MapMenuItem])?
     /// The view after each move, with its zoom.
     var onView: ((BoundingBox, Double) -> Void)?
+    /// Whether the map is drawn in 3-D, tilted over the DEM.
+    var terrain = false
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -72,6 +74,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
+        context.coordinator.setTerrain(terrain)
         context.coordinator.synthesize(pageEvent)
         return view
     }
@@ -85,6 +88,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
+        context.coordinator.setTerrain(terrain)
         context.coordinator.synthesize(pageEvent)
     }
 
@@ -244,6 +248,21 @@ struct MapWebView: NSViewRepresentable {
 
         private var editingRouteID: String?
 
+        /// Tilts the map over the DEM, or lays it flat. Off is never sent
+        /// to a page that has not been told on, which is the state it
+        /// starts in.
+        func setTerrain(_ on: Bool) {
+            terrain = on
+            guard isReady, appliedTerrain != on else { return }
+            appliedTerrain = on
+            webView?.callAsyncJavaScript("window.swiftcamp.setTerrain(on);",
+                                         arguments: ["on": on],
+                                         in: nil, in: .page, completionHandler: Self.report)
+        }
+
+        private var terrain = false
+        private var appliedTerrain = false
+
         /// Replays scripted input on the page. Debug only; see `MapPageEvent`.
         private var appliedPageEventID = 0
 
@@ -358,6 +377,7 @@ struct MapWebView: NSViewRepresentable {
                     move(request)
                 }
                 edit(editingRouteID)
+                setTerrain(terrain)
 
             case "idle":
                 snapshotIfRequested()

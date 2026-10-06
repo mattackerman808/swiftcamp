@@ -71,7 +71,8 @@ struct ContentView: View {
         MapContainer(overlay: model.overlay, camera: model.camera,
                      editingRouteID: model.editingRouteID, pageEvent: model.pageEvent,
                      onClick: model.select, onDrag: model.drag, onKey: model.key,
-                     onContextMenu: model.contextMenu, onView: model.viewChanged)
+                     onContextMenu: model.contextMenu, onView: model.viewChanged,
+                     terrain: model.showsTerrain)
             #if os(macOS)
             // A scripted run floats its window. WebKit stops rendering a
             // view its window does not show, and a second copy of the app
@@ -114,7 +115,9 @@ struct ContentView: View {
                 if let pin = model.searchPin {
                     searchPinBar(pin)
                 }
-                if model.editingRouteID != nil {
+                if let measurement = model.measurement {
+                    measureBar(measurement)
+                } else if model.editingRouteID != nil {
                     editBar
                 } else if model.isBusy {
                     Label("Reading…", systemImage: "clock")
@@ -154,6 +157,38 @@ struct ContentView: View {
         .padding(12)
     }
 
+    /// The ruler's readout: how far along the clicks, the last leg and
+    /// its heading, and the straight line from first to last.
+    private func measureBar(_ m: Measurement) -> some View {
+        HStack(spacing: 12) {
+            Label {
+                if m.points.count < 2 {
+                    Text(m.points.isEmpty ? "Click the map to start measuring." : "Click the next point.")
+                } else {
+                    let total = Text(Self.miles(m.total)).bold()
+                    let leg = m.lastLeg.map { "last leg \(Self.miles($0.distance)) at \(Int($0.bearing.rounded()))°" } ?? ""
+                    let direct = m.direct.map { "direct \(Self.miles($0))" } ?? ""
+                    total + Text("  ·  \(leg)  ·  \(direct)").foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "ruler")
+            }
+            .font(.callout)
+            .monospacedDigit()
+            Button("Done") { model.stopMeasuring() }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+    }
+
+    private static func miles(_ metres: Double) -> String {
+        let miles = metres / 1609.344
+        return miles < 10 ? String(format: "%.2f mi", miles) : String(format: "%.1f mi", miles)
+    }
+
     /// The pinned search result: what it is, and the two things to do
     /// with it. A pin is a look, not a library item, until it is saved.
     private func searchPinBar(_ pin: SearchResult) -> some View {
@@ -190,6 +225,11 @@ struct ContentView: View {
             }
             .labelStyle(.titleAndIcon)
             .help("New waypoint at the middle of the map; drag it into place (⇧⌘N)")
+            Button { model.toggleMeasuring() } label: {
+                Label("Measure", systemImage: "ruler")
+            }
+            .labelStyle(.titleAndIcon)
+            .help("Measure distance and heading between clicks on the map (⇧⌘M); Escape finishes")
         }
         ToolbarItemGroup {
             Button { model.isImporting = true } label: {

@@ -28,7 +28,8 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 ## Current state
 
 **The map, the library, GPX, the device and the planner are built. Stages A,
-B and C of `docs/basecamp-parity.md` are done; Stage E, the rest, is next.**
+B and C of `docs/basecamp-parity.md` are done and proven on a zūmo XT3;
+Stage E is under way.**
 
 Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route
@@ -73,6 +74,10 @@ holds, and the View menu switches routes, tracks or waypoints off whole;
 the box is the truth, and editing a hidden route ticks it back on
 (`Visibility`). The sidebar filters by typed words and sorts by name, date
 or length.
+
+The map tilts into 3-D over the DEM from the View menu, a ruler measures
+distance and heading between clicks (Measure on the toolbar), and the
+position and height under the pointer sit at the map's bottom right.
 
 Search: coordinates in any common form; places, streets and points of
 interest from our own index on the CDN; house numbers from our own index

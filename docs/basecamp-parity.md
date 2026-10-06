@@ -88,7 +88,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Street map with labels and route shields | **Have** |
 | Terrain shading, ground cover | **Have** |
 | Pan, zoom, rotate | **Partial** — no rotate control |
-| 2-D and 3-D views, tilt, elevation exaggeration | **Build**, and cheap: the renderer already does pitch and terrain |
+| 2-D and 3-D views, tilt, elevation exaggeration | **Have** — View, 3-D Terrain (⌘3) tilts the map over the DEM at a mild exaggeration; off lays it flat and north-up |
 | Overview map inset | **Build**, low priority |
 | Map product switching | **Build** — our equivalent is a layer picker |
 | Contour lines | **Build** — noted in CLAUDE.md as the one place the split-backend plan costs something |
@@ -156,9 +156,9 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 
 | Feature | Status |
 | --- | --- |
-| Distance and heading between points | **Build** — `GeoMath` already has both |
+| Distance and heading between points | **Have** — Measure on the toolbar or ⇧⌘M; every click adds a point, the bar shows the total, the last leg and its heading, and the straight line; Delete takes a point back, Escape finishes |
 | Enclosed area | **Build** |
-| Elevation readout under the cursor | **Build** — the sampler exists; it needs a hover from the map |
+| Elevation readout under the cursor | **Have** — position and height at the pointer, bottom right of the map, read off the terrain tiles in the page |
 
 ### Device transfer
 

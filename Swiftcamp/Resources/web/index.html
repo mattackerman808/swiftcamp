@@ -23,11 +23,22 @@
   #tip .kind { color: #6e6e73; }
   #tip .row { display: flex; gap: 10px; justify-content: space-between; }
   #tip .row span:last-child { font-variant-numeric: tabular-nums; }
+  /* Where the pointer is and how high the ground is there, bottom right,
+     in the attribution capsule's dress. */
+  #readout {
+    position: fixed; right: 8px; bottom: 8px; z-index: 10; display: none; pointer-events: none;
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.82); color: #1d1d1f;
+    border: 0.5px solid rgba(0, 0, 0, 0.12);
+    font: 10px/1.4 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="tip"></div>
+<div id="readout"></div>
 <script src="maplibre-gl.js"></script>
 <script src="pmtiles.js"></script>
 <script>
@@ -132,6 +143,18 @@ function post(message) {
     // Which route is being edited, or null. While set, empty map is a
     // crosshair because a click there adds a point to it. Dragging needs
     // no mode: every route's dots and line can be grabbed.
+    // 3-D terrain from the same DEM the hillshade draws, with the camera
+    // tilted to show it, and back to flat north-up. The exaggeration is
+    // mild: a touring map wants the valley read, not a theme park.
+    setTerrain: function (on) {
+      if (on) {
+        if (!map.getTerrain()) map.setTerrain({ source: 'terrain', exaggeration: 1.3 });
+        map.easeTo({ pitch: 55, duration: 600 });
+      } else {
+        map.easeTo({ pitch: 0, duration: 600 });
+        if (map.getTerrain()) setTimeout(function () { map.setTerrain(null); }, 650);
+      }
+    },
     setEditing: function (id) {
       editing = id || null;
       map.getCanvas().style.cursor = editing ? 'crosshair' : '';
@@ -324,6 +347,33 @@ function post(message) {
 
   map.getCanvas().addEventListener('mouseleave', hideTip);
   map.on('mousedown', hideTip);
+
+  // The readout: position at once, elevation when the lookup lands, and
+  // only one lookup in flight, so a fast sweep across a mountain does not
+  // queue a tile fetch per pixel. Shown while the pointer is on the map.
+  var readout = document.getElementById('readout');
+  var readoutLookup = null, readoutPending = null;
+
+  function updateReadout(lngLat) {
+    readout.style.display = 'block';
+    var position = formatPosition(lngLat.lat, lngLat.lng);
+    readout.textContent = position;
+    var ask = function () {
+      var at = readoutPending; readoutPending = null;
+      readoutLookup = elevationAt(at.lng, at.lat).then(function (metres) {
+        readoutLookup = null;
+        if (metres !== null && readout.textContent.indexOf(formatPosition(at.lat, at.lng)) === 0) {
+          readout.textContent = formatPosition(at.lat, at.lng) + ' \u00b7 '
+            + Math.round(metres * 3.28084).toLocaleString('en-US') + ' ft';
+        }
+        if (readoutPending) ask();
+      }).catch(function () { readoutLookup = null; });
+    };
+    readoutPending = lngLat;
+    if (!readoutLookup) ask();
+  }
+  map.on('mousemove', function (e) { updateReadout(e.lngLat); });
+  map.getCanvas().addEventListener('mouseleave', function () { readout.style.display = 'none'; });
 
   function escapeHTML(text) {
     return String(text).replace(/[&<>"]/g, function (c) {
