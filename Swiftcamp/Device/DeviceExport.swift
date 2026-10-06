@@ -37,17 +37,30 @@ struct DeviceExport: Equatable, Sendable {
         case sparse
         /// Stops and shaping points only; the unit finds the road.
         case none
+        /// The key bends as shaping points, `trp:ShapingPoint` entries
+        /// the unit snaps to its own roads and routes between, with no
+        /// road list at all. A road point has to sit exactly on a road
+        /// the unit knows and one miss fails the import, which a zūmo
+        /// XT3 did at 26,800 points and again at 992; a shaping point a
+        /// few metres off is harmless. This is how MyRouteApp and
+        /// Kurviger hold a Garmin to a planned road.
+        case shaping
 
         var title: String {
             switch self {
             case .full: "Every bend"
             case .sparse: "Key bends"
+            case .shaping: "Key bends as shaping points"
             case .none: "Stops only"
             }
         }
 
         /// Metres a dropped vertex may sit from the line kept.
         static let sparseTolerance = 200.0
+        /// For shaping points, which cost the unit a calculation each:
+        /// coarser, and no more than this many on a route.
+        static let shapingTolerance = 1_000.0
+        static let shapingLimit = 100
     }
 
     /// The point limit Garmin publishes for a track on its automotive and
@@ -82,11 +95,12 @@ struct DeviceExport: Equatable, Sendable {
     /// The route with each leg's road thinned, or dropped. The points
     /// themselves are untouched: they are where the rider wants to go.
     static func thinningRoad(_ detail: RouteDetail, to level: RoadDetail) -> RouteDetail {
+        if level == .shaping { return shapingPoints(detail) }
         var out = detail
         for i in out.points.indices {
             guard let road = out.points[i].geometry, !road.isEmpty else { continue }
             switch level {
-            case .full:
+            case .full, .shaping:
                 break
             case .none:
                 out.points[i].geometry = nil
@@ -102,6 +116,51 @@ struct DeviceExport: Equatable, Sendable {
                 out.points[i].geometry = kept.isEmpty ? nil : kept
             }
         }
+        return out
+    }
+
+    /// The route's bends as shaping points between its stops, the road
+    /// lists dropped. The whole route's road is simplified as one line
+    /// under one budget, so a long leg gets more of the points than a
+    /// short one; existing shaping points count as bends like any other.
+    static func shapingPoints(_ detail: RouteDetail) -> RouteDetail {
+        let sorted = detail.points.sorted { $0.seq < $1.seq }
+        guard sorted.count >= 2 else { return detail }
+        // Every vertex of the line, tagged with the stop it belongs to:
+        // the stop itself, then its road.
+        var line: [Coordinate] = []
+        var owner: [Int] = []
+        var stopAt: [Int: RoutePoint] = [:]
+        for (i, point) in sorted.enumerated() {
+            if point.isVia || i == 0 || i == sorted.count - 1 {
+                stopAt[line.count] = point
+            }
+            line.append(point.coordinate)
+            owner.append(i)
+            for c in point.geometry ?? [] {
+                line.append(c)
+                owner.append(i)
+            }
+        }
+        let stops = Set(stopAt.keys)
+        var kept = Set(Simplify.indices(of: line, tolerance: RoadDetail.shapingTolerance,
+                                        atMost: RoadDetail.shapingLimit + stops.count))
+        kept.formUnion(stops)
+        var points: [RoutePoint] = []
+        for index in kept.sorted() {
+            if let stop = stopAt[index] {
+                var p = stop
+                p.isVia = true
+                p.geometry = nil
+                points.append(p)
+            } else {
+                points.append(RoutePoint(routeID: detail.route.id, seq: 0, lat: line[index].lat, lon: line[index].lon,
+                                         isVia: false))
+            }
+        }
+        for i in points.indices { points[i].seq = i }
+        var out = detail
+        out.points = points
         return out
     }
 

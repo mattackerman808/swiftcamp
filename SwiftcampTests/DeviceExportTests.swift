@@ -85,6 +85,31 @@ final class DeviceExportTests: XCTestCase {
                            .apply(to: GPXDocument(routes: [detail])).routes[0], none)
     }
 
+    func testShapingPointsCarryTheBendsAndNoRoad() {
+        let route = Route(name: "Dogleg")
+        // North 10 km with wander, a jog west, north again: two real bends.
+        var road: [Coordinate] = []
+        for i in 1..<100 { road.append(c(40.0 + Double(i) * 0.001, -105.0 + (i % 2 == 0 ? 0.00001 : -0.00001))) }
+        road.append(c(40.1, -105.05))
+        for i in 1..<100 { road.append(c(40.1 + Double(i) * 0.001, -105.05)) }
+        let detail = RouteDetail(route: route, points: [
+            RoutePoint(routeID: route.id, seq: 0, lat: 40.0, lon: -105.0, name: "Start", geometry: road),
+            RoutePoint(routeID: route.id, seq: 1, lat: 40.2, lon: -105.05, name: "End"),
+        ])
+
+        let out = DeviceExport.shapingPoints(detail)
+        XCTAssertEqual(out.points.first?.name, "Start")
+        XCTAssertEqual(out.points.last?.name, "End")
+        XCTAssertTrue(out.points.allSatisfy { $0.geometry == nil }, "no road list")
+        let bends = out.points.filter { !$0.isVia }
+        XCTAssertGreaterThanOrEqual(bends.count, 1)
+        XCTAssertLessThanOrEqual(bends.count, DeviceExport.RoadDetail.shapingLimit)
+        XCTAssertTrue(bends.contains { abs($0.lat - 40.1) < 1e-9 && abs($0.lon + 105.05) < 1e-9 }, "the jog is a shaping point")
+        XCTAssertEqual(out.points.map(\.seq), Array(out.points.indices))
+        XCTAssertEqual(DeviceExport(stripShapingPoints: false, trackPointLimit: nil, roadDetail: .shaping)
+                           .apply(to: GPXDocument(routes: [detail])).routes[0], out)
+    }
+
     func testTheDefaultsAreBaseCampsDefaults() {
         let export = DeviceExport()
         XCTAssertFalse(export.stripShapingPoints, "a zūmo honours shaping points")
