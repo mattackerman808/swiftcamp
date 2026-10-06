@@ -59,13 +59,13 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | --- | --- |
 | Waypoints, routes, tracks as first-class types | **Have** |
 | Lists and list folders, nested | **Have** — a lists pane above the items; the map follows the selected list |
-| Rename, duplicate, delete | **Partial** — rename and delete; duplicate to come |
+| Rename, duplicate, delete | **Have** — Duplicate on every item's menu and ⌘D on the selection; the copy is named after the original and selected |
 | Cut, copy, paste between lists | **Build** |
 | Drag items between lists | **Have** — drag onto a list, or Move to List in the menu; a list dragged onto a list nests |
 | Search within the collection | **Have** — the filter field, over name, comment and notes |
 | Sort and filter by type, name, date, length | **Have** |
 | Multiple databases | **Build**, low priority |
-| Backup and restore | **Build** — `VACUUM INTO` makes this nearly free |
+| Backup and restore | **Have** — File, Back Up Library writes the library file with `VACUUM INTO`; Restore replaces everything from one, row by row through the open pool, after a warning |
 | Undo and redo | **Partial** — every edit in the planner; deleting a route or a track is not undoable yet |
 
 ### Import and export
@@ -122,13 +122,13 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | --- | --- |
 | Display with per-track colour | **Have** |
 | Segments preserved | **Have** |
-| Split and join | **Build** |
-| Invert | **Build** |
-| Filter and simplify, point count reduction | **Build** — `Simplify` exists, used by route-from-track; no UI yet |
+| Split and join | **Have** — Split Track Here on the map's menu cuts at the nearest fix, both halves keeping it; Join on the sidebar's menu with two or more selected, each ride staying its own segments |
+| Invert | **Have** |
+| Filter and simplify, point count reduction | **Have** — Simplify Track to 500, 2,000 or 10,000 points, each segment keeping its share and its ends |
 | Insert, move, erase points | **Build** |
 | Elevation profile | **Build** — we already stream the DEM |
 | Playback along a track | **Build**, low priority |
-| Statistics: distance, time, ascent, moving average | **Partial** — distance only |
+| Statistics: distance, time, ascent, moving average | **Have** — moving and elapsed time, moving speed, climb and descent with a five-metre noise gate, in the inspector when the recording has a clock and an altimeter |
 
 ### Waypoints
 
@@ -166,7 +166,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Send and receive via a memory card | **Build** — small, see below |
 | Send and receive over MTP | **Have** — built against a zūmo XT3, see below |
 | Strip shaping points on transfer | **Build** |
-| Simplify tracks to a device point limit | **Build** |
+| Simplify tracks to a device point limit | **Partial** — by hand from the track's menu; not yet automatic on the way out |
 | Browse device contents | **Have** |
 
 ## The three hard problems
@@ -329,7 +329,8 @@ ride and hand it to a device.*
 own database and backup files. Backup and restore of our own. Rename and
 duplicate. Track split, join, filter. Elevation profiles and real statistics.
 *At the end of this, a BaseCamp user can move their library across and not
-lose anything.*
+lose anything.* All of it is built as of 2026-10-05 except the elevation
+profile, which waits on reading the DEM outside the renderer.
 
 **Stage C — the device.** MTP is done. Left: memory-card and mass-storage
 transfer, which are the same code and cover every unit with a card slot;

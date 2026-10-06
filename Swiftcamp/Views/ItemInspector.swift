@@ -162,6 +162,32 @@ struct ItemInspector: View {
         if let summary = model.summaries[track.id] {
             labelled("") { Text(summary).font(.caption).foregroundStyle(.secondary) }
         }
+        // What the recording says, when it says it: a track drawn by hand
+        // has no clock and no altimeter, and shows nothing here.
+        if let stats = model.trackStatistics[track.id] {
+            if let elapsed = stats.elapsed, let moving = stats.moving {
+                labelled("Time") {
+                    Text("\(DirectionsPane.duration(moving)) moving of \(DirectionsPane.duration(elapsed))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let speed = stats.movingSpeed {
+                    labelled("Speed") {
+                        Text(String(format: "%.0f mph moving", speed * 2.236936))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let ascent = stats.ascent, let descent = stats.descent {
+                labelled("Climb") {
+                    Text("+\(Self.feet(ascent)) ft, −\(Self.feet(descent)) ft")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private static func feet(_ metres: Double) -> String {
+        Int((metres / 0.3048).rounded()).formatted()
     }
 
     private func avoidToggle(_ title: String, _ route: Route,

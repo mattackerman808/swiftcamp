@@ -27,8 +27,9 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 
 ## Current state
 
-**The map, the library, GPX, the device and the planner are built. Stage A
-of `docs/basecamp-parity.md` is done; Stage B, migration, is next.**
+**The map, the library, GPX, the device and the planner are built. Stages A
+and B of `docs/basecamp-parity.md` are done bar the elevation profile;
+Stage C, the memory card, is next.**
 
 Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route
@@ -80,8 +81,12 @@ with its lists from the folder file beside it. A BaseCamp Backup file,
 which is a zip of that same folder, goes through Import and comes across
 the same way. `Swiftcamp/GDB/`.
 
-Not started: duplicate, track split and join, elevation profiles.
-`docs/basecamp-parity.md` has the full inventory.
+Tracks invert, split at a fix on the map, join from the sidebar, and
+simplify to a device's point limit; the inspector shows a recording's
+moving and elapsed time, speed and climb. Every item duplicates. File,
+Back Up Library writes the library file and Restore replaces everything
+from one. Not started: elevation profiles. `docs/basecamp-parity.md` has
+the full inventory.
 
 Only macOS is being actively worked on. iOS builds but has no overlay path.
 

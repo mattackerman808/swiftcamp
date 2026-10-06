@@ -227,6 +227,7 @@ struct LibrarySidebar: View {
                             Button("Create Track from Route") { model.makeTrack(fromRoute: detail.route.id) }
                             Divider()
                             renameButton(detail.route.id, detail.route.name)
+                            Button("Duplicate") { model.duplicate(detail.route.id) }
                             colorMenu(for: detail.route.id)
                             listMenu(for: detail.route.id)
                             Divider()
@@ -260,8 +261,14 @@ struct LibrarySidebar: View {
                         .draggable(detail.track.id)
                         .contextMenu {
                             Button("Create Route from Track") { model.makeRoute(fromTrack: detail.track.id) }
+                            Button("Invert Track") { model.invertTrack(detail.track.id) }
+                            if selectedTrackCount >= 2, model.selection.contains(detail.track.id) {
+                                Button("Join \(selectedTrackCount) Tracks") { model.joinTracks(model.selection) }
+                            }
+                            simplifyMenu(for: detail)
                             Divider()
                             renameButton(detail.track.id, detail.track.name)
+                            Button("Duplicate") { model.duplicate(detail.track.id) }
                             colorMenu(for: detail.track.id)
                             listMenu(for: detail.track.id)
                             Divider()
@@ -293,6 +300,7 @@ struct LibrarySidebar: View {
                             addToRouteMenu(for: waypoint)
                             Divider()
                             renameButton(waypoint.id, waypoint.name)
+                            Button("Duplicate") { model.duplicate(waypoint.id) }
                             symbolMenu(for: waypoint)
                             listMenu(for: waypoint.id)
                             Divider()
@@ -473,6 +481,26 @@ struct LibrarySidebar: View {
                         model.addWaypoint(chosen.id, toRoute: detail.route.id)
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Tracks
+
+    private var selectedTrackCount: Int {
+        model.shownTracks.filter { model.selection.contains($0.track.id) }.count
+    }
+
+    /// The point limits worth thinning to. Ten thousand is what a Garmin
+    /// unit takes per track; the smaller ones are for older units and
+    /// for a line that only has to look right.
+    private static let pointLimits = [500, 2_000, 10_000]
+
+    private func simplifyMenu(for detail: TrackDetail) -> some View {
+        Menu("Simplify Track") {
+            ForEach(Self.pointLimits, id: \.self) { limit in
+                Button("To \(limit.formatted()) points") { model.simplifyTrack(detail.track.id, atMost: limit) }
+                    .disabled(detail.points.count <= limit)
             }
         }
     }

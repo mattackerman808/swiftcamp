@@ -193,6 +193,27 @@ struct LibraryStore: Sendable {
         }
     }
 
+    /// Removes some tracks and writes others in one transaction: a split,
+    /// a join or a simplification, which must not leave the library with
+    /// both halves or neither if the app dies between two writes.
+    func replaceTracks(deleting ids: [String], inserting details: [TrackDetail]) throws {
+        try database.writer.write { db in
+            for id in ids { _ = try Track.deleteOne(db, key: id) }
+            for detail in details {
+                var track = detail.track
+                track.updatedAt = .now
+                try track.save(db)
+                for (index, point) in detail.points.enumerated() {
+                    var point = point
+                    point.id = nil
+                    point.trackID = track.id
+                    point.seq = index
+                    try point.insert(db)
+                }
+            }
+        }
+    }
+
     // MARK: - GPX
 
     /// Adds everything in a GPX file to the library, in one transaction.
@@ -468,6 +489,61 @@ struct LibraryStore: Sendable {
             waypoint.symbol = symbol
             waypoint.updatedAt = .now
             try waypoint.update(db)
+        }
+    }
+
+    // MARK: - Backup and restore
+
+    /// Writes the whole library to a file, consistent as of this moment.
+    ///
+    /// `VACUUM INTO` is SQLite's own copy: a transaction-consistent image
+    /// of every page, compacted, written by the engine rather than by
+    /// copying a file another connection may be writing. It refuses to
+    /// run inside a transaction, hence the bare connection.
+    func backup(to url: URL) throws {
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        try database.writer.writeWithoutTransaction { db in
+            try db.execute(sql: "VACUUM INTO ?", arguments: [url.path])
+        }
+    }
+
+    /// Replaces everything in the library with the contents of a backup.
+    ///
+    /// The backup is copied aside and migrated first, so a file from an
+    /// older build comes up to this schema before its rows are read, and
+    /// the user's own file is never touched. Then one transaction: the
+    /// backup attached, every table emptied and refilled from it, in an
+    /// order that satisfies the foreign keys. Row by row through the
+    /// engine rather than swapping files underneath an open pool, so the
+    /// observations see one change and the app carries on.
+    func restore(from url: URL) throws {
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("swiftcamp-restore-\(UUID().uuidString)", isDirectory: true)
+        let copy = staging.appendingPathComponent("backup.sqlite")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+        try FileManager.default.copyItem(at: url, to: copy)
+        // Migrates on open, and refuses a file that is not a library.
+        _ = try AppDatabase(url: copy)
+
+        try database.writer.writeWithoutTransaction { db in
+            try db.execute(sql: "ATTACH DATABASE ? AS backup", arguments: [copy.path])
+            defer { try? db.execute(sql: "DETACH DATABASE backup") }
+            try db.inTransaction {
+                // Lists reference their parents in no particular row
+                // order, so the check waits for the commit.
+                try db.execute(sql: "PRAGMA defer_foreign_keys = ON")
+                let tables = ["route_points", "routes", "track_points", "tracks", "waypoints", "lists"]
+                for table in tables {
+                    try db.execute(sql: "DELETE FROM \(table)")
+                }
+                for table in tables.reversed() {
+                    try db.execute(sql: "INSERT INTO \(table) SELECT * FROM backup.\(table)")
+                }
+                return .commit
+            }
         }
     }
 

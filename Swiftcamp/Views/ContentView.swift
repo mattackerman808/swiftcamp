@@ -224,6 +224,8 @@ extension UTType {
     /// is whatever the system makes of `.gdb`; the importer decides by the
     /// file's own signature, not by this.
     static let gdb = UTType(filenameExtension: "gdb") ?? .data
+    /// Our own backup: the library file itself, as `VACUUM INTO` writes it.
+    static let swiftcampLibrary = UTType(filenameExtension: "sqlite", conformingTo: .database) ?? .data
     /// BaseCamp's File, Back Up writes a zip named `.backup`. `.zip` is
     /// allowed as well, for one renamed to open it in Finder.
     static let baseCampBackup = UTType(filenameExtension: "backup") ?? .data

@@ -1,6 +1,10 @@
 import Foundation
 import GRDB
 import Observation
+#if os(macOS)
+import AppKit
+import UniformTypeIdentifiers
+#endif
 
 /// What the window is showing: the library's contents, what is selected, and
 /// the overlay derived from both.
@@ -112,6 +116,10 @@ final class LibraryModel {
     /// point's handle, for the sidebar's list of a route's points. Built
     /// with `summaries`, for the same reason.
     private(set) var pointSummaries: [String: String] = [:]
+
+    /// Each track's statistics, computed with the summaries: the inspector
+    /// shows them and the sidebar's length comes from the same pass.
+    private(set) var trackStatistics: [String: TrackStatistics] = [:]
 
     /// Whether the open or save panel is up.
     ///
@@ -348,6 +356,24 @@ final class LibraryModel {
                     while routing.contains(id) { try? await Task.sleep(for: .milliseconds(200)) }
                     await loadDirections(for: id)
                 }
+            case "duplicate":
+                duplicateSelection()
+            case "invert":
+                if let id = tracks.first(where: { selection.contains($0.track.id) })?.track.id { invertTrack(id) }
+            case "split":
+                if let id = tracks.first(where: { selection.contains($0.track.id) })?.track.id {
+                    splitTrack(id, at: Coordinate(lat: number("lat", step), lon: number("lon", step)))
+                }
+            case "join":
+                joinTracks(selection)
+            case "simplify":
+                if let id = tracks.first(where: { selection.contains($0.track.id) })?.track.id {
+                    simplifyTrack(id, atMost: step["count"] as? Int ?? 10_000)
+                }
+            case "backup":
+                if let path = step["path"] as? String { await backup(to: URL(fileURLWithPath: path)) }
+            case "restore":
+                if let path = step["path"] as? String { await restore(from: URL(fileURLWithPath: path)) }
             case "movePoint":
                 // Point `from` of the route named to before the point now
                 // at `to`, as a drag of the sidebar's rows reports it.
@@ -512,6 +538,11 @@ final class LibraryModel {
                                                                     "list": $0.listID.flatMap { listNames[$0] } as Any] },
                                       "tracks": tracks.map { ["name": $0.track.name, "points": $0.points.count,
                                                               "segments": $0.segments.count,
+                                                              "first": $0.points.min { $0.seq < $1.seq }.map { [$0.lat, $0.lon] } as Any,
+                                                              "stats": trackStatistics[$0.track.id].map { s in
+                                                                  ["miles": (s.distance / 1609.344 * 10).rounded() / 10,
+                                                                   "elapsed": s.elapsed as Any, "moving": s.moving as Any,
+                                                                   "ascent": s.ascent as Any, "descent": s.descent as Any] } as Any,
                                                               "comment": $0.track.comment as Any,
                                                               "color": $0.track.color as Any,
                                                               "list": $0.track.listID.flatMap { listNames[$0] } as Any] },
@@ -840,14 +871,17 @@ final class LibraryModel {
                 points[OverlayGeoJSON.handle(detail.route.id, seq)] = Self.miles(metres)
             }
         }
+        var statistics: [String: TrackStatistics] = [:]
         for detail in tracks {
-            let length = detail.length
-            metres[detail.track.id] = length
-            out[detail.track.id] = "\(detail.points.count) points · \(Self.miles(length))"
+            let stats = TrackStatistics(detail)
+            statistics[detail.track.id] = stats
+            metres[detail.track.id] = stats.distance
+            out[detail.track.id] = "\(detail.points.count) points · \(Self.miles(stats.distance))"
         }
         summaries = out
         pointSummaries = points
         lengths = metres
+        trackStatistics = statistics
     }
 
     /// Miles, because this is a US touring app and the GPS it feeds is set
@@ -1408,6 +1442,217 @@ final class LibraryModel {
         selection = [detail.route.id]
     }
 
+    // MARK: - Duplicate
+
+    /// A copy of whatever this is, beside it, named after it and selected
+    /// so the rename field has it. Undo removes the copy.
+    func duplicate(_ id: String) {
+        if let source = routes.first(where: { $0.route.id == id }) {
+            var detail = source
+            detail.route.id = newID()
+            detail.route.name = uniqueName("\(source.route.name) copy", among: routes.map(\.route.name))
+            detail.route.createdAt = .now
+            detail.route.updatedAt = .now
+            detail.points = detail.points.map { point in
+                var p = point
+                p.id = nil
+                p.routeID = detail.route.id
+                return p
+            }
+            do {
+                try store.save(detail)
+            } catch {
+                failure = error.localizedDescription
+                return
+            }
+            registerUndo("Duplicate") { model in model.delete(detail.route.id) }
+            routes.append(detail)
+            refreshHasContent()
+            rebuildSummaries()
+            rebuildShown()
+            rebuildOverlay()
+            selection = [detail.route.id]
+        } else if let source = tracks.first(where: { $0.track.id == id }) {
+            var detail = source.joined(with: [])
+            detail.track.name = uniqueName("\(source.track.name) copy", among: tracks.map(\.track.name))
+            insert(detail, actionName: "Duplicate")
+        } else if let source = waypoints.first(where: { $0.id == id }) {
+            var waypoint = source
+            waypoint.id = newID()
+            waypoint.name = uniqueName("\(source.name) copy", among: waypoints.map(\.name))
+            waypoint.createdAt = .now
+            waypoint.updatedAt = .now
+            do {
+                try store.save(waypoint)
+            } catch {
+                failure = error.localizedDescription
+                return
+            }
+            registerUndo("Duplicate") { model in model.delete(waypoint.id) }
+            waypoints.append(waypoint)
+            refreshHasContent()
+            rebuildShown()
+            rebuildOverlay()
+            selection = [waypoint.id]
+        }
+    }
+
+    /// Duplicates every selected item, for the Edit menu.
+    func duplicateSelection() {
+        let ids = selection.filter { !isList($0) && OverlayGeoJSON.parseHandle($0) == nil }
+        guard !ids.isEmpty else { return }
+        undoManager.beginUndoGrouping()
+        var made: Set<String> = []
+        for id in ids.sorted() {
+            duplicate(id)
+            made.formUnion(selection)
+        }
+        undoManager.setActionName("Duplicate")
+        undoManager.endUndoGrouping()
+        selection = made
+    }
+
+    // MARK: - Track tools
+
+    /// The same ride the other way. See `TrackDetail.inverted`.
+    func invertTrack(_ id: String) {
+        guard let detail = tracks.first(where: { $0.track.id == id }) else { return }
+        replace([detail], with: [detail.inverted()], actionName: "Invert Track")
+    }
+
+    /// Cuts a track at the fix nearest a spot on it, from the map's menu.
+    /// See `TrackDetail.split(at:)`.
+    func splitTrack(_ id: String, at coordinate: Coordinate) {
+        guard let detail = tracks.first(where: { $0.track.id == id }),
+              let index = detail.nearestPointIndex(to: coordinate),
+              let (first, second) = detail.split(at: index) else { return }
+        replace([detail], with: [first, second], actionName: "Split Track")
+    }
+
+    /// One track from the selected ones, in the sidebar's order, which is
+    /// the order the rider sees them in. See `TrackDetail.joined(with:)`.
+    func joinTracks(_ ids: Set<String>) {
+        let details = shownTracks.filter { ids.contains($0.track.id) }
+        guard details.count >= 2 else { return }
+        replace(details, with: [details[0].joined(with: Array(details.dropFirst()))], actionName: "Join Tracks")
+    }
+
+    /// Thins a track to a device's point limit. See `TrackDetail.simplified(atMost:)`.
+    func simplifyTrack(_ id: String, atMost count: Int) {
+        guard let detail = tracks.first(where: { $0.track.id == id }), detail.points.count > count else { return }
+        replace([detail], with: [detail.simplified(atMost: count)], actionName: "Simplify Track")
+    }
+
+    /// Writes a new track and selects it; undo removes it.
+    private func insert(_ detail: TrackDetail, actionName: String) {
+        do {
+            try store.save(detail.track, points: detail.points)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo(actionName) { model in model.delete(detail.track.id) }
+        tracks.append(detail)
+        refreshHasContent()
+        rebuildSummaries()
+        rebuildShown()
+        rebuildOverlay()
+        selection = [detail.track.id]
+    }
+
+    /// Swaps some tracks for others as one step, and undo swaps them back
+    /// whole. The originals are held in the undo closure, which is the
+    /// same memory `tracks` already holds for them; a track edit is the
+    /// one deletion of a track that is undoable, because here the points
+    /// are in hand.
+    private func replace(_ originals: [TrackDetail], with results: [TrackDetail], actionName: String) {
+        let gone = Set(originals.map(\.track.id))
+        do {
+            try store.replaceTracks(deleting: Array(gone), inserting: results)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        tracks.removeAll { gone.contains($0.track.id) }
+        tracks.append(contentsOf: results)
+        refreshHasContent()
+        rebuildSummaries()
+        rebuildShown()
+        rebuildOverlay()
+        selection = Set(results.map(\.track.id))
+        registerUndo(actionName) { model in model.replace(results, with: originals, actionName: actionName) }
+    }
+
+    // MARK: - Backup and restore
+
+    /// Writes the library to a file of the user's choosing.
+    func backup(to url: URL) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        let store = self.store
+        let outcome = await Task.detached(priority: .userInitiated) { () -> Error? in
+            do { try store.backup(to: url) } catch { return error }
+            return nil
+        }.value
+        if let outcome { failure = outcome.localizedDescription }
+    }
+
+    /// Replaces the library with a backup's contents. The undo stack is
+    /// emptied, since every entry on it names rows that are now gone.
+    func restore(from url: URL) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        finishEditing()
+        drag = nil
+        waypointDrag = nil
+        selection = []
+        let store = self.store
+        let outcome = await Task.detached(priority: .userInitiated) { () -> Error? in
+            do { try store.restore(from: url) } catch { return error }
+            return nil
+        }.value
+        undoManager.removeAllActions()
+        directionsByRoute = [:]
+        if let outcome { failure = outcome.localizedDescription }
+    }
+
+    #if os(macOS)
+    /// File, Back Up Library: a save panel, then the copy.
+    func backupLibrary() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.swiftcampLibrary]
+        panel.nameFieldStringValue = "Swiftcamp Library \(Date.now.formatted(.iso8601.year().month().day())).sqlite"
+        panel.title = "Back Up Library"
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { await self?.backup(to: url) }
+        }
+    }
+
+    /// File, Restore Library: an open panel, a warning that says what
+    /// is about to happen, then the replacement.
+    func restoreLibrary() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.swiftcampLibrary]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.title = "Restore Library"
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            let alert = NSAlert()
+            alert.messageText = "Replace the library with “\(url.lastPathComponent)”?"
+            alert.informativeText = "Everything in the library will be replaced by the backup's contents. This cannot be undone."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            Task { await self?.restore(from: url) }
+        }
+    }
+    #endif
+
     /// `name`, or `name 2`, `name 3`… when it is taken. Two rows called
     /// the same thing in one section are indistinguishable on a device.
     private func uniqueName(_ name: String, among taken: [String]) -> String {
@@ -1839,6 +2084,8 @@ final class LibraryModel {
         case .track(let id):
             guard let detail = tracks.first(where: { $0.track.id == id }) else { return [] }
             return [
+                MapMenuItem(title: "Split Track Here") { self.splitTrack(id, at: click.coordinate) },
+                MapMenuItem(title: "Invert Track") { self.invertTrack(id) },
                 MapMenuItem(title: "Create Route from Track") { self.makeRoute(fromTrack: id) },
                 .separator,
                 MapMenuItem(title: "Rename…") { self.requestRename(id) },

@@ -62,6 +62,10 @@ struct SwiftcampApp: App {
                 Button("Redo") { model.undoManager.redo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
+            CommandGroup(after: .pasteboard) {
+                Button("Duplicate") { model.duplicateSelection() }
+                    .keyboardShortcut("d")
+            }
             // GPX belongs in the File menu with a keyboard shortcut, not
             // only in the toolbar. Command-O is what someone reaches for
             // first, and a Mac app that answers it with nothing feels
@@ -78,6 +82,11 @@ struct SwiftcampApp: App {
                     // reading the collections here re-evaluates the whole
                     // scene graph on every library change.
                     .disabled(!model.hasContent)
+                Divider()
+                // The library file itself, consistent as of the moment,
+                // and the way back. BaseCamp's Back Up and Restore.
+                Button("Back Up Library…") { model.backupLibrary() }
+                Button("Restore Library from Backup…") { model.restoreLibrary() }
             }
         }
         #endif

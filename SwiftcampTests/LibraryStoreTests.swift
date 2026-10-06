@@ -109,6 +109,69 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(read.points[1].name, "Camp")
     }
 
+    // MARK: - Backup and restore
+
+    /// A backup is the whole library, and restoring it replaces the whole
+    /// library: what was there goes, what was backed up comes back row for
+    /// row, lists and links included. On disk, since `VACUUM INTO` and
+    /// `ATTACH` are file operations.
+    func testABackupRestoresTheWholeLibraryInPlaceOfWhatIsThere() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("swiftcamp-backup-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let library = LibraryStore(try AppDatabase(url: folder.appendingPathComponent("library.sqlite")))
+
+        var list = LibraryList(name: "Rockies", sortOrder: 0)
+        try library.save(list)
+        var child = LibraryList(name: "2026", parentID: list.id, sortOrder: 1)
+        try library.save(child)
+        var camp = Waypoint(listID: child.id, name: "Camp", lat: 40.5, lon: -105.5, symbol: "Campground")
+        try library.save(camp)
+        var route = RouteDetail(route: Route(listID: list.id, name: "Loop"), points: [])
+        route.appendVia(Coordinate(lat: 40.0, lon: -105.0))
+        route.appendVia(camp)
+        try library.save(route)
+        let track = Track(name: "Ride")
+        try library.save(track, points: [TrackPoint(trackID: track.id, seq: 0, lat: 40, lon: -105),
+                                         TrackPoint(trackID: track.id, seq: 1, segment: 1, lat: 41, lon: -105)])
+
+        let backup = folder.appendingPathComponent("backup.sqlite")
+        try library.backup(to: backup)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path))
+
+        // Then change everything.
+        try library.deleteRoute(id: route.route.id)
+        try library.deleteList(id: list.id)
+        try library.save(Waypoint(name: "Later", lat: 1, lon: 1))
+        XCTAssertEqual(try library.routes().count, 0)
+        XCTAssertEqual(try library.waypoints().count, 2)
+
+        try library.restore(from: backup)
+
+        XCTAssertEqual(try library.waypoints().map(\.name), ["Camp"], "what came after the backup is gone")
+        XCTAssertEqual(try library.lists().map(\.name), ["Rockies", "2026"])
+        XCTAssertEqual(try library.lists().last?.parentID, list.id, "a nested list keeps its parent")
+        XCTAssertEqual(try library.waypoints().first?.listID, child.id)
+        let restored = try XCTUnwrap(try library.routeDetail(id: route.route.id))
+        XCTAssertEqual(restored.points.count, 2)
+        XCTAssertEqual(restored.points[1].waypointID, camp.id, "a stop keeps its waypoint")
+        XCTAssertEqual(try library.trackPoints(trackID: track.id).map(\.segment), [0, 1])
+        list.name = ""; child.name = ""; camp.name = ""   // silence the never-mutated warnings
+    }
+
+    func testRestoringSomethingThatIsNotALibraryIsRefusedAndChangesNothing() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("swiftcamp-restore-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let library = LibraryStore(try AppDatabase(url: folder.appendingPathComponent("library.sqlite")))
+        try library.save(Waypoint(name: "Keep", lat: 1, lon: 1))
+
+        let junk = folder.appendingPathComponent("junk.sqlite")
+        try Data("not a database".utf8).write(to: junk)
+        XCTAssertThrowsError(try library.restore(from: junk))
+        XCTAssertEqual(try library.waypoints().map(\.name), ["Keep"])
+    }
+
     func testGeometryIsStoredAsCompactGeoJSONPairs() throws {
         let route = Route(name: "One leg")
         try store.save(RouteDetail(route: route, points: [
