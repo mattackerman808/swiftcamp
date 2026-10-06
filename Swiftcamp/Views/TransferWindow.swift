@@ -91,12 +91,12 @@ private struct LibraryPane: View {
     /// What the device gets, remembered between sends. See `DeviceExport`.
     @AppStorage(DeviceExport.defaultsKeys.strip) private var stripShapingPoints = false
     @AppStorage(DeviceExport.defaultsKeys.limit) private var limitTracks = true
-    @AppStorage(DeviceExport.defaultsKeys.road) private var roadDetail = DeviceExport.RoadDetail.full.rawValue
+    @AppStorage(DeviceExport.defaultsKeys.road) private var roadDetail = DeviceExport.RoadDetail.shaping.rawValue
 
     private var export: DeviceExport {
         DeviceExport(stripShapingPoints: stripShapingPoints,
                      trackPointLimit: limitTracks ? DeviceExport.garminTrackLimit : nil,
-                     roadDetail: DeviceExport.RoadDetail(rawValue: roadDetail) ?? .full)
+                     roadDetail: DeviceExport.RoadDetail(rawValue: roadDetail) ?? .shaping)
     }
 
     var body: some View {

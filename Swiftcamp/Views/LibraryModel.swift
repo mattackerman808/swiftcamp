@@ -431,7 +431,7 @@ final class LibraryModel {
                         : selection
                     let export = DeviceExport(stripShapingPoints: step["strip"] as? Bool ?? false,
                                               trackPointLimit: step["limit"] as? Int,
-                                              roadDetail: (step["road"] as? String).flatMap(DeviceExport.RoadDetail.init) ?? .full)
+                                              roadDetail: (step["road"] as? String).flatMap(DeviceExport.RoadDetail.init) ?? .shaping)
                     if let document = document(for: ids) {
                         try? GPXWriter.data(export.apply(to: document)).write(to: URL(fileURLWithPath: path))
                     }

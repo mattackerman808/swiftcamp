@@ -73,7 +73,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Feature | Status |
 | --- | --- |
 | GPX import, including Garmin extensions | **Have** |
-| GPX export with shaping points | **Have** |
+| GPX export with shaping points | **Have** — and to a device the road itself goes as shaping points by default, which is what a zūmo XT3 takes for a route of any length; see the Transfer window's Road picker |
 | GPX 1.0 read | **Have** |
 | **GDB import** | **Have** — BaseCamp's Export and MapSource files, and BaseCamp's autosaved `AllData.gdb` in its newer layout, each verified against a real file of the same route; see below |
 | **Restore from BaseCamp's own files** | **Have** — File, Import BaseCamp Library finds the autosave under Application Support and brings it across with its lists from `FolderData.gfi`; a BaseCamp Backup file goes through Import and is read the same way from inside its zip |

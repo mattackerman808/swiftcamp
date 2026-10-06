@@ -44,7 +44,7 @@ final class DeviceExportTests: XCTestCase {
 
     func testOptionsOffLeaveTheDocumentAlone() {
         let document = GPXDocument(routes: [route])
-        XCTAssertEqual(DeviceExport(stripShapingPoints: false, trackPointLimit: nil).apply(to: document), document)
+        XCTAssertEqual(DeviceExport(stripShapingPoints: false, trackPointLimit: nil, roadDetail: .full).apply(to: document), document)
     }
 
     func testTheTrackLimitThinsOnlyLongTracks() {
@@ -114,6 +114,6 @@ final class DeviceExportTests: XCTestCase {
         let export = DeviceExport()
         XCTAssertFalse(export.stripShapingPoints, "a zūmo honours shaping points")
         XCTAssertEqual(export.trackPointLimit, 10_000)
-        XCTAssertEqual(export.roadDetail, .full)
+        XCTAssertEqual(export.roadDetail, .shaping, "the one that carries a route of any length onto a zūmo")
     }
 }

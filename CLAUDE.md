@@ -36,7 +36,10 @@ shields for all 50 states. A GRDB library with waypoints, tracks and routes.
 GPX 1.0 and 1.1 in, 1.1 with Garmin extensions out. MTP transfer over USB to
 a zūmo XT3, both directions, and the same Transfer window over a memory
 card in a reader or a unit that mounts as a disk, found by its `Garmin`
-folder; `-SwiftcampVolume <folder>` plays a card for a scripted run. Route editing on the map: right-click empty
+folder; `-SwiftcampVolume <folder>` plays a card for a scripted run. A
+route goes to a unit as stops and shaping points by default, since the
+zūmo refuses a long road list; the Transfer window's Road picker has the
+other choices. Route editing on the map: right-click empty
 map or a waypoint to start a route there, or while editing to drop a via
 or shaping point there; drag a point to move it, drag the line to insert
 a shaping point, click it to insert a via point, right-click to convert or
@@ -501,6 +504,23 @@ implements them; this is the index.
   as much as on the branch. The harness now asks the window server for
   the window's picture, which an app may do for its own windows without
   Screen Recording permission.
+- **A zūmo takes a road only as shaping points, not as `gpxx:rpt`, past
+  a few miles.** Every road point has to sit exactly on a road the unit's
+  own map knows, and one miss fails the whole import with "not routable
+  with the maps on this device". A 17-mile route with 955 road points
+  imported; a 2,600-mile one failed at 26,800 points and again thinned to
+  992, and imported at once as 2 stops and 90 `trp:ShapingPoint` entries
+  with no road list, which the unit snaps to its roads and routes between.
+  That is what MyRouteApp and Kurviger send, and it is the default now.
+  Measured on the unit from a card, file by file, after two wrong
+  theories: the file's apostrophes, and its point count.
+- **Finder's `._Name.gpx` twins empty a Garmin's import list.** A copy to
+  an exFAT card leaves an AppleDouble file beside each GPX, it ends in
+  `.gpx`, and the unit then lists nothing from the folder, not even the
+  good files. Our own write makes none and clears any twin of its name;
+  from a shell, `/bin/cp -X`, since Homebrew's `cp` lacks the flag.
+- **A zūmo's GPX import runs on insertion and the files stay.** It is a
+  card that was formatted that loses its folder, not the unit.
 - **The terrain tiles are WebP, and the header said so.** PMTiles tile
   type 4 is WebP; the reader was first written for PNG from memory of the
   spec, and a fetched tile beginning `RIFF` corrected it in a minute.

@@ -17,7 +17,7 @@ import Foundation
 struct DeviceExport: Equatable, Sendable {
     var stripShapingPoints = false
     var trackPointLimit: Int? = garminTrackLimit
-    var roadDetail: RoadDetail = .full
+    var roadDetail: RoadDetail = .shaping
 
     /// How much of each leg's road goes into its `gpxx:rpt` list.
     ///
@@ -29,7 +29,9 @@ struct DeviceExport: Equatable, Sendable {
     /// fraction of that. Fewer points means fewer chances to disagree,
     /// and none means the unit plans its own road between the stops.
     enum RoadDetail: String, CaseIterable, Sendable {
-        /// Every vertex, as routed.
+        /// Every vertex, as routed. Works when every one lands on a road
+        /// the unit knows, which a 17-mile route did and a 2,600-mile one
+        /// never will; see `shaping`, the default.
         case full
         /// The bends that matter, within a couple of hundred metres of
         /// the road, which still holds the unit to the planned road at
@@ -75,7 +77,7 @@ struct DeviceExport: Equatable, Sendable {
         return DeviceExport(stripShapingPoints: defaults.bool(forKey: defaultsKeys.strip),
                             trackPointLimit: defaults.object(forKey: defaultsKeys.limit) == nil
                                 || defaults.bool(forKey: defaultsKeys.limit) ? garminTrackLimit : nil,
-                            roadDetail: RoadDetail(rawValue: defaults.string(forKey: defaultsKeys.road) ?? "") ?? .full)
+                            roadDetail: RoadDetail(rawValue: defaults.string(forKey: defaultsKeys.road) ?? "") ?? .shaping)
     }
 
     func apply(to document: GPXDocument) -> GPXDocument {
