@@ -91,10 +91,12 @@ private struct LibraryPane: View {
     /// What the device gets, remembered between sends. See `DeviceExport`.
     @AppStorage(DeviceExport.defaultsKeys.strip) private var stripShapingPoints = false
     @AppStorage(DeviceExport.defaultsKeys.limit) private var limitTracks = true
+    @AppStorage(DeviceExport.defaultsKeys.road) private var roadDetail = DeviceExport.RoadDetail.full.rawValue
 
     private var export: DeviceExport {
         DeviceExport(stripShapingPoints: stripShapingPoints,
-                     trackPointLimit: limitTracks ? DeviceExport.garminTrackLimit : nil)
+                     trackPointLimit: limitTracks ? DeviceExport.garminTrackLimit : nil,
+                     roadDetail: DeviceExport.RoadDetail(rawValue: roadDetail) ?? .full)
     }
 
     var body: some View {
@@ -111,6 +113,11 @@ private struct LibraryPane: View {
             // The two things BaseCamp asks on the way out, as settings
             // rather than a dialog per send.
             HStack(spacing: 14) {
+                Picker("Road", selection: $roadDetail) {
+                    ForEach(DeviceExport.RoadDetail.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
+                }
+                .fixedSize()
+                .help("How much of each leg's road the unit is held to. A unit that refuses a long route as not routable with its maps wants fewer points, or none.")
                 Toggle("Strip shaping points", isOn: $stripShapingPoints)
                     .help("Send only the stops, each carrying the whole road to the next. For a unit that announces every bend as a destination.")
                 Toggle("Limit tracks to \(DeviceExport.garminTrackLimit.formatted()) points", isOn: $limitTracks)

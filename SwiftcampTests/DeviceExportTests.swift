@@ -61,9 +61,34 @@ final class DeviceExportTests: XCTestCase {
         XCTAssertEqual(out.tracks[1], short, "under the limit, untouched")
     }
 
+    func testThinningTheRoadKeepsTheBendsAndTheStops() {
+        // A leg with a real dogleg and a straight run of GPS wander.
+        let route = Route(name: "Leg")
+        var road: [Coordinate] = []
+        for i in 1..<40 { road.append(c(40.0 + Double(i) * 0.001, -105.0 + (i % 2 == 0 ? 0.00001 : -0.00001))) }
+        road.append(c(40.04, -105.02))   // a 1.7 km jog west, a bend that matters
+        let detail = RouteDetail(route: route, points: [
+            RoutePoint(routeID: route.id, seq: 0, lat: 40.0, lon: -105.0, geometry: road),
+            RoutePoint(routeID: route.id, seq: 1, lat: 40.05, lon: -105.02),
+        ])
+
+        let sparse = DeviceExport.thinningRoad(detail, to: .sparse)
+        let kept = sparse.points[0].geometry ?? []
+        XCTAssertLessThan(kept.count, 5, "the straight run is gone")
+        XCTAssertTrue(kept.contains(c(40.04, -105.02)), "the bend stays")
+        XCTAssertEqual(sparse.points.map(\.coordinate), detail.points.map(\.coordinate), "stops untouched")
+
+        let none = DeviceExport.thinningRoad(detail, to: .none)
+        XCTAssertNil(none.points[0].geometry)
+        XCTAssertEqual(DeviceExport.thinningRoad(detail, to: .full), detail)
+        XCTAssertEqual(DeviceExport(stripShapingPoints: false, trackPointLimit: nil, roadDetail: .none)
+                           .apply(to: GPXDocument(routes: [detail])).routes[0], none)
+    }
+
     func testTheDefaultsAreBaseCampsDefaults() {
         let export = DeviceExport()
         XCTAssertFalse(export.stripShapingPoints, "a zūmo honours shaping points")
         XCTAssertEqual(export.trackPointLimit, 10_000)
+        XCTAssertEqual(export.roadDetail, .full)
     }
 }

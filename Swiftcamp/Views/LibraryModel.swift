@@ -421,6 +421,21 @@ final class LibraryModel {
                 if let path = step["path"] as? String { await backup(to: URL(fileURLWithPath: path)) }
             case "restore":
                 if let path = step["path"] as? String { await restore(from: URL(fileURLWithPath: path)) }
+            case "export":
+                // The selection, or everything, to a GPX file at `path`,
+                // as a device would get it with the Transfer window's
+                // options: `strip` and `limit` as the checkboxes.
+                if let path = step["path"] as? String {
+                    let ids = selection.isEmpty
+                        ? Set(routes.map(\.route.id) + tracks.map(\.track.id) + waypoints.map(\.id))
+                        : selection
+                    let export = DeviceExport(stripShapingPoints: step["strip"] as? Bool ?? false,
+                                              trackPointLimit: step["limit"] as? Int,
+                                              roadDetail: (step["road"] as? String).flatMap(DeviceExport.RoadDetail.init) ?? .full)
+                    if let document = document(for: ids) {
+                        try? GPXWriter.data(export.apply(to: document)).write(to: URL(fileURLWithPath: path))
+                    }
+                }
             case "profile":
                 // The selected route's or track's profile, as the pane
                 // would ask for it.
