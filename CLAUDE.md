@@ -28,7 +28,7 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 ## Current state
 
 **The map, the library, GPX, the device and the planner are built. Stages A,
-B and C of `docs/basecamp-parity.md` are done bar the elevation profile.**
+B and C of `docs/basecamp-parity.md` are done; Stage E, the rest, is next.**
 
 Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route
@@ -88,10 +88,11 @@ the same way. `Swiftcamp/GDB/`.
 
 Tracks invert, split at a fix on the map, join from the sidebar, and
 simplify to a device's point limit; the inspector shows a recording's
-moving and elapsed time, speed and climb. Every item duplicates. File,
+moving and elapsed time, speed and climb, and an elevation profile under
+any route or track, from the recording's own heights or from the DEM
+through our own reader of the terrain archive (`Swiftcamp/Map/Terrain/`). Every item duplicates. File,
 Back Up Library writes the library file and Restore replaces everything
-from one. Not started: elevation profiles. `docs/basecamp-parity.md` has
-the full inventory.
+from one. `docs/basecamp-parity.md` has the full inventory.
 
 Only macOS is being actively worked on. iOS builds but has no overlay path.
 
@@ -500,6 +501,14 @@ implements them; this is the index.
   as much as on the branch. The harness now asks the window server for
   the window's picture, which an app may do for its own windows without
   Screen Recording permission.
+- **The terrain tiles are WebP, and the header said so.** PMTiles tile
+  type 4 is WebP; the reader was first written for PNG from memory of the
+  spec, and a fetched tile beginning `RIFF` corrected it in a minute.
+  ImageIO decodes WebP natively, and its bitmap buffer comes out top row
+  first: the summit of Longs Peak sat at exactly the row the projection
+  predicted, which settled the flip question that reasoning had got wrong.
+  Walked in Python against the live archive before any Swift, and the
+  CDN's bot protection refuses a bare client, so the reader names itself.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

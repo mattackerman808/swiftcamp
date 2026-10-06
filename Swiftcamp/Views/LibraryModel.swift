@@ -251,6 +251,17 @@ final class LibraryModel {
     }
     private(set) var directionsByRoute: [String: DirectionsEntry] = [:]
 
+    /// The last elevation profile computed for each route or track,
+    /// against the state it was computed for. See `ElevationProfile`.
+    struct ProfileEntry: Equatable {
+        var key: String
+        var profile: ElevationProfile?
+    }
+    private(set) var profiles: [String: ProfileEntry] = [:]
+
+    /// The last spot height asked for by a script, for `dump`.
+    @ObservationIgnored private var lastElevation: (Coordinate, Double?)?
+
     /// Legs the engine refused, keyed by mode and both ends, so a leg with
     /// no road between its points is not asked again on every edit.
     @ObservationIgnored private var refusedLegs: Set<String> = []
@@ -410,6 +421,16 @@ final class LibraryModel {
                 if let path = step["path"] as? String { await backup(to: URL(fileURLWithPath: path)) }
             case "restore":
                 if let path = step["path"] as? String { await restore(from: URL(fileURLWithPath: path)) }
+            case "profile":
+                // The selected route's or track's profile, as the pane
+                // would ask for it.
+                if let id = selection.first(where: { profileKey(for: $0) != nil }) {
+                    while routing.contains(id) { try? await Task.sleep(for: .milliseconds(200)) }
+                    await loadProfile(for: id)
+                }
+            case "elevation":
+                let spot = Coordinate(lat: number("lat", step), lon: number("lon", step))
+                lastElevation = (spot, await TerrainSampler.shared.elevation(at: spot))
             case "movePoint":
                 // Point `from` of the route named to before the point now
                 // at `to`, as a drag of the sidebar's rows reports it.
@@ -603,6 +624,15 @@ final class LibraryModel {
                                       "search": search.results.map { ["name": $0.name, "detail": $0.detail, "kind": $0.kind.rawValue,
                                                                       "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] },
                                       "pin": searchPin.map { ["name": $0.name, "lat": $0.coordinate.lat, "lon": $0.coordinate.lon] } as Any,
+                                      "profiles": Dictionary(uniqueKeysWithValues: profiles.compactMap { id, entry -> (String, Any)? in
+                                          guard let name = name(for: id) else { return nil }
+                                          guard let p = entry.profile else { return (name, "none") }
+                                          return (name, ["samples": p.samples.count,
+                                                         "miles": (p.length / 1609.344 * 10).rounded() / 10,
+                                                         "min": p.minimum.rounded(), "max": p.maximum.rounded(),
+                                                         "ascent": p.ascent.rounded(), "descent": p.descent.rounded()])
+                                      }),
+                                      "elevation": lastElevation.map { ["lat": $0.0.lat, "lon": $0.0.lon, "metres": $0.1 as Any] } as Any,
                                       "selection": Array(selection).sorted(),
                                       "canUndo": undoManager.canUndo,
                                       "canRedo": undoManager.canRedo]
@@ -1218,6 +1248,52 @@ final class LibraryModel {
             NSLog("[Swiftcamp] no directions: %@", error.localizedDescription)
             directionsByRoute[routeID] = DirectionsEntry(key: key, failure: error.localizedDescription)
         }
+    }
+
+    // MARK: - Elevation
+
+    /// What a profile would be computed from, or nil for an item that
+    /// has no line.
+    func profileKey(for id: String) -> String? {
+        if let detail = routes.first(where: { $0.route.id == id }) {
+            guard detail.points.count >= 2 else { return nil }
+            return Self.signature(of: detail) + "|" + detail.points.map { "\($0.geometry?.count ?? 0)" }.joined(separator: ",")
+        }
+        if let detail = tracks.first(where: { $0.track.id == id }) {
+            guard detail.points.count >= 2 else { return nil }
+            return "\(id):\(detail.points.count)"
+        }
+        return nil
+    }
+
+    /// The profile for a route or a track as it stands, into `profiles`,
+    /// unless the one there is already for this state. A track's own
+    /// heights when it has them; the DEM otherwise, off the main actor.
+    func loadProfile(for id: String) async {
+        guard let key = profileKey(for: id), profiles[id]?.key != key else { return }
+        let path: [Coordinate]
+        var recorded: ElevationProfile?
+        if let detail = routes.first(where: { $0.route.id == id }) {
+            path = detail.path
+        } else if let detail = tracks.first(where: { $0.track.id == id }) {
+            recorded = ElevationProfile.recorded(detail)
+            path = detail.points.sorted { $0.seq < $1.seq }.map(\.coordinate)
+        } else {
+            return
+        }
+        let profile: ElevationProfile?
+        if let recorded {
+            profile = recorded
+        } else {
+            profile = await Task.detached(priority: .userInitiated) { () -> ElevationProfile? in
+                let stations = ElevationProfile.stations(along: path)
+                let heights = await TerrainSampler.shared.elevations(along: stations.map(\.coordinate))
+                let made = ElevationProfile.make(stations: stations, elevations: heights)
+                return made.samples.count >= 2 ? made : nil
+            }.value
+        }
+        guard profileKey(for: id) == key else { return }
+        profiles[id] = ProfileEntry(key: key, profile: profile)
     }
 
     /// Looks at a spot on the road, close enough to read the junction.

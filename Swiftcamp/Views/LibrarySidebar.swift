@@ -52,6 +52,9 @@ struct LibrarySidebar: View {
             VStack(spacing: 0) {
                 if let id = model.selection.first, model.selection.count == 1 {
                     ItemInspector(model: model, id: id)
+                    if model.profileKey(for: id) != nil || model.routes.contains(where: { $0.route.id == id }) {
+                        ElevationPane(model: model, id: id)
+                    }
                     if let detail = model.routes.first(where: { $0.route.id == id }) {
                         DirectionsPane(model: model, detail: detail)
                     }

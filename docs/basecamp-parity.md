@@ -127,7 +127,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Invert | **Have** |
 | Filter and simplify, point count reduction | **Have** — Simplify Track to 500, 2,000 or 10,000 points, each segment keeping its share and its ends |
 | Insert, move, erase points | **Build** |
-| Elevation profile | **Build** — we already stream the DEM |
+| Elevation profile | **Have** — under the route or track in the inspector, hover for the height at a distance; a recording's own heights, else the DEM read straight from the terrain archive by our own reader (`PMTiles`, `TerrainSampler`) |
 | Playback along a track | **Build**, low priority |
 | Statistics: distance, time, ascent, moving average | **Have** — moving and elapsed time, moving speed, climb and descent with a five-metre noise gate, in the inspector when the recording has a clock and an altimeter |
 
@@ -158,7 +158,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | --- | --- |
 | Distance and heading between points | **Build** — `GeoMath` already has both |
 | Enclosed area | **Build** |
-| Elevation readout under the cursor | **Build** |
+| Elevation readout under the cursor | **Build** — the sampler exists; it needs a hover from the map |
 
 ### Device transfer
 
@@ -330,8 +330,7 @@ ride and hand it to a device.*
 own database and backup files. Backup and restore of our own. Rename and
 duplicate. Track split, join, filter. Elevation profiles and real statistics.
 *At the end of this, a BaseCamp user can move their library across and not
-lose anything.* All of it is built as of 2026-10-05 except the elevation
-profile, which waits on reading the DEM outside the renderer.
+lose anything.* Done 2026-10-05.
 
 **Stage C — the device. Done 2026-10-05.** MTP, the memory card and
 mass-storage path, which are the same code and cover every unit with a card
