@@ -707,33 +707,19 @@ final class LibraryModel {
 
     /// What the map draws: the listed items, less the hidden ones.
     private var mappedRoutes: [RouteDetail] {
-        listedRoutes.filter {
-            Visibility.draws(hidden: $0.route.isHidden, kindShown: shownKinds.routes, inList: true,
-                             selected: isSelected($0.route.id), editing: $0.route.id == editingRouteID)
-        }
+        listedRoutes.filter { Visibility.draws(hidden: $0.route.isHidden, kindShown: shownKinds.routes, inList: true) }
     }
     private var mappedTracks: [TrackDetail] {
-        listedTracks.filter {
-            Visibility.draws(hidden: $0.track.isHidden, kindShown: shownKinds.tracks, inList: true,
-                             selected: isSelected($0.track.id))
-        }
+        listedTracks.filter { Visibility.draws(hidden: $0.track.isHidden, kindShown: shownKinds.tracks, inList: true) }
     }
     private var mappedWaypoints: [Waypoint] {
-        listedWaypoints.filter {
-            Visibility.draws(hidden: $0.isHidden, kindShown: shownKinds.waypoints, inList: true,
-                             selected: isSelected($0.id))
-        }
+        listedWaypoints.filter { Visibility.draws(hidden: $0.isHidden, kindShown: shownKinds.waypoints, inList: true) }
     }
 
     /// Everything back on the map: every item unhidden and every kind on.
     func showEverything() {
         shownKinds = Visibility.Kinds()
         setHidden(false, for: Set(routes.map(\.route.id) + tracks.map(\.track.id) + waypoints.map(\.id)))
-    }
-
-    /// Selected itself, or through one of its points.
-    private func isSelected(_ id: String) -> Bool {
-        selection.contains(id) || selection.contains { OverlayGeoJSON.parseHandle($0)?.routeID == id }
     }
 
     // MARK: - Hiding
@@ -1252,7 +1238,11 @@ final class LibraryModel {
     func selectFromSidebar(_ ids: Set<String>) {
         guard ids != selection else { return }
         selection = ids
-        if ids.count == 1 { focus(on: ids) }
+        // Not for a hidden item: it is not on the map, so there is nothing
+        // to fly to, and the box beside it says so.
+        if ids.count == 1, let id = ids.first, !isHidden(OverlayGeoJSON.parseHandle(id)?.routeID ?? id) {
+            focus(on: ids)
+        }
     }
 
     /// Frames one item, or several together.
@@ -1351,6 +1341,9 @@ final class LibraryModel {
     func editRoute(_ id: String) {
         guard routes.contains(where: { $0.route.id == id }) else { return }
         finishEditing()
+        // Editing what cannot be seen is a mistake waiting to happen, so
+        // a hidden route is ticked back on, undoably like any tick.
+        if isHidden(id) { setHidden(false, for: [id]) }
         editingRouteID = id
         selection = [id]
     }

@@ -92,7 +92,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Overview map inset | **Build**, low priority |
 | Map product switching | **Build** — our equivalent is a layer picker |
 | Contour lines | **Build** — noted in CLAUDE.md as the one place the split-backend plan costs something |
-| Show and hide items on the map | **Have** — a checkbox on every sidebar row and Hide on Map in its menu, per list for everything filed in it, and Show Routes, Tracks and Waypoints in the View menu, with Show Everything on Map as the way back; a hidden item still draws while selected or edited |
+| Show and hide items on the map | **Have** — a checkbox on every sidebar row and Hide on Map in its menu, per list for everything filed in it, and Show Routes, Tracks and Waypoints in the View menu, with Show Everything on Map as the way back; editing a hidden route ticks it back on |
 | Draw order of overlays | **Build**, low priority |
 | Print, including multi-page posters | **Build** |
 
