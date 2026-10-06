@@ -27,9 +27,8 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 
 ## Current state
 
-**The map, the library, GPX, the device and the planner are built. Stages A
-and B of `docs/basecamp-parity.md` are done bar the elevation profile, and
-Stage C bar stripping shaping points on the way out.**
+**The map, the library, GPX, the device and the planner are built. Stages A,
+B and C of `docs/basecamp-parity.md` are done bar the elevation profile.**
 
 Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route

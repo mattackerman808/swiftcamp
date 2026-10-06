@@ -88,6 +88,15 @@ private struct LibraryPane: View {
     @State private var chosen: Set<String> = []
     @State private var isTarget = false
 
+    /// What the device gets, remembered between sends. See `DeviceExport`.
+    @AppStorage(DeviceExport.defaultsKeys.strip) private var stripShapingPoints = false
+    @AppStorage(DeviceExport.defaultsKeys.limit) private var limitTracks = true
+
+    private var export: DeviceExport {
+        DeviceExport(stripShapingPoints: stripShapingPoints,
+                     trackPointLimit: limitTracks ? DeviceExport.garminTrackLimit : nil)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             PaneHeader(title: "Library", subtitle: subtitle) {
@@ -99,6 +108,20 @@ private struct LibraryPane: View {
                 .help("Copy the selected items to the device")
                 .disabled(chosen.isEmpty || device.snapshot == nil || device.isWorking)
             }
+            // The two things BaseCamp asks on the way out, as settings
+            // rather than a dialog per send.
+            HStack(spacing: 14) {
+                Toggle("Strip shaping points", isOn: $stripShapingPoints)
+                    .help("Send only the stops, each carrying the whole road to the next. For a unit that announces every bend as a destination.")
+                Toggle("Limit tracks to \(DeviceExport.garminTrackLimit.formatted()) points", isOn: $limitTracks)
+                    .help("Thin a longer recording to what a Garmin will take, keeping the line within a couple of metres.")
+                Spacer()
+            }
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .font(.caption)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
 
             List(selection: $chosen) {
                 section("Routes", library.routes.map { ($0.route.id, $0.route.name,
@@ -151,7 +174,7 @@ private struct LibraryPane: View {
     }
 
     private func exportChosen() {
-        device.export(library.files(for: chosen))
+        device.export(library.files(for: chosen, export: export))
     }
 
     private func importDropped(_ items: [String]) -> Bool {
@@ -367,7 +390,7 @@ private struct DevicePane: View {
     private func exportDropped(_ items: [String]) -> Bool {
         let ids = items.flatMap { DragPayload.decode(tag: DragPayload.libraryTag, $0) }
         guard !ids.isEmpty else { return false }
-        device.export(library.files(for: Set(ids)))
+        device.export(library.files(for: Set(ids), export: DeviceExport.stored))
         return true
     }
 

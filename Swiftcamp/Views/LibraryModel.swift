@@ -1124,11 +1124,11 @@ final class LibraryModel {
     ///
     /// One file per item, because a Garmin lists what it finds by filename
     /// and three routes in one file appear on the unit as a single entry.
-    func files(for ids: Set<String>) -> [(name: String, data: Data)] {
+    func files(for ids: Set<String>, export: DeviceExport = DeviceExport()) -> [(name: String, data: Data)] {
         ids.compactMap { id in
             guard let document = document(for: id) else { return nil }
             return (DeviceFilename.make(from: name(for: id) ?? "Route"),
-                    GPXWriter.data(document))
+                    GPXWriter.data(export.apply(to: document)))
         }
         .sorted { $0.name < $1.name }
     }

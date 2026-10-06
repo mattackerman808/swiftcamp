@@ -166,8 +166,8 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | --- | --- |
 | Send and receive via a memory card | **Have** — a volume with a `Garmin` folder appears in the Transfer window beside the USB units and is browsed, read and written as `Garmin/GPX` through the same panes; a unit that mounts as a disk is the same path |
 | Send and receive over MTP | **Have** — built against a zūmo XT3, see below |
-| Strip shaping points on transfer | **Build** |
-| Simplify tracks to a device point limit | **Partial** — by hand from the track's menu; not yet automatic on the way out |
+| Strip shaping points on transfer | **Have** — a checkbox in the Transfer window; each stop carries the whole road to the next, so the line is unchanged |
+| Simplify tracks to a device point limit | **Have** — on by default in the Transfer window, to Garmin's 10,000; and by hand from the track's menu |
 | Browse device contents | **Have** |
 
 ## The three hard problems
@@ -333,11 +333,10 @@ duplicate. Track split, join, filter. Elevation profiles and real statistics.
 lose anything.* All of it is built as of 2026-10-05 except the elevation
 profile, which waits on reading the DEM outside the renderer.
 
-**Stage C — the device.** MTP is done, and so is the memory card and
-mass-storage path as of 2026-10-05, which are the same code and cover every
-unit with a card slot. Left: shaping-point stripping and automatic track
-simplification on the way out. *At the end of this, Swiftcamp replaces
-BaseCamp.*
+**Stage C — the device. Done 2026-10-05.** MTP, the memory card and
+mass-storage path, which are the same code and cover every unit with a card
+slot, and shaping-point stripping and track simplification on the way out.
+*Swiftcamp replaces BaseCamp.*
 
 **Stage D — routing.** Valhalla, region packs, activity profiles, avoidances,
 snapping and recalculation on drag. *At the end of this, Swiftcamp is better
