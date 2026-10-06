@@ -44,7 +44,8 @@ final class DeviceExportTests: XCTestCase {
 
     func testOptionsOffLeaveTheDocumentAlone() {
         let document = GPXDocument(routes: [route])
-        XCTAssertEqual(DeviceExport(stripShapingPoints: false, trackPointLimit: nil, roadDetail: .full).apply(to: document), document)
+        XCTAssertEqual(DeviceExport(stripShapingPoints: false, trackPointLimit: nil, roadDetail: .full,
+                                    tracksForOffRoadRoutes: false).apply(to: document), document)
     }
 
     func testTheTrackLimitThinsOnlyLongTracks() {
@@ -115,5 +116,28 @@ final class DeviceExportTests: XCTestCase {
         XCTAssertFalse(export.stripShapingPoints, "a zūmo honours shaping points")
         XCTAssertEqual(export.trackPointLimit, 10_000)
         XCTAssertEqual(export.roadDetail, .shaping, "the one that carries a route of any length onto a zūmo")
+        XCTAssertTrue(export.tracksForOffRoadRoutes, "a trail the unit's map lacks is otherwise lost")
+    }
+
+    func testAnOffRoadRouteTakesItsWholePlannedLineAsATrack() {
+        var adventure = route
+        adventure.route.mode = .adventure
+        let out = DeviceExport().apply(to: GPXDocument(routes: [adventure]))
+
+        XCTAssertEqual(out.tracks.count, 1)
+        XCTAssertEqual(out.tracks[0].track.name, "Loop")
+        XCTAssertEqual(out.tracks[0].points.map(\.coordinate), adventure.path,
+                       "every vertex as planned, taken before the road was thinned to shaping points")
+        XCTAssertNotEqual(out.routes[0].path, adventure.path, "the route itself still went out thinned")
+    }
+
+    func testRoadRoutesGetNoTrackAndTheOptionTurnsItOff() {
+        var direct = route
+        direct.route.mode = .direct
+        let document = GPXDocument(routes: [route, direct])
+
+        XCTAssertEqual(DeviceExport().apply(to: document).tracks.map(\.track.name), ["Loop"],
+                       "only the Direct one; a Road route stays on roads the unit has")
+        XCTAssertTrue(DeviceExport(tracksForOffRoadRoutes: false).apply(to: document).tracks.isEmpty)
     }
 }

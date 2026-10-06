@@ -72,7 +72,7 @@ struct ContentView: View {
                      editingRouteID: model.editingRouteID, pageEvent: model.pageEvent,
                      onClick: model.select, onDrag: model.drag, onKey: model.key,
                      onContextMenu: model.contextMenu, onView: model.viewChanged,
-                     terrain: model.showsTerrain)
+                     terrain: model.showsTerrain, trails: model.showsTrails)
             #if os(macOS)
             // A scripted run floats its window. WebKit stops rendering a
             // view its window does not show, and a second copy of the app
@@ -123,8 +123,11 @@ struct ContentView: View {
             }
             .overlay(alignment: .bottomLeading) {
                 // OSM attribution is an ODbL obligation, not decoration.
-                // See docs/data-architecture.md.
-                Text(BasemapSource.attribution)
+                // See docs/data-architecture.md. The Forest Service is
+                // named while its trails are drawn, because the map is
+                // then making a legal claim and should say whose.
+                Text(model.showsTrails ? "\(BasemapSource.attribution) · \(BasemapSource.trailsAttribution)"
+                                       : BasemapSource.attribution)
                     .font(.caption2)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)

@@ -14,10 +14,20 @@ import Foundation
 /// and either refuse or truncate a longer one, which on a day's recording
 /// of a few hundred thousand fixes means losing the afternoon. Thinning
 /// keeps the line within a couple of metres; see `TrackDetail.simplified`.
+///
+/// **A track beside an off-road route.** A unit routes again on its own
+/// map, so a leg along a forest road or trail that map lacks is quietly
+/// moved onto roads it has. The route still imports and still looks like
+/// a route; it just goes somewhere else. A track is a line the unit draws
+/// whatever its map holds, so an Adventure or Direct route also goes out
+/// as the track of its planned line, and the rider follows that where the
+/// two disagree. Road routes stay on paved ways the unit's map has, and
+/// get none: a second line on every road trip would be clutter.
 struct DeviceExport: Equatable, Sendable {
     var stripShapingPoints = false
     var trackPointLimit: Int? = garminTrackLimit
     var roadDetail: RoadDetail = .shaping
+    var tracksForOffRoadRoutes = true
 
     /// How much of each leg's road goes into its `gpxx:rpt` list.
     ///
@@ -69,7 +79,8 @@ struct DeviceExport: Equatable, Sendable {
     /// outdoor units.
     static let garminTrackLimit = 10_000
 
-    static let defaultsKeys = (strip: "exportStripShapingPoints", limit: "exportLimitTracks", road: "exportRoadDetail")
+    static let defaultsKeys = (strip: "exportStripShapingPoints", limit: "exportLimitTracks", road: "exportRoadDetail",
+                               offRoadTracks: "exportOffRoadTracks")
 
     /// As remembered between sends.
     static var stored: DeviceExport {
@@ -77,11 +88,25 @@ struct DeviceExport: Equatable, Sendable {
         return DeviceExport(stripShapingPoints: defaults.bool(forKey: defaultsKeys.strip),
                             trackPointLimit: defaults.object(forKey: defaultsKeys.limit) == nil
                                 || defaults.bool(forKey: defaultsKeys.limit) ? garminTrackLimit : nil,
-                            roadDetail: RoadDetail(rawValue: defaults.string(forKey: defaultsKeys.road) ?? "") ?? .shaping)
+                            roadDetail: RoadDetail(rawValue: defaults.string(forKey: defaultsKeys.road) ?? "") ?? .shaping,
+                            tracksForOffRoadRoutes: defaults.object(forKey: defaultsKeys.offRoadTracks) == nil
+                                || defaults.bool(forKey: defaultsKeys.offRoadTracks))
+    }
+
+    /// Whether a route's legs may leave the roads a unit's map is sure to
+    /// have. Adventure takes tracks and trails, and Direct takes no road
+    /// at all, so the unit would re-route either onto pavement.
+    static func isOffRoad(_ detail: RouteDetail) -> Bool {
+        detail.route.mode != .road
     }
 
     func apply(to document: GPXDocument) -> GPXDocument {
         var out = document
+        // Before the road is thinned: the track is the line as planned,
+        // every vertex, which is the point of sending it.
+        if tracksForOffRoadRoutes {
+            out.tracks += out.routes.filter(Self.isOffRoad).filter { !$0.points.isEmpty }.map(TrackDetail.init(fromRoute:))
+        }
         if stripShapingPoints {
             out.routes = out.routes.map { Self.strippingShapingPoints($0) }
         }

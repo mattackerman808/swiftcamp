@@ -101,6 +101,7 @@ graph-<region>-<date>.tar           # streamed routing graph, one tile per range
 graph-<region>-<date>/<l>/<path>.gph.gz  # the same graph, one gzipped object per tile
 search-<region>-<date>/              # place index: places.sqlite, cells/<id>.sqlite
 addresses-<region>-<date>/           # address index: tiles/<id>.sqlite, index.json
+trails-us-<date>.pmtiles            # dirt bike trails: MVUM and OSM, streamed
 regions/<region>.pmtiles            # offline map for one region
 regions/<region>-routing.tar.zst    # Valhalla graph for one region, offline
 manifest.json                       # region list, sizes, sha256, build date
@@ -379,6 +380,70 @@ MapLibre Native supports this directly — the shipped binary contains `MLNHills
 **Contours do not.** The usual approach generates them on the fly from the DEM with `maplibre-contour`, which avoids pre-rendering 100+ GB of contour variations. That plugin is JavaScript, so it works on macOS and cannot work on iOS with MapLibre Native. Either pre-generate contour vector tiles for both platforms, or ship hillshade everywhere and treat drawn contours as macOS-only. **This is the first place the split-backend plan actually costs something**, and it should be decided before topo is promised as a feature.
 
 Zoom depth is the main size lever: z10 to z12 is a 10x jump for terrain.
+
+### Dirt bike trails
+
+`trails-<region>-<date>.pmtiles`, built by `scripts/build-trails.py` and
+drawn over the street map when the View menu's Show Dirt Bike Trails is
+on. It answers one question, where a motorcycle may legally ride, so it
+holds only ways with positive evidence and says whose evidence it is.
+
+| Layer | Source | Licence | What it holds |
+| --- | --- | --- | --- |
+| `mvum` | USDA Forest Service Motor Vehicle Use Maps, from the `EDW_MVUM_01` ArcGIS service | Public domain | Every national forest road and trail designated for motor vehicles, with the motorcycle rule and its dates |
+| `osm` | OpenStreetMap, the same Geofabrik extract as the graph | ODbL | Paths, tracks and minor roads tagged `motorcycle`, `motor_vehicle` or `vehicle` as `yes`, `designated`, `permissive` or `official` |
+
+United States, 2026-10-05: **150 MB** to z14, built in 85 seconds from the
+Geofabrik US extract once the MVUM pages are cached (about twenty minutes
+to fetch, 959 MB). 150,719 MVUM road segments and 34,183 trail segments,
+and 34,903 OSM ways. Colorado alone is 12.5 MB.
+
+The MVUM is the legal record under 36 CFR 212: on a national forest a way
+is open to a motor vehicle only if the map says so. It is national and says
+nothing about BLM, state or private land, which is where OSM comes in, and
+OSM is taken only where a mapper wrote the access down. `access=yes` alone
+does not count: half of Colorado's tracks are private behind defaults like
+it. The two are kept as separate layers rather than conflated, with the
+Forest Service drawn on top.
+
+Each feature carries `kind` (`road`, `trail`, `single`), `legal` (`any`,
+meaning any motorcycle, plated or not; `street`, highway-legal only;
+`unknown`), and, from the MVUM, `dates` open as `MM/DD-MM/DD`. OSM's
+`:conditional` goes in `restriction` instead, because it is usually when a
+way is *closed*, and sharing a field would invert one of them.
+
+Surveyed across the whole service before the classification was written:
+
+- **The symbol decides, and the column agrees.** Symbols 5–10, 16 and 17
+  are trails open to motorcycles, and their `motorcycle` column reads
+  `open` on 99.5% of segments. Symbols 3 and 4 are roads open to
+  highway-legal vehicles only, and their `motorcycle` column is empty on
+  purpose: 63,000 miles nationally where a plated dual-sport may go and an
+  unplated dirt bike may not.
+- **Special designations (11, 12) are often silent.** 60% of their trail
+  segments state no motorcycle rule. Those are `unknown`, drawn grey, never
+  open.
+- **Dates wrap the year.** `12/01-08/31` is open December through August,
+  closed for hunting season; the hover reads it that way.
+- **Pike and San Isabel's `12/01-03/14` is unexplained.** 125 trail miles,
+  Rampart Range among them, say motorcycles are open *only* in winter, and
+  the same road segment opens to cars `05/16-11/30`. That may be a real
+  winter designation or a data entry inverted. It is drawn as the source
+  says, and the printed MVUM is the legal document; check it before
+  trusting the hover there.
+
+The service pages at 2,000 features and caches each page under
+`out/mvum-cache`, keyed by the query box, so re-tiling asks for nothing.
+Its trail count overstates what a map can draw: 28,595 of 62,778 trail
+rows have no geometry and no miles, and the 34,183 a box query returns
+hold all 43,958 trail miles, measured both ways. Asking a layer for a field
+it lacks fails with a bare "Failed to execute query": the roads layer has
+`surfacetype` and the trails layer has `trailclass`.
+
+A trail on our map is not a trail on the rider's unit. A Garmin routes
+again on its own map and moves a leg it cannot follow onto roads it has, so
+an Adventure or Direct route goes to a device with a track of its planned
+line beside it; see `DeviceExport`.
 
 ### Satellite is a licensing problem, not a technical one
 

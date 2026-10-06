@@ -23,6 +23,8 @@
   #tip .kind { color: #6e6e73; }
   #tip .row { display: flex; gap: 10px; justify-content: space-between; }
   #tip .row span:last-child { font-variant-numeric: tabular-nums; }
+  /* A forest's name runs to fifty characters; let that one line wrap. */
+  #tip .wrap { white-space: normal; }
   /* Where the pointer is and how high the ground is there, bottom right,
      in the attribution capsule's dress. */
   #readout {
@@ -155,6 +157,17 @@ function post(message) {
         if (map.getTerrain()) setTimeout(function () { map.setTerrain(null); }, 650);
       }
     },
+    // The dirt bike trails, on or off. Every layer the style declares
+    // under the prefix, so a layer added there needs nothing here.
+    setTrails: function (on) {
+      trailsOn = on;
+      style.layers.forEach(function (l) {
+        if (l.id.indexOf(TRAIL_PREFIX) === 0 && map.getLayer(l.id)) {
+          map.setLayoutProperty(l.id, 'visibility', on ? 'visible' : 'none');
+        }
+      });
+      if (!on) hideTip();
+    },
     setEditing: function (id) {
       editing = id || null;
       map.getCanvas().style.cursor = editing ? 'crosshair' : '';
@@ -260,6 +273,29 @@ function post(message) {
   // either carries the same properties.
   var PICKABLE = ['search-pin', 'via-point', 'waypoint-icon', 'route-casing', 'track-line'];
 
+  // The trails layers, for the hover only: a trail is something to read
+  // about, never to click or drag, so it stays out of PICKABLE and a click
+  // on one still lands on the ground under it. The strokes, not the
+  // casings, which carry the same features.
+  var TRAIL_PREFIX = 'trails-';
+  var TRAIL_LAYERS = style.layers
+    .filter(function (l) { return l.id.indexOf(TRAIL_PREFIX) === 0 && !/-casing$/.test(l.id); })
+    .map(function (l) { return l.id; });
+  var trailsOn = false;
+
+  // A trail is two to four pixels wide, too thin to land the pointer on,
+  // so the hover looks a few pixels around it. Forest Service lines are
+  // drawn on top, and are listed first here for the same reason: where
+  // both sources have the trail, theirs is the legal record.
+  function trailAt(point) {
+    if (!trailsOn) return null;
+    var pad = 4;
+    var hits = map.queryRenderedFeatures([[point.x - pad, point.y - pad], [point.x + pad, point.y + pad]],
+                                         { layers: TRAIL_LAYERS });
+    hits.sort(function (a, b) { return (b.properties.source === 'mvum') - (a.properties.source === 'mvum'); });
+    return hits.length ? hits[0] : null;
+  }
+
   // What is under a point, in the shape Swift decodes for a click.
   function describe(point, lngLat) {
     var hits = map.queryRenderedFeatures(point, { layers: PICKABLE });
@@ -320,14 +356,26 @@ function post(message) {
   function hover(hit, point) {
     var pointLayer = hit && (hit.layer.id === 'via-point' || hit.layer.id === 'waypoint-icon' ||
                              hit.layer.id === 'search-pin');
-    if (!pointLayer) { hideTip(); return; }
+    // A trail only when nothing of the library is under the pointer:
+    // over a route the route is what the rider is pointing at.
+    var trail = !hit ? trailAt(point) : null;
+    if (!pointLayer && !trail) { hideTip(); return; }
 
-    var p = hit.properties;
-    var key = hit.layer.id + ':' + p.id + ':' + (p.seq === undefined ? '' : p.seq);
-    if (key !== tipKey) {
-      tipKey = key;
-      tip.innerHTML = describePoint(hit.layer.id, p);
-      lookupElevation(p.lon, p.lat, key);
+    if (trail) {
+      var t = trail.properties;
+      var trailKey = 'trail:' + t.source + ':' + (t.ref || '') + ':' + (t.name || '') + ':' + (t.dates || '');
+      if (trailKey !== tipKey) {
+        tipKey = trailKey;
+        tip.innerHTML = describeTrail(t);
+      }
+    } else {
+      var p = hit.properties;
+      var key = hit.layer.id + ':' + p.id + ':' + (p.seq === undefined ? '' : p.seq);
+      if (key !== tipKey) {
+        tipKey = key;
+        tip.innerHTML = describePoint(hit.layer.id, p);
+        lookupElevation(p.lon, p.lat, key);
+      }
     }
     tip.style.display = 'block';
     // Beside the pointer, and kept on the map when the pointer is near an
@@ -402,6 +450,44 @@ function post(message) {
     if (p.distance !== undefined) rows.push(row('From start', formatMiles(p.distance)));
     rows.push(row('Elevation', '<span id="tip-ele">…</span>'));
     return rows.join('');
+  }
+
+  // What a trail is and who may ride it, from the properties
+  // scripts/build-trails.py writes. Says where the claim comes from,
+  // because a legal claim is only as good as its source.
+  function describeTrail(t) {
+    var kind = { road: 'Road', trail: 'Trail', single: 'Single-track' }[t.kind] || 'Trail';
+    var title = t.name || (t.ref ? (t.source === 'mvum' ? 'Forest ' + kind.toLowerCase() + ' ' + t.ref : t.ref) : kind);
+    var rows = ['<div><b>' + escapeHTML(title) + '</b></div>'];
+    // A named trail says what it is underneath; an unnamed one already
+    // said so in its title.
+    if (t.name) rows.push('<div class="kind">' + kind + (t.ref ? ' ' + escapeHTML(t.ref) : '') + '</div>');
+    var who = { any: 'Any, plated or not', street: 'Street-legal only', unknown: 'Not stated' }[t.legal] || 'Not stated';
+    rows.push(row('Motorcycles', who));
+    if (t.source === 'mvum') {
+      rows.push(row('Open', t.dates === 'seasonal' ? 'Seasonal, dates not listed'
+                          : t.dates ? formatOpenDates(t.dates) : 'Yearlong'));
+    } else if (t.restriction) {
+      rows.push(row('Restriction', escapeHTML(t.restriction)));
+    }
+    if (t.surface) rows.push(row('Surface', escapeHTML(t.surface)));
+    if (t.forest) rows.push('<div class="kind wrap">' + escapeHTML(t.forest) + '</div>');
+    rows.push('<div class="kind">' + (t.source === 'mvum' ? 'Forest Service MVUM' : 'OpenStreetMap') + '</div>');
+    return rows.join('');
+  }
+
+  // The MVUM writes open dates as MM/DD-MM/DD, comma separated when a
+  // trail opens twice a year: "06/01-08/19,11/16-11/30".
+  function formatOpenDates(text) {
+    var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    function day(md) {
+      var m = /^(\d\d)\/(\d\d)$/.exec(md.trim());
+      return m ? months[parseInt(m[1], 10) - 1] + ' ' + parseInt(m[2], 10) : md;
+    }
+    return text.split(',').map(function (span) {
+      var ends = span.split('-');
+      return ends.length === 2 ? day(ends[0]) + ' \u2013 ' + day(ends[1]) : span;
+    }).map(escapeHTML).join(', ');
   }
 
   function row(label, value) {

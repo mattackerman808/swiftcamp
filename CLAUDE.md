@@ -75,6 +75,15 @@ the box is the truth, and editing a hidden route ticks it back on
 (`Visibility`). The sidebar filters by typed words and sorts by name, date
 or length.
 
+Dirt bike trails draw over the map from the View menu, nationally: the
+Forest Service's Motor Vehicle Use Maps and OpenStreetMap's
+motorcycle-legal ways, coloured by who may ride them, with the dates in
+the hover, from `scripts/build-trails.py`. A route in Adventure or Direct
+mode goes to a device with a track of its planned line beside it, because
+the unit re-routes on its own map and a trail it lacks would be moved onto
+pavement. Mountain biking is deferred until there is a bike unit to test.
+`docs/data-architecture.md`.
+
 The map tilts into 3-D over the DEM from the 2D/3D button at its top right, a ruler measures
 distance and heading between clicks (Measure on the toolbar), and the
 position and height under the pointer sit at the map's bottom right.
@@ -232,6 +241,7 @@ the misconfiguration presents as a macOS rendering fault.
 ```bash
 ./scripts/fetch-basemap.sh        # bundled z0-6 world archive
 ./scripts/build-valhalla.sh       # pinned, patched libvalhalla in Vendor/valhalla
+./scripts/build-trails.py <pbf> out/ --name us         # dirt bike trails overlay
 python3 scripts/make_shields.py   # sprite sheet + ShieldCatalog.swift + SymbolCatalog.swift
 python3 scripts/audit_shields.py  # contrast/legibility check over all 108
 ```
@@ -534,6 +544,25 @@ implements them; this is the index.
   predicted, which settled the flip question that reasoning had got wrong.
   Walked in Python against the live archive before any Swift, and the
   CDN's bot protection refuses a bare client, so the reader names itself.
+- **A trail on our map may be a detour on the rider's unit.** A Garmin
+  re-routes on its own map, and with shaping points a leg along a forest
+  road or trail it lacks is expected not to fail but to move onto roads
+  the unit has, which is worse than an error because it looks fine until
+  the ride. Not yet measured on the zūmo; a track is drawn whatever the
+  unit's map holds, so meanwhile an off-road route goes out with one.
+  `DeviceExport.tracksForOffRoadRoutes`.
+- **Survey a date column by shape before formatting it.** The MVUM's
+  `*_datesopen` wraps the year for hunting closures (`12/01-08/31`), and
+  on Pike and San Isabel says motorcycles may ride Rampart Range only
+  from December to mid-March while cars get the summer, which may be a
+  winter designation or an inversion; unresolved. The map draws what the
+  source says and names it, the same lesson as the placeholder town.
+- **Launched by `open` from a background shell, the app may get no
+  window.** Menu bar, model, `dump`, all working; no map window and no
+  page, on `main` as much as on the branch. Asking the window server for
+  the app's windows found it, after a sandbox theory and a saved-state
+  theory. A second `open` sends a reopen, which SwiftUI answers with the
+  window.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

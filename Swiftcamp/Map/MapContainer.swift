@@ -28,6 +28,7 @@ struct MapContainer: View {
     var onContextMenu: ((MapClick) -> [MapMenuItem])?
     var onView: ((BoundingBox, Double) -> Void)?
     var terrain = false
+    var trails = false
 
     var body: some View {
         #if os(iOS)
@@ -38,7 +39,7 @@ struct MapContainer: View {
         #else
         MapWebView(overlay: overlay, camera: camera, editingRouteID: editingRouteID,
                    pageEvent: pageEvent, onClick: onClick, onDrag: onDrag, onKey: onKey,
-                   onContextMenu: onContextMenu, onView: onView, terrain: terrain)
+                   onContextMenu: onContextMenu, onView: onView, terrain: terrain, trails: trails)
         #endif
     }
 }

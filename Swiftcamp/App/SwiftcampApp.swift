@@ -82,6 +82,8 @@ struct SwiftcampApp: App {
                 // The way back after unticking too much.
                 Button("Show Everything on Map") { model.showEverything() }
                 Divider()
+                Toggle("Show Dirt Bike Trails", isOn: Binding(get: { model.showsTrails },
+                                                              set: { model.showsTrails = $0 }))
                 // The map's own 2D/3D button, as a menu item for the key.
                 Button("Toggle 2D / 3D") { model.showsTerrain.toggle() }
                     .keyboardShortcut("3")

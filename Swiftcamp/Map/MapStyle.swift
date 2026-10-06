@@ -93,6 +93,11 @@ enum MapStyle {
                     "tileSize": 512,
                     "attribution": BasemapSource.terrainAttribution,
                 ],
+                "trails": [
+                    "type": "vector",
+                    "url": BasemapSource.trailsURL,
+                    "attribution": BasemapSource.trailsAttribution,
+                ],
             ].merging(overlaySources()) { a, _ in a },
             "layers": layers(),
         ]
@@ -196,6 +201,15 @@ enum MapStyle {
         static let shieldText      = "#3d3226"
         static let track           = "#b9ab92"
         static let path            = "#cfc9bd"
+
+        // Dirt bike trails, by who may ride them. Loud, because a rider
+        // who turns them on is asking where to go, but kept off the
+        // route's magenta and the track's teal so a plan drawn along a
+        // trail still reads as the plan.
+        static let trailAny        = "#d9600b"   // any motorcycle, plated or not
+        static let trailStreet     = "#6f4fb8"   // highway-legal only: a plated dual-sport
+        static let trailUnknown    = "#8a8f98"   // listed, and the motorcycle rule not stated
+        static let trailCasing     = "#ffffff"
     }
 
     // MARK: - Ground cover
@@ -411,6 +425,10 @@ enum MapStyle {
                         widths: [[2, 0.4], [6, 0.8], [10, 1.4]],
                         dashed: true))
 
+        // Over the roads they mostly follow, under the library's lines:
+        // a route planned along a trail must still read as the route.
+        out.append(contentsOf: trailLayers())
+
         // Lines go under the labels: a route is the subject, but a place
         // name it happens to cross should still be readable.
         out.append(contentsOf: overlayLineLayers())
@@ -421,6 +439,74 @@ enum MapStyle {
         // behind a street name is one the user cannot grab.
         out.append(contentsOf: overlayPointLayers())
 
+        return out
+    }
+
+    // MARK: - Trails
+
+    /// Every trails layer's id starts with this. The page switches the
+    /// layer on and off by the prefix, so a layer added here is covered
+    /// without the page being told about it.
+    static let trailLayerPrefix = "trails-"
+
+    /// Dirt bike trails from `scripts/build-trails.py`, hidden until the
+    /// View menu turns them on.
+    ///
+    /// Colour is who may ride it, because that is the question the layer
+    /// exists to answer; width is what kind of way it is, a forest road
+    /// widest and single-track narrowest. A seasonal way is dashed, and its
+    /// dates are in the hover. The two sources stay separate layers rather
+    /// than one merged line, because the archive keeps them apart: where
+    /// both have a trail, the Forest Service's is the legal record, so it
+    /// draws last and on top.
+    ///
+    /// Dash patterns are separate layers, not a data-driven
+    /// `line-dasharray`, which MapLibre Native does not evaluate per feature.
+    private static func trailLayers() -> [[String: Any]] {
+        let color: [Any] = ["match", ["get", "legal"],
+                            "any", Palette.trailAny,
+                            "street", Palette.trailStreet,
+                            Palette.trailUnknown]
+        // Road, trail, single-track, at z10 / z13 / z16, plus `extra` at
+        // every stop for the casing. The extra goes inside each stop
+        // because a zoom interpolation must be the outermost expression,
+        // so it cannot be wrapped in a sum.
+        func width(extra: Double = 0) -> [Any] {
+            ["interpolate", ["linear"], ["zoom"],
+             10, ["+", extra, ["match", ["get", "kind"], "road", 1.6, "trail", 1.3, 1.0]],
+             13, ["+", extra, ["match", ["get", "kind"], "road", 3.0, "trail", 2.4, 1.8]],
+             16, ["+", extra, ["match", ["get", "kind"], "road", 6.0, "trail", 4.5, 3.2]]]
+        }
+        let seasonal: [Any] = ["any", ["has", "dates"], ["has", "restriction"]]
+
+        var out: [[String: Any]] = []
+        for layer in ["osm", "mvum"] {
+            out.append([
+                "id": "\(trailLayerPrefix)\(layer)-casing",
+                "type": "line", "source": "trails", "source-layer": layer,
+                "layout": ["line-cap": "round", "line-join": "round", "visibility": "none"],
+                // A halo a pixel each side, which keeps an orange line
+                // legible where it runs down a road's own casing.
+                "paint": ["line-color": Palette.trailCasing, "line-width": width(extra: 2),
+                          "line-opacity": 0.85],
+            ])
+            let variants: [(suffix: String, filter: [Any], dash: [Double]?)] = [
+                ("yearlong", ["!", seasonal], nil),
+                ("seasonal", seasonal, [2.0, 1.2]),
+            ]
+            for (suffix, filter, dash) in variants {
+                var paint: [String: Any] = ["line-color": color, "line-width": width()]
+                if let dash { paint["line-dasharray"] = dash }
+                out.append([
+                    "id": "\(trailLayerPrefix)\(layer)-\(suffix)",
+                    "type": "line", "source": "trails", "source-layer": layer,
+                    "filter": filter,
+                    "layout": ["line-cap": dash == nil ? "round" : "butt", "line-join": "round",
+                               "visibility": "none"],
+                    "paint": paint,
+                ])
+            }
+        }
         return out
     }
 

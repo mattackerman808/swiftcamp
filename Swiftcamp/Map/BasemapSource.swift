@@ -95,6 +95,23 @@ enum BasemapSource {
 
     static var searchURL: String { "\(cdnBase)/\(searchArchive)" }
 
+    /// Roads and trails a motorcycle may legally ride: the Forest Service's
+    /// Motor Vehicle Use Maps, and OpenStreetMap where a mapper wrote the
+    /// access down. Built by `scripts/build-trails.py` from the US extract.
+    static let trailsArchive = "trails-us-20261005.pmtiles"
+
+    /// `-SwiftcampTrails <url>` points the layer at another archive, so a
+    /// fresh build can be looked at in the app before it is published:
+    /// copy it into the built bundle's `basemap/` and pass
+    /// `pmtiles://sc-tiles://app/basemap/<name>.pmtiles`.
+    static var trailsURL: String {
+        UserDefaults.standard.string(forKey: "SwiftcampTrails") ?? "pmtiles://\(cdnBase)/\(trailsArchive)"
+    }
+
+    /// Public domain, so this is courtesy rather than obligation; it says
+    /// where the legal claim on the map comes from, which matters more.
+    static let trailsAttribution = "USDA Forest Service MVUM"
+
     /// ODbL obligation, not decoration. Must stay visible on the map.
     static let attribution = "© OpenStreetMap"
 

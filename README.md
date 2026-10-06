@@ -78,8 +78,9 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
+| `-SwiftcampTrails <url>` | Read the trails layer from another archive, such as a fresh build copied into the built app's `basemap/` as `pmtiles://sc-tiles://app/basemap/<name>.pmtiles`. A rebuild of the app clears that folder. |
 | `-SwiftcampVolume <folder>` | Treat a folder as a mounted Garmin memory card, for the Transfer window without a reader. |
-| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `addWaypoint`, `movePoint`, `directions`, `profile`, `elevation`, `duplicate`, `hide`, `show`, `hideList`, `showList`, `showKinds`, `showEverything`, `measure`, `terrain`, `invert`, `split`, `join`, `simplify`, `backup`, `restore`, `importBaseCamp`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `menuBar`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field, `menuBar` chooses a menu bar item by its titles in `path`, and `snapshotWindows` photographs every window, the suggestion list included. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `addWaypoint`, `movePoint`, `directions`, `profile`, `elevation`, `duplicate`, `hide`, `show`, `hideList`, `showList`, `showKinds`, `showEverything`, `measure`, `terrain`, `trails`, `invert`, `split`, `join`, `simplify`, `backup`, `restore`, `importBaseCamp`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `menuBar`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field, `menuBar` chooses a menu bar item by its titles in `path`, and `snapshotWindows` photographs every window, the suggestion list included. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \
@@ -94,8 +95,14 @@ on every launch, and against the real library that accumulates copies.
 Launch through `open -n Swiftcamp.app --args …` from anything that is not
 a Terminal window. Run as a bare binary from a tool's shell, the app gets no
 window at all: the model runs, `dump` writes, and the page never loads, which
-looks exactly like a broken map. `open` also detaches the log; read it with
-`log stream --predicate 'process == "Swiftcamp"'`.
+looks exactly like a broken map. `open` also detaches the log; keep it
+with `open -n --stdout <file> --stderr <file> Swiftcamp.app --args …`.
+
+Launched by `open` from a shell in the background, the app can still come up
+with no window, `main` included: the menu bar is there and the page never
+loads. A second `open Swiftcamp.app` a moment later sends the running copy a
+reopen, and SwiftUI answers that with the window. Start a script with a wait
+long enough for both.
 
 `-SwiftcampScript` exists because route editing is clicks and drags, and
 nothing can script those against a real window without Accessibility
@@ -111,7 +118,7 @@ page, for checking routing while another copy of the app holds the only
 window; `addWaypoint` puts the waypoint in `name` into the route in `route`,
 before point `before` or at the end, and `movePoint` moves point `from` of
 `route` to before the point at `to`, which are the sidebar's drop and drag
-without the sidebar; `directions` computes the selected route's turns, which `dump` then reports; `profile` computes the selected route's or track's elevation profile and `elevation` reads the height at `lat`, `lon`, both reported by `dump`; `duplicate` copies the selection, `hide` and `show` take it off the map and back, `hideList` and `showList` do that for the list in `name`, `showKinds` sets the View menu's `routes`, `tracks` and `waypoints` switches, and `dump` reports what the map draws under `drawn`; `measure` takes the ruler out or away (`on`) and `click` then adds points, `terrain` tilts the map (`on`), both reported by `dump`; `invert`, `split` (at `lat`, `lon`), `join` and `simplify` (to `count` points) work the selected tracks, and `backup` and `restore` take a `path`; `prefer` and `avoid` set the edited route's preferences. `select` picks an item by
+without the sidebar; `directions` computes the selected route's turns, which `dump` then reports; `profile` computes the selected route's or track's elevation profile and `elevation` reads the height at `lat`, `lon`, both reported by `dump`; `duplicate` copies the selection, `hide` and `show` take it off the map and back, `hideList` and `showList` do that for the list in `name`, `showKinds` sets the View menu's `routes`, `tracks` and `waypoints` switches, and `dump` reports what the map draws under `drawn`; `measure` takes the ruler out or away (`on`) and `click` then adds points, `terrain` tilts the map (`on`) and `trails` draws the dirt bike trails (`on`), all reported by `dump`; `export` takes `offRoadTracks` as the Transfer window's checkbox; `invert`, `split` (at `lat`, `lon`), `join` and `simplify` (to `count` points) work the selected tracks, and `backup` and `restore` take a `path`; `prefer` and `avoid` set the edited route's preferences. `select` picks an item by
 name and `set` writes one of the inspector's fields to it (`comment`,
 `description`, `symbol`, `elevation`, `lat`, `lon`, `color`); `file` moves
 the selection into the list named in `list`, and `selectList`, `filter` and

@@ -35,6 +35,8 @@ struct MapWebView: NSViewRepresentable {
     var onView: ((BoundingBox, Double) -> Void)?
     /// Whether the map is drawn in 3-D, tilted over the DEM.
     var terrain = false
+    /// Whether the dirt bike trails layer is drawn.
+    var trails = false
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -75,6 +77,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
         context.coordinator.setTerrain(terrain)
+        context.coordinator.setTrails(trails)
         context.coordinator.synthesize(pageEvent)
         return view
     }
@@ -89,6 +92,7 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
         context.coordinator.setTerrain(terrain)
+        context.coordinator.setTrails(trails)
         context.coordinator.synthesize(pageEvent)
     }
 
@@ -263,6 +267,20 @@ struct MapWebView: NSViewRepresentable {
         private var terrain = false
         private var appliedTerrain = false
 
+        /// Shows or hides the trails layers. The style declares them hidden,
+        /// so as with terrain, off is never sent to a page not told on.
+        func setTrails(_ on: Bool) {
+            trails = on
+            guard isReady, appliedTrails != on else { return }
+            appliedTrails = on
+            webView?.callAsyncJavaScript("window.swiftcamp.setTrails(on);",
+                                         arguments: ["on": on],
+                                         in: nil, in: .page, completionHandler: Self.report)
+        }
+
+        private var trails = false
+        private var appliedTrails = false
+
         /// Replays scripted input on the page. Debug only; see `MapPageEvent`.
         private var appliedPageEventID = 0
 
@@ -378,6 +396,7 @@ struct MapWebView: NSViewRepresentable {
                 }
                 edit(editingRouteID)
                 setTerrain(terrain)
+                setTrails(trails)
 
             case "idle":
                 snapshotIfRequested()

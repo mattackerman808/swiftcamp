@@ -92,11 +92,13 @@ private struct LibraryPane: View {
     @AppStorage(DeviceExport.defaultsKeys.strip) private var stripShapingPoints = false
     @AppStorage(DeviceExport.defaultsKeys.limit) private var limitTracks = true
     @AppStorage(DeviceExport.defaultsKeys.road) private var roadDetail = DeviceExport.RoadDetail.shaping.rawValue
+    @AppStorage(DeviceExport.defaultsKeys.offRoadTracks) private var offRoadTracks = true
 
     private var export: DeviceExport {
         DeviceExport(stripShapingPoints: stripShapingPoints,
                      trackPointLimit: limitTracks ? DeviceExport.garminTrackLimit : nil,
-                     roadDetail: DeviceExport.RoadDetail(rawValue: roadDetail) ?? .shaping)
+                     roadDetail: DeviceExport.RoadDetail(rawValue: roadDetail) ?? .shaping,
+                     tracksForOffRoadRoutes: offRoadTracks)
     }
 
     var body: some View {
@@ -122,6 +124,8 @@ private struct LibraryPane: View {
                     .help("Send only the stops, each carrying the whole road to the next. For a unit that announces every bend as a destination.")
                 Toggle("Limit tracks to \(DeviceExport.garminTrackLimit.formatted()) points", isOn: $limitTracks)
                     .help("Thin a longer recording to what a Garmin will take, keeping the line within a couple of metres.")
+                Toggle("Add a track to off-road routes", isOn: $offRoadTracks)
+                    .help("Send each Adventure or Direct route with a track of its planned line. A unit re-routes on its own map, and one without a forest road or trail moves the route onto pavement; the track stays where it was planned.")
                 Spacer()
             }
             .toggleStyle(.checkbox)

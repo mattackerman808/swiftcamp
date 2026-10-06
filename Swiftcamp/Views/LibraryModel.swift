@@ -104,6 +104,13 @@ final class LibraryModel {
         didSet { UserDefaults.standard.set(showsTerrain, forKey: "showTerrain") }
     }
 
+    /// The dirt bike trails layer. Off until asked for, because it is a
+    /// claim about the law and should be on the map only when wanted.
+    /// Remembered.
+    var showsTrails: Bool = UserDefaults.standard.bool(forKey: "showTrails") {
+        didSet { UserDefaults.standard.set(showsTrails, forKey: "showTrails") }
+    }
+
     /// The ruler while it is out: the points clicked so far. Nil when
     /// not measuring. While it is out, every click on the map adds a
     /// point, whatever is under it, and Delete takes the last one back.
@@ -429,6 +436,8 @@ final class LibraryModel {
                 if step["on"] as? Bool ?? (measurement == nil) { startMeasuring() } else { stopMeasuring() }
             case "terrain":
                 showsTerrain = step["on"] as? Bool ?? !showsTerrain
+            case "trails":
+                showsTrails = step["on"] as? Bool ?? !showsTrails
             case "showKinds":
                 // Which kinds the View menu draws; a kind not named is left.
                 var kinds = shownKinds
@@ -462,7 +471,8 @@ final class LibraryModel {
                         : selection
                     let export = DeviceExport(stripShapingPoints: step["strip"] as? Bool ?? false,
                                               trackPointLimit: step["limit"] as? Int,
-                                              roadDetail: (step["road"] as? String).flatMap(DeviceExport.RoadDetail.init) ?? .shaping)
+                                              roadDetail: (step["road"] as? String).flatMap(DeviceExport.RoadDetail.init) ?? .shaping,
+                                              tracksForOffRoadRoutes: step["offRoadTracks"] as? Bool ?? true)
                     if let document = document(for: ids) {
                         try? GPXWriter.data(export.apply(to: document)).write(to: URL(fileURLWithPath: path))
                     }
@@ -683,6 +693,7 @@ final class LibraryModel {
                                            "miles": (m.total / 1609.344 * 100).rounded() / 100,
                                            "bearing": m.lastLeg.map { $0.bearing.rounded() } as Any] } as Any,
                                       "terrain": showsTerrain,
+                                      "trails": showsTrails,
                                       "elevation": lastElevation.map { ["lat": $0.0.lat, "lon": $0.0.lon, "metres": $0.1 as Any] } as Any,
                                       "selection": Array(selection).sorted(),
                                       "canUndo": undoManager.canUndo,

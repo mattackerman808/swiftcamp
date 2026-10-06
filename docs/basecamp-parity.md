@@ -92,6 +92,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Overview map inset | **Build**, low priority |
 | Map product switching | **Build** — our equivalent is a layer picker |
 | Contour lines | **Build** — noted in CLAUDE.md as the one place the split-backend plan costs something |
+| Dirt bike trails (not in BaseCamp) | **Have** — Show Dirt Bike Trails in the View menu draws the Forest Service's Motor Vehicle Use Maps and OpenStreetMap's motorcycle-legal ways, coloured by who may ride them, seasonal ones dashed, with the dates in the hover; `docs/data-architecture.md` |
 | Show and hide items on the map | **Have** — a checkbox on every sidebar row and Hide on Map in its menu, per list for everything filed in it, and Show Routes, Tracks and Waypoints in the View menu, with Show Everything on Map as the way back; editing a hidden route ticks it back on |
 | Draw order of overlays | **Build**, low priority |
 | Print, including multi-page posters | **Build** |
@@ -168,6 +169,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Send and receive over MTP | **Have** — built against a zūmo XT3, see below |
 | Strip shaping points on transfer | **Have** — a checkbox in the Transfer window; each stop carries the whole road to the next, so the line is unchanged |
 | Simplify tracks to a device point limit | **Have** — on by default in the Transfer window, to Garmin's 10,000; and by hand from the track's menu |
+| Track beside an off-road route | **Have** — on by default in the Transfer window: an Adventure or Direct route goes with a track of its planned line, because the unit re-routes on its own map and moves a trail it lacks onto pavement. Not yet measured on the zūmo |
 | Browse device contents | **Have** |
 
 ## The three hard problems
