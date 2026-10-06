@@ -75,7 +75,7 @@ the box is the truth, and editing a hidden route ticks it back on
 (`Visibility`). The sidebar filters by typed words and sorts by name, date
 or length.
 
-The map tilts into 3-D over the DEM from the View menu, a ruler measures
+The map tilts into 3-D over the DEM from the 2D/3D button at its top right, a ruler measures
 distance and heading between clicks (Measure on the toolbar), and the
 position and height under the pointer sit at the map's bottom right.
 

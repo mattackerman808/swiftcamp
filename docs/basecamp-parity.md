@@ -88,7 +88,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Street map with labels and route shields | **Have** |
 | Terrain shading, ground cover | **Have** |
 | Pan, zoom, rotate | **Partial** — no rotate control |
-| 2-D and 3-D views, tilt, elevation exaggeration | **Have** — View, 3-D Terrain (⌘3) tilts the map over the DEM at a mild exaggeration; off lays it flat and north-up |
+| 2-D and 3-D views, tilt, elevation exaggeration | **Have** — the 2D/3D button at the map's top right (⌘3) tilts the map over the DEM at a mild exaggeration, and lays it flat and north-up again; a navigator's track-up has no meaning on a desk |
 | Overview map inset | **Build**, low priority |
 | Map product switching | **Build** — our equivalent is a layer picker |
 | Contour lines | **Build** — noted in CLAUDE.md as the one place the split-backend plan costs something |

@@ -100,6 +100,27 @@ struct ContentView: View {
             // viewport identical.
             .ignoresSafeArea()
             #endif
+            .overlay(alignment: .topTrailing) {
+                // The view cycle a navigator has on its map, cut to the two
+                // that mean something on a desk: flat north-up, or tilted
+                // over the terrain. A button on the map rather than a menu
+                // item, since it is the map's own control.
+                Button {
+                    model.showsTerrain.toggle()
+                } label: {
+                    Label(model.showsTerrain ? "3D" : "2D", systemImage: model.showsTerrain ? "cube" : "map")
+                        .labelStyle(.titleAndIcon)
+                        .font(.callout.weight(.semibold))
+                        .monospacedDigit()
+                        .frame(minWidth: 44)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(12)
+                .help(model.showsTerrain ? "Lay the map flat (⌘3)" : "Tilt the map over the terrain (⌘3)")
+            }
             .overlay(alignment: .bottomLeading) {
                 // OSM attribution is an ODbL obligation, not decoration.
                 // See docs/data-architecture.md.

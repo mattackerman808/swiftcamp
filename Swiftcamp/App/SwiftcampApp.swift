@@ -82,8 +82,8 @@ struct SwiftcampApp: App {
                 // The way back after unticking too much.
                 Button("Show Everything on Map") { model.showEverything() }
                 Divider()
-                Toggle("3-D Terrain", isOn: Binding(get: { model.showsTerrain },
-                                                    set: { model.showsTerrain = $0 }))
+                // The map's own 2D/3D button, as a menu item for the key.
+                Button("Toggle 2D / 3D") { model.showsTerrain.toggle() }
                     .keyboardShortcut("3")
                 Button("Measure Distance") { model.toggleMeasuring() }
                     .keyboardShortcut("m", modifiers: [.command, .shift])
