@@ -316,9 +316,9 @@ private struct DevicePane: View {
                 ContentUnavailableView {
                     Label("Looking for a device…", systemImage: "cable.connector.slash")
                 } description: {
-                    Text("Connect a Garmin with a USB cable and switch it on. "
-                         + "It will appear here on its own, and does not need "
-                         + "to show up in Finder.")
+                    Text("Connect a Garmin with a USB cable and switch it on, "
+                         + "or put its memory card in a reader. Either will "
+                         + "appear here on its own.")
                 }
             } else {
                 // Only ever reached with more than one attached, since a
@@ -327,10 +327,11 @@ private struct DevicePane: View {
                 ForEach(device.units) { unit in
                     Button { device.connect(to: unit) } label: {
                         HStack {
-                            Image(systemName: "location.circle.fill").foregroundStyle(Color.accentColor)
+                            Image(systemName: unit.volume == nil ? "location.circle.fill" : "sdcard.fill")
+                                .foregroundStyle(Color.accentColor)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(unit.name)
-                                Text(String(format: "%04X:%04X", unit.vendorID, unit.productID))
+                                Text(unit.volume?.path ?? String(format: "%04X:%04X", unit.vendorID, unit.productID))
                                     .font(.caption).monospaced().foregroundStyle(.secondary)
                             }
                             Spacer()

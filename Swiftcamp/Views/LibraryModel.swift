@@ -427,6 +427,9 @@ final class LibraryModel {
                 Harness.type(step["text"] as? String ?? "")
             case "snapshotWindows":
                 if let path = step["path"] as? String { Harness.snapshotWindows(to: path) }
+            case "menuBar":
+                // A menu bar item by its titles, ["Window", "Transfer"].
+                Harness.chooseMenuItem(step["path"] as? [String] ?? [])
             #endif
             case "mode":
                 // On the route being edited, else the selected one.

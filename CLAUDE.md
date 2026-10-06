@@ -28,14 +28,16 @@ bucket-scoped token cannot list buckets, so without that flag rclone tries
 ## Current state
 
 **The map, the library, GPX, the device and the planner are built. Stages A
-and B of `docs/basecamp-parity.md` are done bar the elevation profile;
-Stage C, the memory card, is next.**
+and B of `docs/basecamp-parity.md` are done bar the elevation profile, and
+Stage C bar stripping shaping points on the way out.**
 
 Working: street detail to z15 and terrain streamed from our own CDN, ground
 cover, hypsometric tint, hillshade, buildings, labels, and authentic route
 shields for all 50 states. A GRDB library with waypoints, tracks and routes.
 GPX 1.0 and 1.1 in, 1.1 with Garmin extensions out. MTP transfer over USB to
-a zūmo XT3, both directions. Route editing on the map: right-click empty
+a zūmo XT3, both directions, and the same Transfer window over a memory
+card in a reader or a unit that mounts as a disk, found by its `Garmin`
+folder; `-SwiftcampVolume <folder>` plays a card for a scripted run. Route editing on the map: right-click empty
 map or a waypoint to start a route there, or while editing to drop a via
 or shaping point there; drag a point to move it, drag the line to insert
 a shaping point, click it to insert a via point, right-click to convert or

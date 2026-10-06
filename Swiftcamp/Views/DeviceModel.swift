@@ -64,12 +64,13 @@ final class DeviceModel {
         watchTask = nil
     }
 
-    /// One pass: what is on the bus, and what that means for what we have.
+    /// One pass: what is on the bus and in the card readers, and what that
+    /// means for what we have.
     private func survey() async {
         // Enumerating blocks, and it was being done twice — once for Garmins
         // and again for everything else — on the thread drawing the window.
         // That is what made the button feel broken before it felt slow.
-        let all = await Task.detached { GarminUnit.attached() }.value
+        let all = await Task.detached { GarminUnit.present() }.value
         guard !Task.isCancelled else { return }
 
         units = all.filter { $0.vendorID == GarminUnit.vendorID }

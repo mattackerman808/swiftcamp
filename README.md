@@ -78,7 +78,8 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
-| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `addWaypoint`, `movePoint`, `directions`, `duplicate`, `invert`, `split`, `join`, `simplify`, `backup`, `restore`, `importBaseCamp`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field and `snapshotWindows` photographs every window, the suggestion list included. |
+| `-SwiftcampVolume <folder>` | Treat a folder as a mounted Garmin memory card, for the Transfer window without a reader. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `addWaypoint`, `movePoint`, `directions`, `duplicate`, `invert`, `split`, `join`, `simplify`, `backup`, `restore`, `importBaseCamp`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `menuBar`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field, `menuBar` chooses a menu bar item by its titles in `path`, and `snapshotWindows` photographs every window, the suggestion list included. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \

@@ -7,6 +7,10 @@ struct GarminUnit: Identifiable, Hashable, Sendable {
     var vendorID: UInt16
     var productID: UInt16
     var name: String
+    /// Set for a Garmin reached as a mounted volume, a memory card in a
+    /// reader or a unit that mounts as a disk, rather than over USB. See
+    /// `VolumeBrowser`.
+    var volume: URL? = nil
 
     var id: UInt32 { locationID }
 
@@ -141,7 +145,7 @@ enum PTPDate {
 ///
 /// A real Finder volume would be a filesystem extension over this, which is a
 /// separate and much larger piece of work.
-struct GarminBrowser {
+struct GarminBrowser: DeviceBrowser {
     /// Where Garmin units keep user routes and tracks — and it is not one
     /// path.
     ///
@@ -169,6 +173,11 @@ struct GarminBrowser {
     }
 
     func identify() throws -> MTP.DeviceInfo { info }
+
+    var modelName: String { info.model }
+    var serialNumber: String { info.serialNumber }
+
+    func close() { session.close() }
 
     func storages() throws -> [MTP.StorageInfo] {
         try session.storageIDs().compactMap { try? session.storageInfo($0) }

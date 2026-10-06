@@ -104,6 +104,26 @@ enum Harness {
         }
     }
 
+    /// Chooses a menu bar item by its titles, "Window" then "Transfer",
+    /// the way a person would, so a scripted run can open a window that
+    /// only a menu opens. Says what was there when a title is not found.
+    @discardableResult
+    static func chooseMenuItem(_ titles: [String]) -> Bool {
+        var menu = NSApp.mainMenu
+        var item: NSMenuItem?
+        for title in titles {
+            guard let found = menu?.items.first(where: { $0.title == title }) else {
+                NSLog("[Swiftcamp] harness: no menu item %@ among %@", title,
+                      (menu?.items.map(\.title) ?? []).joined(separator: ", "))
+                return false
+            }
+            item = found
+            menu = found.submenu
+        }
+        guard let item, let action = item.action else { return false }
+        return NSApp.sendAction(action, to: item.target, from: item)
+    }
+
     /// Writes a PNG of every visible window, `<prefix>-<n>-<class>.png`,
     /// including the popover a search puts up.
     ///

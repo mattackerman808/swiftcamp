@@ -9,7 +9,7 @@ import Foundation
 /// session from escaping onto two threads, which would not crash so much as
 /// quietly return one command's answer to another.
 actor DeviceService {
-    private var browser: GarminBrowser?
+    private var browser: (any DeviceBrowser)?
     private var connected: GarminUnit?
 
     /// What the panel shows about a connected unit.
@@ -53,10 +53,12 @@ actor DeviceService {
 
     // MARK: - Connection
 
+    /// Over MTP, or as a folder tree when the unit is a mounted volume.
     func connect(to unit: GarminUnit) throws -> Snapshot {
         disconnect()
 
-        let browser = try GarminBrowser(unit: unit)
+        let browser: any DeviceBrowser = try unit.volume.map { VolumeBrowser(root: $0, name: unit.name) }
+            ?? GarminBrowser(unit: unit)
         self.browser = browser
         self.connected = unit
 
@@ -64,7 +66,6 @@ actor DeviceService {
         // is decoration — the USB product string already names the unit — and
         // refusing to list a device's files because its self-description
         // parsed oddly would be the wrong trade every time.
-        let info = (try? browser.identify()) ?? MTP.DeviceInfo()
         var storages: [StorageSummary] = []
 
         for storage in try browser.storages() {
@@ -72,12 +73,12 @@ actor DeviceService {
                                            name: storage.name,
                                            freeBytes: storage.free,
                                            capacityBytes: storage.capacity,
-                                           gpxFolder: try? browser.gpxFolder(storage: storage.id)))
+                                           gpxFolder: try? browser.gpxFolder(storage: storage.id, creating: false)))
         }
 
         return Snapshot(unit: unit,
-                        model: info.model.isEmpty ? unit.name : info.model,
-                        serialNumber: info.serialNumber,
+                        model: browser.modelName.isEmpty ? unit.name : browser.modelName,
+                        serialNumber: browser.serialNumber,
                         storages: storages,
                         canIdentifyCheaply: browser.supportsPartialReads)
     }
@@ -90,11 +91,11 @@ actor DeviceService {
     /// one of those is worth showing a device's files after.
     func connectedUnitIsGone() -> Bool {
         guard let connected else { return false }
-        return !GarminUnit.attached().contains { $0.locationID == connected.locationID }
+        return !GarminUnit.present().contains { $0.locationID == connected.locationID }
     }
 
     func disconnect() {
-        browser?.session.close()
+        browser?.close()
         browser = nil
         connected = nil
     }
@@ -173,7 +174,7 @@ actor DeviceService {
     /// The GPX folder's handle, which a send may have just created.
     func gpxFolder(storage: UInt32) throws -> UInt32? {
         guard let browser else { throw MTP.Failure.noDevice }
-        return try? browser.gpxFolder(storage: storage)
+        return try? browser.gpxFolder(storage: storage, creating: false)
     }
 }
 #endif
