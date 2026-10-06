@@ -322,6 +322,21 @@ final class LibraryModel {
                 // routing while another copy of the app holds the only
                 // window, when a click has nothing to land on.
                 appendPoint(Coordinate(lat: number("lat", step), lon: number("lon", step)), isVia: true)
+            case "addWaypoint":
+                // The waypoint named into the route named, before point
+                // `before` or at the end: the sidebar's drop, without the
+                // sidebar.
+                if let waypoint = waypoints.first(where: { $0.name == step["name"] as? String }),
+                   let route = routes.first(where: { $0.route.name == step["route"] as? String }) {
+                    addWaypoint(waypoint.id, toRoute: route.route.id, before: step["before"] as? Int)
+                }
+            case "movePoint":
+                // Point `from` of the route named to before the point now
+                // at `to`, as a drag of the sidebar's rows reports it.
+                if let route = routes.first(where: { $0.route.name == step["route"] as? String }),
+                   let from = step["from"] as? Int, let to = step["to"] as? Int {
+                    movePoints(routeID: route.route.id, fromOffsets: IndexSet(integer: from), toOffset: to)
+                }
             case "select":
                 // By name, any kind, or nothing with no name.
                 let name = step["name"] as? String ?? ""
@@ -453,6 +468,8 @@ final class LibraryModel {
              "points": detail.points.map { p -> [String: Any] in
                  var out: [String: Any] = ["seq": p.seq, "lat": p.lat, "lon": p.lon,
                                            "name": p.name ?? "", "via": p.isVia,
+                                           "symbol": p.symbol as Any,
+                                           "waypoint": p.waypointID.flatMap { id in waypoints.first { $0.id == id }?.name } as Any,
                                            "geometry": p.geometry?.count ?? 0]
                  if geometry { out["path"] = (p.geometry ?? []).map { [$0.lon, $0.lat] } }
                  return out
@@ -1212,7 +1229,13 @@ final class LibraryModel {
             rebuildShown()
             rebuildOverlay()
         }
+        // One group around the waypoint and the routes that follow it, so
+        // a dragged campsite and the legs that moved with it undo together.
+        undoManager.beginUndoGrouping()
         registerUndo(actionName) { model in model.update(before, actionName: actionName) }
+        followWaypoint(waypoint)
+        undoManager.setActionName(actionName)
+        undoManager.endUndoGrouping()
     }
 
     /// A route's header, from the inspector. The points are untouched.
@@ -1432,7 +1455,7 @@ final class LibraryModel {
             // position whatever the mode: a campsite is where it is, and
             // the leg runs to the road from there, as BaseCamp draws it.
             guard let waypoint = waypoints.first(where: { $0.id == id }) else { return false }
-            appendPoint(waypoint.coordinate, isVia: true, name: waypoint.name, pinned: true)
+            appendPoint(waypoint)
             return true
 
         case .searchPin:
@@ -1713,11 +1736,11 @@ final class LibraryModel {
             var items: [MapMenuItem] = []
             if editingRouteID != nil {
                 items.append(MapMenuItem(title: "Add Via Point at \(waypoint.name)") {
-                    self.appendPoint(waypoint.coordinate, isVia: true, name: waypoint.name, pinned: true)
+                    self.appendPoint(waypoint)
                 })
             }
             items.append(MapMenuItem(title: "New Route from \(waypoint.name)") {
-                self.startRoute(at: waypoint.coordinate, name: waypoint.name, pinned: true)
+                self.startRoute(from: waypoint)
             })
             return items + [
                 .separator,
@@ -1822,7 +1845,13 @@ final class LibraryModel {
             failure = error.localizedDescription
             return
         }
+        undoManager.beginUndoGrouping()
         registerUndo("Change Icon") { model in model.setSymbol(waypoint.symbol, forWaypoint: id) }
+        var changed = waypoint
+        changed.symbol = symbol
+        followWaypoint(changed)
+        undoManager.setActionName("Change Icon")
+        undoManager.endUndoGrouping()
     }
 
     /// Appends a point to the route being edited: a via point, or a
@@ -1833,6 +1862,55 @@ final class LibraryModel {
         guard var detail = editingDetail else { return }
         detail.appendVia(coordinate, name: name, isVia: isVia, isPinned: pinned)
         commit(detail, actionName: isVia ? "Add Point" : "Add Shaping Point")
+    }
+
+    /// Appends a waypoint to the route being edited as a stop, linked to
+    /// it. Routing through waypoints is how BaseCamp users plan: pins
+    /// first, then a route that visits them.
+    func appendPoint(_ waypoint: Waypoint) {
+        guard var detail = editingDetail else { return }
+        detail.appendVia(waypoint)
+        commit(detail, actionName: "Add Point")
+    }
+
+    /// Puts a waypoint into a route as a stop, before point `index` or at
+    /// the end, from a drop in the sidebar. Any route, editing or not: the
+    /// drop names the route, so there is nothing a mode would add.
+    func addWaypoint(_ waypointID: String, toRoute routeID: String, before index: Int? = nil) {
+        guard let waypoint = waypoints.first(where: { $0.id == waypointID }),
+              var detail = routes.first(where: { $0.route.id == routeID }) else { return }
+        detail.insertVia(waypoint, before: index ?? detail.points.count)
+        commit(detail, actionName: "Add Point")
+    }
+
+    /// Reorders a route's points, as the sidebar's rows are dragged. See
+    /// `RouteDetail.move(fromOffsets:toOffset:)` for which legs are routed
+    /// again.
+    func movePoints(routeID: String, fromOffsets source: IndexSet, toOffset destination: Int) {
+        guard var detail = routes.first(where: { $0.route.id == routeID }) else { return }
+        let before = detail.points
+        detail.move(fromOffsets: source, toOffset: destination)
+        guard detail.points != before else { return }
+        // Handles name a position, and the positions just changed.
+        selection = selection.filter { OverlayGeoJSON.parseHandle($0)?.routeID != routeID }
+        commit(detail, actionName: "Reorder Points")
+    }
+
+    /// Carries a changed waypoint onto every route point made from it:
+    /// name, symbol and position, with the legs either side of a moved
+    /// one routed again. Each route is its own undo registration, inside
+    /// whatever group the caller opened, so undoing the waypoint's edit
+    /// undoes the routes' too.
+    ///
+    /// Not while undoing or redoing: the routes' own entries are on the
+    /// stack beside the waypoint's and put the points back themselves.
+    private func followWaypoint(_ waypoint: Waypoint) {
+        guard !undoManager.isUndoing, !undoManager.isRedoing else { return }
+        for detail in routes where !detail.indices(ofWaypoint: waypoint.id).isEmpty {
+            var updated = detail
+            guard updated.follow(waypoint) else { continue }
+            commit(updated, actionName: "Edit Waypoint")
+        }
     }
 
     /// Inserts a point into the leg of the edited route nearest a spot on
@@ -1853,6 +1931,17 @@ final class LibraryModel {
         newRoute()
         guard var detail = editingDetail else { return }
         detail.appendVia(coordinate, name: name, isPinned: pinned)
+        commit(detail, actionName: "New Route")
+        undoManager.setActionName("New Route")
+    }
+
+    /// A new route starting at a waypoint, linked to it.
+    func startRoute(from waypoint: Waypoint) {
+        undoManager.beginUndoGrouping()
+        defer { undoManager.endUndoGrouping() }
+        newRoute()
+        guard var detail = editingDetail else { return }
+        detail.appendVia(waypoint)
         commit(detail, actionName: "New Route")
         undoManager.setActionName("New Route")
     }
@@ -1927,6 +2016,11 @@ final class LibraryModel {
     /// is unfindable in a sidebar and exports as a file with no name.
     func rename(_ id: String, to name: String) {
         do { try store.rename(id, to: name) } catch { failure = error.localizedDescription }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if var waypoint = waypoints.first(where: { $0.id == id }), !trimmed.isEmpty {
+            waypoint.name = trimmed
+            followWaypoint(waypoint)
+        }
     }
 
     /// Deleting a waypoint can be undone; it is one row, and Delete sits

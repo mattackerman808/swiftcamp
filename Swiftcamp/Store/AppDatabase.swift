@@ -252,6 +252,19 @@ final class AppDatabase: Sendable {
             }
         }
 
+        // A via point made from a waypoint remembers which, so the route
+        // follows the waypoint when it is moved or renamed, and the sidebar
+        // can draw its symbol. `SET NULL` rather than cascade: deleting a
+        // waypoint must not take a stop out of a route, only the link.
+        // SQLite allows a foreign key on an added column only when its
+        // default is NULL, which this one's is.
+        m.registerMigration("v6_point_waypoints") { db in
+            try db.alter(table: "route_points") { t in
+                t.add(column: "waypoint_id", .text).references("waypoints", onDelete: .setNull)
+            }
+            try db.create(index: "route_points_on_waypoint", on: "route_points", columns: ["waypoint_id"])
+        }
+
         return m
     }
 

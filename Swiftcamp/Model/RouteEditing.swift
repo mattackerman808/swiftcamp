@@ -56,8 +56,58 @@ enum RouteEditing {
     }
 }
 
+extension RoutePoint {
+    /// A stop that is a waypoint: its position, name and symbol, pinned
+    /// so no re-route moves a campsite onto the road, and linked so a
+    /// change to the waypoint reaches the route. `seq` is set by whoever
+    /// places it.
+    init(stopAt waypoint: Waypoint, routeID: String) {
+        self.init(routeID: routeID, seq: 0, lat: waypoint.lat, lon: waypoint.lon,
+                  name: waypoint.name, symbol: waypoint.symbol,
+                  isVia: true, isPinned: true, waypointID: waypoint.id)
+    }
+
+    /// Takes the waypoint's name, symbol and position, for a point linked
+    /// to it. Says whether anything changed, so a caller can skip a write.
+    @discardableResult
+    mutating func follow(_ waypoint: Waypoint) -> Bool {
+        let before = self
+        name = waypoint.name
+        symbol = waypoint.symbol
+        lat = waypoint.lat
+        lon = waypoint.lon
+        return self != before
+    }
+}
+
 extension RouteDetail {
     // MARK: - Editing
+
+    /// Positions of the points made from `waypointID`. One, normally; a
+    /// loop that starts and ends at the same campsite has two.
+    func indices(ofWaypoint waypointID: String) -> [Int] {
+        points.indices.filter { points[$0].waypointID == waypointID }
+    }
+
+    /// Takes a changed waypoint's name, symbol and position onto every
+    /// point linked to it, routing the legs either side of one that moved.
+    /// Says whether anything changed.
+    @discardableResult
+    mutating func follow(_ waypoint: Waypoint,
+                         snap: RouteEditing.Snap = .never,
+                         shape: RouteEditing.LegShaper = RouteEditing.straight) -> Bool {
+        var changed = false
+        for i in indices(ofWaypoint: waypoint.id) {
+            let moved = points[i].coordinate != waypoint.coordinate
+            guard points[i].follow(waypoint) else { continue }
+            changed = true
+            if moved {
+                reshape(leg: i - 1, snap: snap, shape)
+                reshape(leg: i, snap: snap, shape)
+            }
+        }
+        return changed
+    }
 
     /// Adds a point at the end: a via point, or with `isVia` false a
     /// shaping point, which bends the route without being a stop.
@@ -67,11 +117,69 @@ extension RouteDetail {
                             isPinned: Bool = false,
                             snap: RouteEditing.Snap = .never,
                             shape: RouteEditing.LegShaper = RouteEditing.straight) {
-        points.append(RoutePoint(routeID: route.id, seq: points.count,
-                                 lat: coordinate.lat, lon: coordinate.lon, name: name,
-                                 isVia: isVia, isPinned: isPinned))
+        insert(RoutePoint(routeID: route.id, seq: points.count,
+                          lat: coordinate.lat, lon: coordinate.lon, name: name,
+                          isVia: isVia, isPinned: isPinned),
+               at: points.count, snap: snap, shape)
+    }
+
+    /// Adds a waypoint at the end as a stop: its position, name and
+    /// symbol, pinned there, and linked so it follows the waypoint.
+    mutating func appendVia(_ waypoint: Waypoint,
+                            snap: RouteEditing.Snap = .never,
+                            shape: RouteEditing.LegShaper = RouteEditing.straight) {
+        insert(RoutePoint(stopAt: waypoint, routeID: route.id), at: points.count, snap: snap, shape)
+    }
+
+    /// Puts a waypoint into the route as a stop before point `index`, or
+    /// at the end for `points.count`. Dropping it on the first stop makes
+    /// it the new start, which splitting a leg could never do.
+    mutating func insertVia(_ waypoint: Waypoint,
+                            before index: Int,
+                            snap: RouteEditing.Snap = .never,
+                            shape: RouteEditing.LegShaper = RouteEditing.straight) {
+        insert(RoutePoint(stopAt: waypoint, routeID: route.id),
+               at: max(0, min(index, points.count)), snap: snap, shape)
+    }
+
+    /// Puts `point` at position `index`, 0 through `points.count`, and
+    /// routes the leg into it and the leg out of it. Every other way of
+    /// adding a point comes through here.
+    private mutating func insert(_ point: RoutePoint, at index: Int,
+                                 snap: RouteEditing.Snap, _ shape: RouteEditing.LegShaper) {
+        points.insert(point, at: index)
         resequence()
-        reshape(leg: points.count - 2, snap: snap, shape)
+        reshape(leg: index - 1, snap: snap, shape)
+        reshape(leg: index, snap: snap, shape)
+    }
+
+    /// Moves the points at `source` to sit before the point now at
+    /// `destination`, which is how a list reports a drag of its rows, and
+    /// `IndexSet` because that is what it hands over.
+    ///
+    /// Only a leg whose two ends are no longer the neighbours they were is
+    /// routed again. A road leg is a search of the graph and a write of
+    /// thousands of vertices, and a stop dragged from fourth to second
+    /// changes three legs of a twenty-stop route, not twenty.
+    mutating func move(fromOffsets source: IndexSet, toOffset destination: Int,
+                       snap: RouteEditing.Snap = .never,
+                       shape: RouteEditing.LegShaper = RouteEditing.straight) {
+        guard source.allSatisfy(points.indices.contains), (0...points.count).contains(destination) else { return }
+        // `seq` is the position before the move while the array is the
+        // position after, which is exactly the comparison that says
+        // whether a leg survived: the geometry on a point describes the
+        // leg to what *was* its successor.
+        points.move(fromOffsets: source, toOffset: destination)
+        var stale: [Int] = []
+        for i in points.indices {
+            let next = i + 1 < points.count ? points[i + 1].seq : nil
+            if next != points[i].seq + 1 {
+                points[i].geometry = nil
+                if next != nil { stale.append(i) }
+            }
+        }
+        resequence()
+        reshape(legs: stale, snap: snap, shape: shape)
     }
 
     /// Splits leg `leg`, which runs from via point `leg` to `leg + 1`, with
@@ -90,12 +198,9 @@ extension RouteDetail {
             appendVia(coordinate, isVia: isVia, snap: snap, shape: shape)
             return
         }
-        points.insert(RoutePoint(routeID: route.id, seq: leg + 1,
-                                 lat: coordinate.lat, lon: coordinate.lon, isVia: isVia),
-                      at: leg + 1)
-        resequence()
-        reshape(leg: leg, snap: snap, shape)
-        reshape(leg: leg + 1, snap: snap, shape)
+        insert(RoutePoint(routeID: route.id, seq: leg + 1,
+                          lat: coordinate.lat, lon: coordinate.lon, isVia: isVia),
+               at: leg + 1, snap: snap, shape)
     }
 
     /// Moves via point `index`, reshaping the leg into it and the leg out of it.

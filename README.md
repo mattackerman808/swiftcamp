@@ -78,7 +78,7 @@ than reasoned about.
 | `-SwiftcampZoom <z>` | Open at this zoom. |
 | `-SwiftcampLibrary <path>` | Use a scratch database instead of the real library. |
 | `-SwiftcampImport <path>` | Import a GPX file at launch, since a file picker cannot be scripted. |
-| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `importBaseCamp`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field and `snapshotWindows` photographs every window, the suggestion list included. |
+| `-SwiftcampScript <path>` | Replay editing actions from a JSON file: `newRoute`, `newWaypoint`, `addPoint`, `addWaypoint`, `movePoint`, `importBaseCamp`, `click`, `drag`, `hover`, `key`, `menu`, `mode`, `select`, `rename`, `set`, `prefer`, `avoid`, `trackFromRoute`, `routeFromTrack`, `newList`, `deleteList`, `selectList`, `file`, `nest`, `filter`, `sort`, `search`, `searchShow`, `searchSave`, `focusSearch`, `type`, `snapshotWindows`, `undo`, `redo`, `done`, `wait`, `probe`, `dump`. `type` sends real key events to the search field and `snapshotWindows` photographs every window, the suggestion list included. |
 
 ```bash
 Swiftcamp.app/Contents/MacOS/Swiftcamp \
@@ -107,7 +107,10 @@ dismiss; a choice inside a submenu is named by itself, `"Flag, Red"` rather
 than a path through Change Icon. `dump` writes the routes as JSON for a check to read; with `"geometry": true` each point also carries its leg's path, which
 is how a check finds a spot on the line to grab. `addPoint` appends a via point to the route being edited without the
 page, for checking routing while another copy of the app holds the only
-window; `prefer` and `avoid` set the edited route's preferences. `select` picks an item by
+window; `addWaypoint` puts the waypoint in `name` into the route in `route`,
+before point `before` or at the end, and `movePoint` moves point `from` of
+`route` to before the point at `to`, which are the sidebar's drop and drag
+without the sidebar; `prefer` and `avoid` set the edited route's preferences. `select` picks an item by
 name and `set` writes one of the inspector's fields to it (`comment`,
 `description`, `symbol`, `elevation`, `lat`, `lon`, `color`); `file` moves
 the selection into the list named in `list`, and `selectList`, `filter` and

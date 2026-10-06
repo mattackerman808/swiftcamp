@@ -53,7 +53,11 @@ edge curvature the graph already stores. `docs/routing.md`.
 
 Waypoints are made from the map's right-click menu, the toolbar or ⇧⌘N,
 dragged into place, and edited in the inspector under the sidebar, which
-also holds a route's or track's name, colour, comment and notes. A route
+also holds a route's or track's name, colour, comment and notes. A
+waypoint dragged onto a route in the sidebar becomes a stop at its end,
+dropped onto a stop it goes in before it, and a selected route's stops
+reorder by dragging their rows; a stop made from a waypoint keeps the
+link, wears its symbol, and follows it when it moves or is renamed. A route
 becomes a track and a track a route from either's menu; the track's shape
 is kept as the route's leg geometry. Lists file items by drag or menu, nest,
 and the map follows the selected list. The sidebar filters by typed words

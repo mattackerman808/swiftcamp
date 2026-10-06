@@ -103,6 +103,8 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Drag a point to move it | **Have** |
 | Insert a point into a leg | **Have** — click the line, or drag it |
 | Delete a point | **Have** |
+| Waypoints into a route | **Have** — drag one, or the selection, onto a route in the sidebar to append it, or onto a stop to go in before it; Add to Route on the waypoint's menu; click or right-click it on the map while editing. The stop is pinned, wears the waypoint's symbol, and follows the waypoint when it is moved, renamed or given a new icon |
+| Reorder a route's points | **Have** — drag the rows under the route; only legs with new neighbours are routed again |
 | Via points versus shaping points | **Have** — dragging the line makes a shaping point, clicking makes a via point, either converts; written as `trp:ShapingPoint` and `trp:ViaPoint` |
 | Reverse a route | **Have** |
 | Route from a track | **Have** — the track is the route's shape, with its bends as shaping points |

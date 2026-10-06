@@ -271,6 +271,118 @@ final class RouteEditingTests: XCTestCase {
         XCTAssertEqual(detail.points[0].geometry, [Coordinate(lat: 40.5, lon: -104.0)])
     }
 
+    // MARK: - Waypoints
+
+    private let camp = Waypoint(name: "Camp", lat: 40.5, lon: -104.5007, symbol: "Campground")
+
+    func testAWaypointBecomesAPinnedLinkedStopWithItsSymbol() {
+        var detail = route([a, b], shape: gridRoads)
+        detail.appendVia(camp, snap: .always, shape: gridRoads)
+
+        let stop = detail.points[2]
+        XCTAssertEqual(stop.waypointID, camp.id)
+        XCTAssertEqual(stop.name, "Camp")
+        XCTAssertEqual(stop.symbol, "Campground")
+        XCTAssertTrue(stop.isVia)
+        XCTAssertEqual(stop.coordinate, camp.coordinate, "pinned: the campsite is where it is, whatever the mode")
+        XCTAssertEqual(detail.points[1].geometry?.last, onRoad, "the leg runs to the road from there")
+    }
+
+    func testInsertingAWaypointBeforeTheFirstStopMakesItTheStart() {
+        var detail = route([a, b, c], shape: midpoint)
+        let bc = detail.points[1].geometry
+        detail.insertVia(camp, before: 0, shape: midpoint)
+
+        XCTAssertEqual(detail.points.map(\.coordinate), [camp.coordinate, a, b, c])
+        XCTAssertEqual(detail.points.map(\.seq), [0, 1, 2, 3])
+        XCTAssertEqual(detail.points[0].geometry?.count, 1, "a new leg into the old start")
+        XCTAssertEqual(detail.points[2].geometry, bc, "the far legs are untouched")
+    }
+
+    func testInsertingAWaypointPastTheEndAppends() {
+        var detail = route([a, b], shape: midpoint)
+        detail.insertVia(camp, before: 99, shape: midpoint)
+        XCTAssertEqual(detail.points.map(\.coordinate), [a, b, camp.coordinate])
+        XCTAssertEqual(detail.points[1].geometry?.count, 1)
+        XCTAssertNil(detail.points[2].geometry)
+    }
+
+    func testFollowingAMovedWaypointMovesItsStopAndBothLegs() {
+        var detail = route([a], shape: midpoint)
+        detail.appendVia(camp, shape: midpoint)
+        detail.appendVia(c, shape: midpoint)
+        let before = detail
+
+        var moved = camp
+        moved.name = "Camp 2"
+        moved.lat = 40.6
+        XCTAssertTrue(detail.follow(moved, shape: midpoint))
+
+        XCTAssertEqual(detail.points[1].name, "Camp 2")
+        XCTAssertEqual(detail.points[1].coordinate, moved.coordinate)
+        XCTAssertNotEqual(detail.points[0].geometry, before.points[0].geometry, "the leg in was routed again")
+        XCTAssertNotEqual(detail.points[1].geometry, before.points[1].geometry, "and the leg out")
+        XCTAssertFalse(detail.follow(moved, shape: midpoint), "nothing left to take")
+    }
+
+    func testFollowingTouchesOnlyLinkedPoints() {
+        var detail = route([a, b], shape: midpoint)
+        var other = camp
+        other.id = newID()
+        XCTAssertFalse(detail.follow(other, shape: midpoint))
+        XCTAssertEqual(detail.points.map(\.coordinate), [a, b])
+    }
+
+    // MARK: - Move
+
+    /// The geometry stored on a point is the leg to what *was* its
+    /// successor, so after a move only the legs with new neighbours may be
+    /// routed again, and every leg whose ends still touch keeps its road.
+    func testMovingAStopReroutesOnlyTheLegsWhoseNeighboursChanged() {
+        // Legs recognisable by their interior point: ab, bc, cd.
+        var detail = route([a, b, c, d], shape: midpoint)
+        let ab = detail.points[0].geometry, cd = detail.points[2].geometry
+        var calls = 0
+        let counting: RouteEditing.LegShaper = { from, to in calls += 1; return self.midpoint(from, to) }
+
+        // d to the front: d a b c.
+        detail.move(fromOffsets: IndexSet(integer: 3), toOffset: 0, shape: counting)
+
+        XCTAssertEqual(detail.points.map(\.coordinate), [d, a, b, c])
+        XCTAssertEqual(detail.points.map(\.seq), [0, 1, 2, 3])
+        XCTAssertEqual(calls, 1, "d→a is the only new leg")
+        XCTAssertEqual(detail.points[1].geometry, ab, "a→b kept its road")
+        XCTAssertNotEqual(detail.points[0].geometry, cd)
+        XCTAssertNil(detail.points[3].geometry, "c is last now and leads nowhere")
+    }
+
+    func testMovingAStopForwardCountsTheListsWay() {
+        // SwiftUI reports a drop below the last row as the count.
+        var detail = route([a, b, c], shape: midpoint)
+        detail.move(fromOffsets: IndexSet(integer: 0), toOffset: 3, shape: midpoint)
+        XCTAssertEqual(detail.points.map(\.coordinate), [b, c, a])
+        XCTAssertEqual(detail.points[0].geometry, [Coordinate(lat: 40.5, lon: -104.0)], "b→c kept")
+        XCTAssertEqual(detail.points[1].geometry, [Coordinate(lat: 40.5, lon: -104.5)], "c→a new")
+        XCTAssertNil(detail.points[2].geometry)
+    }
+
+    func testMovingAStopOntoItselfChangesNothing() {
+        var detail = route([a, b, c], shape: midpoint)
+        let before = detail
+        detail.move(fromOffsets: IndexSet(integer: 1), toOffset: 1, shape: midpoint)
+        XCTAssertEqual(detail, before)
+        detail.move(fromOffsets: IndexSet(integer: 1), toOffset: 2, shape: midpoint)
+        XCTAssertEqual(detail, before, "before the next row is the same place")
+    }
+
+    func testMovingOutOfRangeIsIgnored() {
+        var detail = route([a, b, c], shape: midpoint)
+        let before = detail
+        detail.move(fromOffsets: IndexSet(integer: 7), toOffset: 0, shape: midpoint)
+        detail.move(fromOffsets: IndexSet(integer: 0), toOffset: 9, shape: midpoint)
+        XCTAssertEqual(detail, before)
+    }
+
     // MARK: - Reverse
 
     /// The geometry has to travel with the leg. Reversing only the points

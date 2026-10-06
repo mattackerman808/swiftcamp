@@ -151,6 +151,24 @@ struct LibrarySidebar: View {
         return true
     }
 
+    /// Waypoints dropped on a route become its stops, before point
+    /// `before` or at the end; the whole selection when the dragged one is
+    /// part of it, in the sidebar's order, so three stops dropped together
+    /// arrive in the order they were listed. Anything else dropped on a
+    /// route, a track or a list, is refused, and the drag shows it.
+    private func drop(_ ids: [String], onRoute routeID: String, before index: Int?) -> Bool {
+        var dropped: Set<String> = []
+        for id in ids where !id.hasPrefix("list:") {
+            dropped.formUnion(model.selection.contains(id) ? model.selection : [id])
+        }
+        let waypoints = model.shownWaypoints.filter { dropped.contains($0.id) }
+        guard !waypoints.isEmpty else { return false }
+        for (offset, waypoint) in waypoints.enumerated() {
+            model.addWaypoint(waypoint.id, toRoute: routeID, before: index.map { $0 + offset })
+        }
+        return true
+    }
+
     // MARK: - Filter and order
 
     private var filterBar: some View {
@@ -194,6 +212,9 @@ struct LibrarySidebar: View {
                             color: ItemColor.named(detail.route.color))
                         .tag(detail.route.id)
                         .draggable(detail.route.id)
+                        .dropDestination(for: String.self) { ids, _ in
+                            drop(ids, onRoute: detail.route.id, before: nil)
+                        }
                         .contextMenu {
                             Button("Edit Route") { model.editRoute(detail.route.id) }
                             Button("Reverse Route") { model.reverseRoute(detail.route.id) }
@@ -216,6 +237,9 @@ struct LibrarySidebar: View {
                         if isExpanded(detail) {
                             ForEach(detail.points.sorted { $0.seq < $1.seq }, id: \.seq) { point in
                                 pointRow(detail, point)
+                            }
+                            .onMove { source, destination in
+                                model.movePoints(routeID: detail.route.id, fromOffsets: source, toOffset: destination)
                             }
                         }
                     }
@@ -261,8 +285,9 @@ struct LibrarySidebar: View {
                         .draggable(waypoint.id)
                         .contextMenu {
                             Button("New Route from \(waypoint.name)") {
-                                model.startRoute(at: waypoint.coordinate, name: waypoint.name, pinned: true)
+                                model.startRoute(from: waypoint)
                             }
+                            addToRouteMenu(for: waypoint)
                             Divider()
                             renameButton(waypoint.id, waypoint.name)
                             symbolMenu(for: waypoint)
@@ -314,21 +339,36 @@ struct LibrarySidebar: View {
         return row(id: handle,
                    name: point.isVia ? (point.name ?? "Via point \(point.seq + 1)") : "Shaping point",
                    detail: model.pointSummaries[handle] ?? "") {
-            // The same marks the map draws: a ring for a stop, a small solid
-            // dot for a bend in the road.
-            Image(systemName: point.isVia ? "circle" : "circle.fill")
-                .font(.system(size: point.isVia ? 11 : 7, weight: .bold))
-                .foregroundStyle(color)
-                .frame(width: 13)
+            if point.isVia, let symbol = point.symbol {
+                // A stop that is a waypoint, or came from a file as one,
+                // wears the symbol the map and the device draw it with.
+                SymbolImage(entry: SymbolCatalog.entry(for: symbol))
+                    .frame(width: 13)
+            } else {
+                // The same marks the map draws: a ring for a stop, a small
+                // solid dot for a bend in the road.
+                Image(systemName: point.isVia ? "circle" : "circle.fill")
+                    .font(.system(size: point.isVia ? 11 : 7, weight: .bold))
+                    .foregroundStyle(color)
+                    .frame(width: 13)
+            }
         }
         .padding(.leading, 16)
         .tag(handle)
+        // A waypoint dropped on a stop goes in before it; dropped on the
+        // route's own row it goes at the end.
+        .dropDestination(for: String.self) { ids, _ in
+            drop(ids, onRoute: detail.route.id, before: point.seq)
+        }
         .contextMenu {
             if point.isVia {
                 renameButton(handle, point.name ?? "")
                 Button("Make Shaping Point") { model.setVia(routeID: detail.route.id, seq: point.seq, false) }
             } else {
                 Button("Make Via Point") { model.setVia(routeID: detail.route.id, seq: point.seq, true) }
+            }
+            if let waypointID = point.waypointID, model.waypoints.contains(where: { $0.id == waypointID }) {
+                Button("Show Waypoint") { model.selectFromSidebar([waypointID]) }
             }
             Divider()
             Button("Delete Point", role: .destructive) {
@@ -411,6 +451,24 @@ struct LibrarySidebar: View {
                     model.file(ids, in: list.id)
                 } label: {
                     Label(list.name, systemImage: current == list.id ? "checkmark" : "")
+                }
+            }
+        }
+    }
+
+    /// The alternative to dragging a waypoint onto a route: every route,
+    /// the selected waypoints appended to the one chosen.
+    private func addToRouteMenu(for waypoint: Waypoint) -> some View {
+        let ids = model.selection.contains(waypoint.id) ? model.selection : [waypoint.id]
+        return Menu("Add to Route") {
+            if model.routes.isEmpty {
+                Text("No routes").foregroundStyle(.secondary)
+            }
+            ForEach(model.routes) { detail in
+                Button(detail.route.name) {
+                    for chosen in model.shownWaypoints where ids.contains(chosen.id) {
+                        model.addWaypoint(chosen.id, toRoute: detail.route.id)
+                    }
                 }
             }
         }

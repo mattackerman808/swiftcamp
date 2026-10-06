@@ -86,6 +86,29 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertNil(read.points[1].geometry)
     }
 
+    /// The link from a stop to its waypoint survives a save, and deleting
+    /// the waypoint clears the link and leaves the stop. A cascade here
+    /// would take a stop out of a route because a pin was tidied away.
+    func testAStopKeepsItsWaypointUntilTheWaypointGoes() throws {
+        let camp = Waypoint(name: "Camp", lat: 40.5, lon: -105.5, symbol: "Campground")
+        try store.save(camp)
+        var detail = RouteDetail(route: Route(name: "Loop"), points: [])
+        detail.appendVia(Coordinate(lat: 40.0, lon: -105.0))
+        detail.appendVia(camp)
+        try store.save(detail)
+
+        var read = try XCTUnwrap(try store.routeDetail(id: detail.route.id))
+        XCTAssertEqual(read.points[1].waypointID, camp.id)
+        XCTAssertEqual(read.points[1].symbol, "Campground")
+        XCTAssertTrue(read.points[1].isPinned)
+
+        try store.deleteWaypoint(id: camp.id)
+        read = try XCTUnwrap(try store.routeDetail(id: detail.route.id))
+        XCTAssertEqual(read.points.count, 2, "the stop stays")
+        XCTAssertNil(read.points[1].waypointID, "only the link goes")
+        XCTAssertEqual(read.points[1].name, "Camp")
+    }
+
     func testGeometryIsStoredAsCompactGeoJSONPairs() throws {
         let route = Route(name: "One leg")
         try store.save(RouteDetail(route: route, points: [

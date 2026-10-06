@@ -357,6 +357,15 @@ struct RoutePoint: LibraryRecord, Identifiable, Hashable, Sendable {
     /// the road, and the leg runs to the road from there as BaseCamp draws
     /// it. Every other point moves onto the road its legs landed on.
     var isPinned: Bool = false
+    /// The waypoint this via point was made from, when it was. BaseCamp's
+    /// route points *are* waypoints, which is how a renamed or moved
+    /// campsite moves the route that visits it; here the point keeps its
+    /// own copy of the name, symbol and position and follows the waypoint
+    /// through this link. Nulled when the waypoint is deleted, so the
+    /// route keeps its stop and loses only the connection. Not in the GPX:
+    /// Garmin's format has no such reference, and a `<rtept>` with the
+    /// waypoint's name and symbol is the convention instead.
+    var waypointID: String?
     /// Stored as JSON in one column because nothing ever queries inside it;
     /// the only consumer hands it to the renderer. `Coordinate` encodes as
     /// `[lon, lat]`, so this is compact and already GeoJSON-shaped.
