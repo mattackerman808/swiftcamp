@@ -406,6 +406,17 @@ struct LibrarySidebar: View {
                      @ViewBuilder leading: () -> some View) -> some View {
         let hidden = model.isHidden(id)
         return HStack(spacing: 8) {
+            if hasCheckbox(id) {
+                // On the map or not, as BaseCamp's own tick beside each
+                // item. A checkbox and not an eye: an eye at the far end
+                // of the row read as decoration until it was clicked, and
+                // a box on the left says what it is.
+                Toggle("Show on map", isOn: Binding(get: { !hidden },
+                                                     set: { model.setHidden(!$0, for: idsWith(id)) }))
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .help(hidden ? "Show on map" : "Hide on map")
+            }
             leading()
             VStack(alignment: .leading, spacing: 1) {
                 if renaming == id {
@@ -427,28 +438,19 @@ struct LibrarySidebar: View {
                     Text(detail).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            if eyeBelongs(to: id) {
-                Spacer(minLength: 4)
-                // The eye, as BaseCamp's show-on-map tick: dim and struck
-                // through while the item is off the map. Hidden items
-                // stay in the list at full weight, since the list is the
-                // library and the map is only a view of it.
-                Button {
-                    model.toggleHidden(id)
-                } label: {
-                    Image(systemName: hidden ? "eye.slash" : "eye")
-                        .foregroundStyle(hidden ? .tertiary : .secondary)
-                }
-                .buttonStyle(.borderless)
-                .help(hidden ? "Show on map" : "Hide on map")
-            }
         }
         .opacity(hidden ? 0.6 : 1)
     }
 
-    /// Items have an eye; lists and a route's points do not.
-    private func eyeBelongs(to id: String) -> Bool {
+    /// Items have a checkbox; lists and a route's points do not.
+    private func hasCheckbox(_ id: String) -> Bool {
         !model.isList(id) && OverlayGeoJSON.parseHandle(id) == nil
+    }
+
+    /// The whole selection when the row is part of it, as every other
+    /// row action here works.
+    private func idsWith(_ id: String) -> Set<String> {
+        model.selection.contains(id) ? model.selection : [id]
     }
 
     private func hideButton(_ id: String) -> some View {

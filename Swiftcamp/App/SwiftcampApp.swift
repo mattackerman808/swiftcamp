@@ -79,6 +79,8 @@ struct SwiftcampApp: App {
                                                     set: { model.shownKinds.tracks = $0 }))
                 Toggle("Show Waypoints", isOn: Binding(get: { model.shownKinds.waypoints },
                                                        set: { model.shownKinds.waypoints = $0 }))
+                // The way back after unticking too much.
+                Button("Show Everything on Map") { model.showEverything() }
             }
             // A way back to the map. ⌘N makes a route here rather than a
             // window, so once the map window is closed while the Transfer

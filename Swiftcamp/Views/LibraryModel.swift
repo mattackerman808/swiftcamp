@@ -385,6 +385,8 @@ final class LibraryModel {
                 if let id = lists.first(where: { $0.name == step["name"] as? String })?.id {
                     setHidden(step["action"] as? String == "hideList", for: members(of: id))
                 }
+            case "showEverything":
+                showEverything()
             case "showKinds":
                 // Which kinds the View menu draws; a kind not named is left.
                 var kinds = shownKinds
@@ -695,23 +697,38 @@ final class LibraryModel {
 
     /// The routes, tracks and waypoints the map draws: the selected list's,
     /// or everything.
+    /// What the sidebar lists: the selected list's, or everything. Hidden
+    /// items stay listed, since the list is the library and the map is
+    /// only a view of it; the first cut filtered them here and a click on
+    /// every eye emptied the sidebar with no way back.
+    private var listedRoutes: [RouteDetail] { routes.filter { isShown($0.route.listID) } }
+    private var listedTracks: [TrackDetail] { tracks.filter { isShown($0.track.listID) } }
+    private var listedWaypoints: [Waypoint] { waypoints.filter { isShown($0.listID) } }
+
+    /// What the map draws: the listed items, less the hidden ones.
     private var mappedRoutes: [RouteDetail] {
-        routes.filter {
-            Visibility.draws(hidden: $0.route.isHidden, kindShown: shownKinds.routes, inList: isShown($0.route.listID),
+        listedRoutes.filter {
+            Visibility.draws(hidden: $0.route.isHidden, kindShown: shownKinds.routes, inList: true,
                              selected: isSelected($0.route.id), editing: $0.route.id == editingRouteID)
         }
     }
     private var mappedTracks: [TrackDetail] {
-        tracks.filter {
-            Visibility.draws(hidden: $0.track.isHidden, kindShown: shownKinds.tracks, inList: isShown($0.track.listID),
+        listedTracks.filter {
+            Visibility.draws(hidden: $0.track.isHidden, kindShown: shownKinds.tracks, inList: true,
                              selected: isSelected($0.track.id))
         }
     }
     private var mappedWaypoints: [Waypoint] {
-        waypoints.filter {
-            Visibility.draws(hidden: $0.isHidden, kindShown: shownKinds.waypoints, inList: isShown($0.listID),
+        listedWaypoints.filter {
+            Visibility.draws(hidden: $0.isHidden, kindShown: shownKinds.waypoints, inList: true,
                              selected: isSelected($0.id))
         }
+    }
+
+    /// Everything back on the map: every item unhidden and every kind on.
+    func showEverything() {
+        shownKinds = Visibility.Kinds()
+        setHidden(false, for: Set(routes.map(\.route.id) + tracks.map(\.track.id) + waypoints.map(\.id)))
     }
 
     /// Selected itself, or through one of its points.
@@ -771,17 +788,17 @@ final class LibraryModel {
         let query = filterText
         let sort = self.sort, descending = sortDescending
         shownRoutes = LibraryOrder.sorted(
-            mappedRoutes.filter { LibraryOrder.matches(query, $0.route.name, $0.route.comment) },
+            listedRoutes.filter { LibraryOrder.matches(query, $0.route.name, $0.route.comment) },
             by: sort, descending: descending,
             name: \.route.name, created: \.route.createdAt, updated: \.route.updatedAt,
             length: { self.lengths[$0.route.id] })
         shownTracks = LibraryOrder.sorted(
-            mappedTracks.filter { LibraryOrder.matches(query, $0.track.name, $0.track.comment) },
+            listedTracks.filter { LibraryOrder.matches(query, $0.track.name, $0.track.comment) },
             by: sort, descending: descending,
             name: \.track.name, created: \.track.createdAt, updated: \.track.updatedAt,
             length: { self.lengths[$0.track.id] })
         shownWaypoints = LibraryOrder.sorted(
-            mappedWaypoints.filter { LibraryOrder.matches(query, $0.name, $0.comment, $0.descriptionText, $0.symbol) },
+            listedWaypoints.filter { LibraryOrder.matches(query, $0.name, $0.comment, $0.descriptionText, $0.symbol) },
             by: sort, descending: descending,
             name: \.name, created: \.createdAt, updated: \.updatedAt, length: { _ in nil })
     }

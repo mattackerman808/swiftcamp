@@ -65,7 +65,7 @@ reorder by dragging their rows; a stop made from a waypoint keeps the
 link, wears its symbol, and follows it when it moves or is renamed. A route
 becomes a track and a track a route from either's menu; the track's shape
 is kept as the route's leg geometry. Lists file items by drag or menu, nest,
-and the map follows the selected list. Each row has an eye that takes the
+and the map follows the selected list. Each row has a checkbox that takes the
 item off the map and puts it back, a list's menu does the same for all it
 holds, and the View menu switches routes, tracks or waypoints off whole;
 a hidden item still draws while it is selected or being edited
