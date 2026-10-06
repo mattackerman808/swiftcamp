@@ -86,6 +86,25 @@ final class LibraryModel {
     /// session rather than on every edit.
     private(set) var hasContent = false
 
+    /// The View menu's switches: whether routes, tracks and waypoints are
+    /// drawn at all. Remembered across launches; a rider who hides the
+    /// tracks hides them for good until asked.
+    var shownKinds: Visibility.Kinds = LibraryModel.storedKinds {
+        didSet {
+            guard shownKinds != oldValue else { return }
+            UserDefaults.standard.set(shownKinds.routes, forKey: "showRoutes")
+            UserDefaults.standard.set(shownKinds.tracks, forKey: "showTracks")
+            UserDefaults.standard.set(shownKinds.waypoints, forKey: "showWaypoints")
+            rebuildOverlay()
+        }
+    }
+
+    private static var storedKinds: Visibility.Kinds {
+        let defaults = UserDefaults.standard
+        func flag(_ key: String) -> Bool { defaults.object(forKey: key) == nil ? true : defaults.bool(forKey: key) }
+        return Visibility.Kinds(routes: flag("showRoutes"), tracks: flag("showTracks"), waypoints: flag("showWaypoints"))
+    }
+
     var selection: Set<String> = [] {
         // Guarded against a no-op write. `List(selection:)` assigns through
         // this binding during layout, and `Set` assignment fires `didSet`
@@ -358,6 +377,21 @@ final class LibraryModel {
                 }
             case "duplicate":
                 duplicateSelection()
+            case "hide":
+                setHidden(true, for: selection)
+            case "show":
+                setHidden(false, for: selection)
+            case "hideList", "showList":
+                if let id = lists.first(where: { $0.name == step["name"] as? String })?.id {
+                    setHidden(step["action"] as? String == "hideList", for: members(of: id))
+                }
+            case "showKinds":
+                // Which kinds the View menu draws; a kind not named is left.
+                var kinds = shownKinds
+                if let on = step["routes"] as? Bool { kinds.routes = on }
+                if let on = step["tracks"] as? Bool { kinds.tracks = on }
+                if let on = step["waypoints"] as? Bool { kinds.waypoints = on }
+                shownKinds = kinds
             case "invert":
                 if let id = tracks.first(where: { selection.contains($0.track.id) })?.track.id { invertTrack(id) }
             case "split":
@@ -505,6 +539,7 @@ final class LibraryModel {
         let routes = self.routes.map { detail -> [String: Any] in
             ["name": detail.route.name,
              "editing": detail.route.id == editingRouteID,
+             "hidden": detail.route.isHidden,
              "list": detail.route.listID.flatMap { listNames[$0] } as Any,
              "comment": detail.route.comment as Any,
              "color": detail.route.color as Any,
@@ -533,13 +568,18 @@ final class LibraryModel {
              }]
         }
         let payload: [String: Any] = ["routes": routes,
+                                      "drawn": ["routes": mappedRoutes.map(\.route.name),
+                                                "tracks": mappedTracks.map(\.track.name),
+                                                "waypoints": mappedWaypoints.map(\.name)],
                                       "waypoints": waypoints.map { ["name": $0.name, "lat": $0.lat, "lon": $0.lon,
+                                                                    "hidden": $0.isHidden,
                                                                     "symbol": $0.symbol as Any,
                                                                     "comment": $0.comment as Any,
                                                                     "description": $0.descriptionText as Any,
                                                                     "elevation": $0.elevation as Any,
                                                                     "list": $0.listID.flatMap { listNames[$0] } as Any] },
                                       "tracks": tracks.map { ["name": $0.track.name, "points": $0.points.count,
+                                                              "hidden": $0.track.isHidden,
                                                               "segments": $0.segments.count,
                                                               "first": $0.points.min { $0.seq < $1.seq }.map { [$0.lat, $0.lon] } as Any,
                                                               "stats": trackStatistics[$0.track.id].map { s in
@@ -655,9 +695,77 @@ final class LibraryModel {
 
     /// The routes, tracks and waypoints the map draws: the selected list's,
     /// or everything.
-    private var mappedRoutes: [RouteDetail] { routes.filter { isShown($0.route.listID) } }
-    private var mappedTracks: [TrackDetail] { tracks.filter { isShown($0.track.listID) } }
-    private var mappedWaypoints: [Waypoint] { waypoints.filter { isShown($0.listID) } }
+    private var mappedRoutes: [RouteDetail] {
+        routes.filter {
+            Visibility.draws(hidden: $0.route.isHidden, kindShown: shownKinds.routes, inList: isShown($0.route.listID),
+                             selected: isSelected($0.route.id), editing: $0.route.id == editingRouteID)
+        }
+    }
+    private var mappedTracks: [TrackDetail] {
+        tracks.filter {
+            Visibility.draws(hidden: $0.track.isHidden, kindShown: shownKinds.tracks, inList: isShown($0.track.listID),
+                             selected: isSelected($0.track.id))
+        }
+    }
+    private var mappedWaypoints: [Waypoint] {
+        waypoints.filter {
+            Visibility.draws(hidden: $0.isHidden, kindShown: shownKinds.waypoints, inList: isShown($0.listID),
+                             selected: isSelected($0.id))
+        }
+    }
+
+    /// Selected itself, or through one of its points.
+    private func isSelected(_ id: String) -> Bool {
+        selection.contains(id) || selection.contains { OverlayGeoJSON.parseHandle($0)?.routeID == id }
+    }
+
+    // MARK: - Hiding
+
+    func isHidden(_ id: String) -> Bool {
+        routes.first { $0.route.id == id }?.route.isHidden
+            ?? tracks.first { $0.track.id == id }?.track.isHidden
+            ?? waypoints.first { $0.id == id }?.isHidden
+            ?? false
+    }
+
+    /// Takes items off the map or puts them back, undoably. The whole
+    /// selection when the item is part of it, as the sidebar's other
+    /// menus do.
+    func setHidden(_ hidden: Bool, for ids: Set<String>) {
+        let items = ids.filter { !isList($0) && OverlayGeoJSON.parseHandle($0) == nil && isHidden($0) != hidden }
+        guard !items.isEmpty else { return }
+        do {
+            try store.setHidden(hidden, forIDs: Array(items))
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        // At once, rather than when the observation lands, so the eye and
+        // the map change under the click.
+        for i in routes.indices where items.contains(routes[i].route.id) { routes[i].route.isHidden = hidden }
+        for i in tracks.indices where items.contains(tracks[i].track.id) { tracks[i].track.isHidden = hidden }
+        for i in waypoints.indices where items.contains(waypoints[i].id) { waypoints[i].isHidden = hidden }
+        rebuildShown()
+        rebuildOverlay()
+        registerUndo(hidden ? "Hide on Map" : "Show on Map") { model in model.setHidden(!hidden, for: items) }
+    }
+
+    func toggleHidden(_ id: String) {
+        setHidden(!isHidden(id), for: selection.contains(id) ? selection : [id])
+    }
+
+    /// Everything filed in a list, its sublists included.
+    func members(of listID: String) -> Set<String> {
+        let lists = listIDs(under: listID)
+        return Set(routes.filter { $0.route.listID.map(lists.contains) ?? false }.map(\.route.id)
+            + tracks.filter { $0.track.listID.map(lists.contains) ?? false }.map(\.track.id)
+            + waypoints.filter { $0.listID.map(lists.contains) ?? false }.map(\.id))
+    }
+
+    /// Whether a list has anything on the map, for its menu.
+    func isListShown(_ listID: String) -> Bool {
+        members(of: listID).contains { !isHidden($0) }
+    }
 
     private func rebuildShown() {
         let query = filterText

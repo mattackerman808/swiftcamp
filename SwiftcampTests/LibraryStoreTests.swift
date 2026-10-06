@@ -109,6 +109,26 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(read.points[1].name, "Camp")
     }
 
+    // MARK: - Hiding
+
+    func testHidingIsRememberedAndTouchesOnlyTheItemsNamed() throws {
+        let a = Waypoint(name: "A", lat: 1, lon: 1)
+        let b = Waypoint(name: "B", lat: 2, lon: 2)
+        try store.save(a)
+        try store.save(b)
+        let route = Route(name: "R")
+        try store.insert(route)
+        let before = try XCTUnwrap(try store.routes().first).updatedAt
+
+        try store.setHidden(true, forIDs: [a.id, route.id])
+        XCTAssertEqual(try store.waypoints().map(\.isHidden), [true, false])
+        XCTAssertEqual(try store.routes().first?.isHidden, true)
+        XCTAssertEqual(try store.routes().first?.updatedAt, before, "hiding is not an edit")
+
+        try store.setHidden(false, forIDs: [a.id])
+        XCTAssertEqual(try store.waypoints().first?.isHidden, false)
+    }
+
     // MARK: - Backup and restore
 
     /// A backup is the whole library, and restoring it replaces the whole

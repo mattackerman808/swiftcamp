@@ -127,6 +127,8 @@ struct Waypoint: LibraryRecord, Identifiable, Hashable, Sendable {
     var symbol: String?
     var comment: String?
     var descriptionText: String?
+    /// Kept off the map. See `Visibility`.
+    var isHidden: Bool = false
     var createdAt: Date = .now
     var updatedAt: Date = .now
 
@@ -144,6 +146,8 @@ struct Track: LibraryRecord, Identifiable, Hashable, Sendable {
     var name: String
     var color: String?
     var comment: String?
+    /// Kept off the map. See `Visibility`.
+    var isHidden: Bool = false
     var createdAt: Date = .now
     var updatedAt: Date = .now
 }
@@ -195,6 +199,8 @@ struct Route: LibraryRecord, Identifiable, Hashable, Sendable {
     /// in one column: nothing queries inside it, and a new preference
     /// should not need a migration.
     var preferences: RoutePreferences = RoutePreferences()
+    /// Kept off the map. See `Visibility`.
+    var isHidden: Bool = false
     var createdAt: Date = .now
     var updatedAt: Date = .now
 

@@ -124,6 +124,11 @@ struct LibrarySidebar: View {
             .contextMenu {
                 Button("New List Inside") { model.newList(in: list.id) }
                 renameButton(list.id, list.name)
+                if model.isListShown(list.id) {
+                    Button("Hide List on Map") { model.setHidden(true, for: model.members(of: list.id)) }
+                } else {
+                    Button("Show List on Map") { model.setHidden(false, for: model.members(of: list.id)) }
+                }
                 if list.parentID != nil {
                     Button("Move to Top") { model.nest(list.id, under: nil) }
                 }
@@ -227,6 +232,7 @@ struct LibrarySidebar: View {
                             Button("Create Track from Route") { model.makeTrack(fromRoute: detail.route.id) }
                             Divider()
                             renameButton(detail.route.id, detail.route.name)
+                            hideButton(detail.route.id)
                             Button("Duplicate") { model.duplicate(detail.route.id) }
                             colorMenu(for: detail.route.id)
                             listMenu(for: detail.route.id)
@@ -268,6 +274,7 @@ struct LibrarySidebar: View {
                             simplifyMenu(for: detail)
                             Divider()
                             renameButton(detail.track.id, detail.track.name)
+                            hideButton(detail.track.id)
                             Button("Duplicate") { model.duplicate(detail.track.id) }
                             colorMenu(for: detail.track.id)
                             listMenu(for: detail.track.id)
@@ -300,6 +307,7 @@ struct LibrarySidebar: View {
                             addToRouteMenu(for: waypoint)
                             Divider()
                             renameButton(waypoint.id, waypoint.name)
+                            hideButton(waypoint.id)
                             Button("Duplicate") { model.duplicate(waypoint.id) }
                             symbolMenu(for: waypoint)
                             listMenu(for: waypoint.id)
@@ -396,7 +404,8 @@ struct LibrarySidebar: View {
 
     private func row(id: String, name: String, detail: String,
                      @ViewBuilder leading: () -> some View) -> some View {
-        HStack(spacing: 8) {
+        let hidden = model.isHidden(id)
+        return HStack(spacing: 8) {
             leading()
             VStack(alignment: .leading, spacing: 1) {
                 if renaming == id {
@@ -418,7 +427,33 @@ struct LibrarySidebar: View {
                     Text(detail).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            if eyeBelongs(to: id) {
+                Spacer(minLength: 4)
+                // The eye, as BaseCamp's show-on-map tick: dim and struck
+                // through while the item is off the map. Hidden items
+                // stay in the list at full weight, since the list is the
+                // library and the map is only a view of it.
+                Button {
+                    model.toggleHidden(id)
+                } label: {
+                    Image(systemName: hidden ? "eye.slash" : "eye")
+                        .foregroundStyle(hidden ? .tertiary : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(hidden ? "Show on map" : "Hide on map")
+            }
         }
+        .opacity(hidden ? 0.6 : 1)
+    }
+
+    /// Items have an eye; lists and a route's points do not.
+    private func eyeBelongs(to id: String) -> Bool {
+        !model.isList(id) && OverlayGeoJSON.parseHandle(id) == nil
+    }
+
+    private func hideButton(_ id: String) -> some View {
+        let hidden = model.isHidden(id)
+        return Button(hidden ? "Show on Map" : "Hide on Map") { model.toggleHidden(id) }
     }
 
     private func renameButton(_ id: String, _ name: String) -> some View {

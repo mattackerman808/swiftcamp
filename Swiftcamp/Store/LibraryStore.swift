@@ -492,6 +492,20 @@ struct LibraryStore: Sendable {
         }
     }
 
+    /// Takes items off the map or puts them back, whichever kind each is.
+    /// `updated_at` is left alone: hiding is a view of the library, not an
+    /// edit to it, and a sort by date should not shuffle for it.
+    func setHidden(_ hidden: Bool, forIDs ids: [String]) throws {
+        guard !ids.isEmpty else { return }
+        try database.writer.write { db in
+            for table in ["routes", "tracks", "waypoints"] {
+                let marks = Array(repeating: "?", count: ids.count).joined(separator: ",")
+                try db.execute(sql: "UPDATE \(table) SET is_hidden = ? WHERE id IN (\(marks))",
+                               arguments: StatementArguments([hidden] + ids))
+            }
+        }
+    }
+
     // MARK: - Backup and restore
 
     /// Writes the whole library to a file, consistent as of this moment.

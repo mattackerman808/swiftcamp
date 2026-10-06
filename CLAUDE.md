@@ -65,8 +65,12 @@ reorder by dragging their rows; a stop made from a waypoint keeps the
 link, wears its symbol, and follows it when it moves or is renamed. A route
 becomes a track and a track a route from either's menu; the track's shape
 is kept as the route's leg geometry. Lists file items by drag or menu, nest,
-and the map follows the selected list. The sidebar filters by typed words
-and sorts by name, date or length.
+and the map follows the selected list. Each row has an eye that takes the
+item off the map and puts it back, a list's menu does the same for all it
+holds, and the View menu switches routes, tracks or waypoints off whole;
+a hidden item still draws while it is selected or being edited
+(`Visibility`). The sidebar filters by typed words and sorts by name, date
+or length.
 
 Search: coordinates in any common form; places, streets and points of
 interest from our own index on the CDN; house numbers from our own index

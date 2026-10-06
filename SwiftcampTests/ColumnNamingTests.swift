@@ -14,7 +14,7 @@ final class ColumnNamingTests: XCTestCase {
         "id", "name", "parentID", "sortOrder", "createdAt", "updatedAt",
         "listID", "lat", "lon", "elevation", "symbol", "comment",
         "descriptionText", "color", "trackID", "seq", "time",
-        "routeID", "isVia", "isPinned", "waypointID", "geometry",
+        "routeID", "isVia", "isPinned", "waypointID", "geometry", "isHidden",
     ]
 
     func testPropertiesConvertToTheColumnsTheSchemaDeclares() {

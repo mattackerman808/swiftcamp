@@ -265,6 +265,18 @@ final class AppDatabase: Sendable {
             try db.create(index: "route_points_on_waypoint", on: "route_points", columns: ["waypoint_id"])
         }
 
+        // Whether an item is drawn on the map, per item, which is how
+        // BaseCamp keeps a library of a thousand routes from being a map
+        // of a thousand lines. On the row rather than in a preference so
+        // it survives a restart and travels with a backup.
+        m.registerMigration("v7_hidden") { db in
+            for table in ["routes", "tracks", "waypoints"] {
+                try db.alter(table: table) { t in
+                    t.add(column: "is_hidden", .boolean).notNull().defaults(to: false)
+                }
+            }
+        }
+
         return m
     }
 
