@@ -28,8 +28,11 @@ struct SwiftcampApp: App {
     }
     #endif
 
+    /// The map and the library.
+    static let mapWindowID = "map"
+
     private var mainWindow: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mapWindowID) {
             ContentView(model: model)
         }
         #if os(macOS)
@@ -66,6 +69,12 @@ struct SwiftcampApp: App {
                 Button("Duplicate") { model.duplicateSelection() }
                     .keyboardShortcut("d")
             }
+            // A way back to the map. ⌘N makes a route here rather than a
+            // window, so once the map window is closed while the Transfer
+            // window is open nothing else reopens it, the Dock included.
+            CommandGroup(before: .windowList) {
+                MapWindowCommand()
+            }
             // GPX belongs in the File menu with a keyboard shortcut, not
             // only in the toolbar. Command-O is what someone reaches for
             // first, and a Mac app that answers it with nothing feels
@@ -93,6 +102,18 @@ struct SwiftcampApp: App {
     }
 
     #if os(macOS)
+    /// Opens, or brings forward, the map window. A view rather than a
+    /// button in the `App`, because `openWindow` is an environment action
+    /// and a scene has no environment to read it from.
+    private struct MapWindowCommand: View {
+        @Environment(\.openWindow) private var openWindow
+
+        var body: some View {
+            Button("Map") { openWindow(id: SwiftcampApp.mapWindowID) }
+                .keyboardShortcut("1", modifiers: [.command, .shift])
+        }
+    }
+
     /// A window, not a sheet.
     ///
     /// Moving routes onto a device is the work, not a question the app asks.

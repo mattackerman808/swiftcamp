@@ -166,9 +166,15 @@ extension GarminUnit {
     /// `-SwiftcampVolume <path>` adds a folder as a card, for checking the
     /// path without a reader to hand.
     static func volumes() -> [GarminUnit] {
-        var roots = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeNameKey],
+        var roots = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeIsLocalKey],
                                                           options: [.skipHiddenVolumes]) ?? []
-        roots.removeAll { $0.path == "/" }
+        // Local disks only. A card reader and a unit that mounts are both
+        // local, and a file server is never a Garmin; listing a mounted
+        // share's root every two seconds was also what made macOS ask for
+        // local network access the moment the window opened.
+        roots.removeAll { root in
+            root.path == "/" || (try? root.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal != true
+        }
         if let fake = UserDefaults.standard.string(forKey: "SwiftcampVolume") {
             roots.append(URL(fileURLWithPath: fake, isDirectory: true))
         }

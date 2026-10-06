@@ -25,7 +25,12 @@ struct TransferWindow: View {
                 .frame(minWidth: 320, idealWidth: 420)
         }
         .frame(minWidth: 700, minHeight: 420)
-        .onAppear { device.startWatching() }
+        .onAppear {
+            device.startWatching()
+            // Never restored at launch. An app that opens on the Transfer
+            // window alone looks like one that has lost its map.
+            NSApp.windows.first { $0.identifier?.rawValue == Self.id }?.isRestorable = false
+        }
         .onDisappear { device.stopWatching() }
         .safeAreaInset(edge: .bottom) { statusBar }
     }
