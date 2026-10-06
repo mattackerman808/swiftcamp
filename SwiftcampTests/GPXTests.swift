@@ -8,6 +8,18 @@ import XCTest
 /// else in this app can be got right in a way that makes up for getting this
 /// wrong, so these tests are about fidelity rather than coverage.
 final class GPXTests: XCTestCase {
+    /// A zūmo XT3 imports nothing from a file that uses `&apos;`, so an
+    /// apostrophe goes out as itself; the rest are still escaped.
+    func testAnApostropheIsWrittenAsItselfAndTheRestAreEscaped() throws {
+        var document = GPXDocument()
+        document.waypoints = [Waypoint(name: "Kit's \"House\" <& Lou's>", lat: 40.3772, lon: -105.5217)]
+        let text = GPXWriter.write(document)
+        XCTAssertFalse(text.contains("&apos;"))
+        XCTAssertTrue(text.contains("<name>Kit's &quot;House&quot; &lt;&amp; Lou's&gt;</name>"))
+        let read = try GPXReader.read(data: Data(text.utf8))
+        XCTAssertEqual(read.waypoints.first?.name, "Kit's \"House\" <& Lou's>", "and reads back whole")
+    }
+
     private func fixture(_ name: String) throws -> Data {
         let bundle = Bundle(for: type(of: self))
         let url = try XCTUnwrap(bundle.url(forResource: name, withExtension: "gpx"),

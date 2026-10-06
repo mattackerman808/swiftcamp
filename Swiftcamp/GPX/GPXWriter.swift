@@ -194,13 +194,20 @@ enum GPXWriter {
     ///
     /// `&` first, or the ampersands introduced by the other four get escaped
     /// a second time and `<` comes out as `&amp;lt;`.
+    ///
+    /// Never `&apos;`. It is in the XML specification and absent from the
+    /// parsers in some Garmin units, which read nothing from a file that
+    /// uses it; a zūmo XT3 imported no route at all from a file whose
+    /// stops were "Kit's House" and "Lou's House", however the road was
+    /// written. An apostrophe needs no escaping in element text, nor in
+    /// an attribute quoted with double quotes, which is the only kind
+    /// written here.
     private static func escape(_ value: String) -> String {
         value
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
             .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&apos;")
     }
 
     /// Swift's own `Double` description, which is the shortest string that
