@@ -113,7 +113,8 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Routing preferences: faster time, shorter distance | **Have** — plus Some Curves and Many Curves, the zūmo's curvy roads, from Valhalla's edge curvature |
 | Avoidances: tolls, ferries, unpaved, highways | **Have** — unpaved and tracks through the mode; highways, tolls and ferries per route |
 | Road snapping and recalculation on drag | **Have** — the whole US graph streams from the CDN, tile by tile, and is cached |
-| Trip planner with departure and arrival times | **Build**, later |
+| Turn-by-turn directions | **Have** — under the route in the inspector, from Valhalla's narrative; a click looks at the turn. Screen and print only: the device narrates the road itself |
+| Trip planner with departure and arrival times | **Build**, later — the directions already carry each leg's time |
 
 ### Tracks
 

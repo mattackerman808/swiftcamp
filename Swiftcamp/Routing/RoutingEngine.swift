@@ -207,27 +207,83 @@ final class RoutingEngine: @unchecked Sendable {
     /// caller's cue to fall back to a straight leg and say so.
     func route(from a: Coordinate, to b: Coordinate, mode: RoutingMode = .road,
                preferences: RoutePreferences = RoutePreferences()) throws -> [Coordinate] {
-        let request: [String: Any] = [
-            "locations": [["lat": a.lat, "lon": a.lon], ["lat": b.lat, "lon": b.lon]],
+        // No turn-by-turn narrative: the caller wants the shape only, and
+        // generating maneuvers is a measurable share of the time.
+        let json = try ask(Self.request(locations: [["lat": a.lat, "lon": a.lon], ["lat": b.lat, "lon": b.lon]],
+                                        mode: mode, preferences: preferences, directions: false),
+                           what: "route")
+
+        let decoding = ContinuousClock.now
+        guard let trip = json["trip"] as? [String: Any],
+              let legs = trip["legs"] as? [[String: Any]],
+              let shape = legs.first?["shape"] as? String
+        else { throw RoutingError(message: "unexpected reply from the routing engine") }
+
+        let path = Polyline.decode(shape)
+        Timing.log("route.decode", since: decoding, "\(path.count) points")
+        return path
+    }
+
+    /// The turns along a whole route, narrated: one request with every
+    /// point as a location, via points as stops and shaping points passed
+    /// through, under the route's own mode and preferences.
+    ///
+    /// A fresh search rather than a narration of the stored legs. Valhalla
+    /// can narrate a given shape only by map-matching it back onto the
+    /// graph, which is a guess with thousands of points and a certainty
+    /// with none; a search under the same settings finds the same road,
+    /// and the whole route warm is under a second. Shaping points are
+    /// `via`, which allows a reversal there as the leg-by-leg routing did,
+    /// so the narrative follows the line on the map rather than refusing
+    /// a turn the line takes. Throws for a Direct route, which has no
+    /// road to narrate, or for fewer than two points.
+    func directions(for detail: RouteDetail) throws -> RouteDirections {
+        let points = detail.points.sorted { $0.seq < $1.seq }
+        guard detail.route.mode != .direct else { throw RoutingError(message: "a direct route has no turns") }
+        guard points.count >= 2 else { throw RoutingError(message: "a route needs two points") }
+        let locations = points.enumerated().map { index, point -> [String: Any] in
+            let stop = point.isVia || index == 0 || index == points.count - 1
+            var location: [String: Any] = ["lat": point.lat, "lon": point.lon, "type": stop ? "break" : "via"]
+            // Named, so the arrival reads "You have arrived at Camp".
+            if stop, let name = point.name { location["name"] = name }
+            return location
+        }
+        let json = try ask(Self.request(locations: locations, mode: detail.route.mode,
+                                        preferences: detail.route.preferences, directions: true),
+                           what: "directions")
+        return try RouteDirections.parse(json)
+    }
+
+    /// Valhalla's route request for a set of locations under a mode and
+    /// preferences, with or without the narrative.
+    private static func request(locations: [[String: Any]], mode: RoutingMode, preferences: RoutePreferences,
+                                directions: Bool) -> [String: Any] {
+        [
+            "locations": locations,
             "costing": "motorcycle",
-            "costing_options": ["motorcycle": Self.costingOptions(for: mode, preferences: preferences)],
-            // No turn-by-turn narrative: the caller wants the shape only,
-            // and generating maneuvers is a measurable share of the time.
-            "directions_type": "none",
-            "units": "miles",
-            // No intersecting edges either. Listing them makes the leg
-            // builder follow every path node's transitions to the local
-            // level, which for a cross-country leg on the highway levels
-            // loads every local tile along the corridor: twenty-four
-            // fetches and seven seconds, measured, for a leg that needed
-            // none of them. The filter is honoured by the patch in
+            "costing_options": ["motorcycle": costingOptions(for: mode, preferences: preferences)],
+            "directions_type": directions ? "instructions" : "none",
+            "language": "en-US",
+            // Kilometres, so a length is metres with one multiplication;
+            // the UI says miles.
+            "units": "kilometers",
+            // No intersecting edges. Listing them makes the leg builder
+            // follow every path node's transitions to the local level,
+            // which for a cross-country leg on the highway levels loads
+            // every local tile along the corridor: twenty-four fetches and
+            // seven seconds, measured, for a leg that needed none of them.
+            // The filter is honoured by the patch in
             // scripts/valhalla-intersecting-edges.patch; unpatched, it
             // costs nothing and changes nothing.
             "filters": [
-                "attributes": Self.intersectingEdgeAttributes,
+                "attributes": intersectingEdgeAttributes,
                 "action": "exclude",
             ],
         ]
+    }
+
+    /// Runs one request through the actor and returns the reply as JSON.
+    private func ask(_ request: [String: Any], what: String) throws -> [String: Any] {
         let body = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
 
         var error: UnsafeMutablePointer<CChar>?
@@ -241,21 +297,14 @@ final class RoutingEngine: @unchecked Sendable {
         // changes with the graph. Whole seconds and the fraction both: the
         // first version read only the fraction and logged a sixteen-second
         // cold route as 241 ms.
-        NSLog("[Swiftcamp] route %.0f ms", Timing.milliseconds(since: started))
+        NSLog("[Swiftcamp] %@ %.0f ms, %d KB reply", what, Timing.milliseconds(since: started),
+              (reply?.utf8.count ?? 0) / 1000)
         guard let reply else {
             throw RoutingError(message: Self.take(error) ?? "no route")
         }
-
-        let decoding = ContinuousClock.now
-        guard let json = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any],
-              let trip = json["trip"] as? [String: Any],
-              let legs = trip["legs"] as? [[String: Any]],
-              let shape = legs.first?["shape"] as? String
+        guard let json = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
         else { throw RoutingError(message: "unexpected reply from the routing engine") }
-
-        let path = Polyline.decode(shape)
-        Timing.log("route.decode", since: decoding, "\(path.count) points, \(reply.utf8.count / 1000) KB reply")
-        return path
+        return json
     }
 
     /// The engine as a `LegShaper` for a mode: the routed path with both

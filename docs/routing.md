@@ -103,6 +103,27 @@ FHWA National Scenic Byways geometry is the source; Valhalla's
 `cost_factor_edges` request option can favour edges along supplied
 polylines without touching the graph, which is the way to try it.
 
+## Directions
+
+A selected route's turns, under its fields in the inspector, with the
+trip's length and time at the top and a click on any turn looking at it
+on the map. `RouteDirections` is the value and `DirectionsPane` the view.
+
+The list is one more request to the engine, every point of the route as
+a location with `directions_type` set to instructions, under the route's
+own mode and preferences: via points are `break` and named, so an
+arrival reads "Camp is on the left", and shaping points are `via`, which
+allows a reversal there the way routing leg by leg did. A fresh search
+rather than a narration of the stored legs, because Valhalla narrates a
+given shape only by map-matching it back onto the graph, and a search
+under the same settings finds the same road: on a 62-mile test the
+narrative's length matched the drawn line's. Computed off the main actor
+when the pane is open and the route is not being routed, kept against
+the edit signature it was computed for, and never stored: Garmin's
+format carries no instructions and the device narrates the road it is
+given, so the list is for planning and printing, as BaseCamp's was. The
+leg requests still ask for no narrative, since a drag does not want it.
+
 ## Streaming the graph
 
 The graph is not bundled and not downloaded up front. It is one gzipped

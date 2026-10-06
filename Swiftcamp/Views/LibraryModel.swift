@@ -213,6 +213,17 @@ final class LibraryModel {
     /// Routes being routed in the background, for the sidebar.
     private(set) var routing: Set<String> = []
 
+    /// The last narrative computed for each route, against the edit
+    /// signature it was computed for. Computed, never stored; see
+    /// `RouteDirections`. A failure is kept the same way so the pane can
+    /// say why rather than spin.
+    struct DirectionsEntry: Equatable {
+        var key: String
+        var directions: RouteDirections?
+        var failure: String?
+    }
+    private(set) var directionsByRoute: [String: DirectionsEntry] = [:]
+
     /// Legs the engine refused, keyed by mode and both ends, so a leg with
     /// no road between its points is not asked again on every edit.
     @ObservationIgnored private var refusedLegs: Set<String> = []
@@ -329,6 +340,13 @@ final class LibraryModel {
                 if let waypoint = waypoints.first(where: { $0.name == step["name"] as? String }),
                    let route = routes.first(where: { $0.route.name == step["route"] as? String }) {
                     addWaypoint(waypoint.id, toRoute: route.route.id, before: step["before"] as? Int)
+                }
+            case "directions":
+                // The selected route's narrative, as the pane would ask
+                // for it; waits for the routing in progress first.
+                if let id = routes.first(where: { selection.contains($0.route.id) })?.route.id {
+                    while routing.contains(id) { try? await Task.sleep(for: .milliseconds(200)) }
+                    await loadDirections(for: id)
                 }
             case "movePoint":
                 // Point `from` of the route named to before the point now
@@ -465,6 +483,16 @@ final class LibraryModel {
              "prefer": detail.route.preferences.prefer.rawValue,
              "avoid": detail.route.preferences.avoided,
              "miles": (detail.length / 1609.344 * 10).rounded() / 10,
+             "directions": directionsByRoute[detail.route.id].map { entry -> [String: Any] in
+                 ["failure": entry.failure as Any,
+                  "miles": ((entry.directions?.length ?? 0) / 1609.344 * 10).rounded() / 10,
+                  "minutes": ((entry.directions?.time ?? 0) / 60).rounded(),
+                  "turns": (entry.directions?.maneuvers ?? []).map { m -> [String: Any] in
+                      ["instruction": m.instruction, "kind": m.kind.rawValue, "leg": m.leg,
+                       "miles": (m.distanceFromStart / 1609.344 * 10).rounded() / 10,
+                       "lat": m.coordinate.lat, "lon": m.coordinate.lon]
+                  }]
+             } as Any,
              "points": detail.points.map { p -> [String: Any] in
                  var out: [String: Any] = ["seq": p.seq, "lat": p.lat, "lon": p.lon,
                                            "name": p.name ?? "", "via": p.isVia,
@@ -1006,6 +1034,48 @@ final class LibraryModel {
     /// obedient and useless.
     private func isSelectedOrNothingIs(_ id: String) -> Bool {
         selection.isEmpty || selection.contains(id)
+    }
+
+    // MARK: - Directions
+
+    /// What a narrative of the route would be computed from, or nil while
+    /// there is nothing to narrate yet: a Direct route, a route with one
+    /// point, or one whose legs are still being routed. The pane runs
+    /// `loadDirections` whenever this changes.
+    func directionsKey(for routeID: String) -> String? {
+        guard let detail = routes.first(where: { $0.route.id == routeID }),
+              detail.route.mode != .direct, detail.points.count >= 2,
+              !routing.contains(routeID) else { return nil }
+        return Self.signature(of: detail)
+    }
+
+    /// The narrative for a route as it stands, into `directionsByRoute`,
+    /// unless the one there is already for this state of the route. Off
+    /// the main actor: a cross-country route is a search of the graph.
+    func loadDirections(for routeID: String) async {
+        guard let key = directionsKey(for: routeID), directionsByRoute[routeID]?.key != key,
+              let detail = routes.first(where: { $0.route.id == routeID }) else { return }
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<RouteDirections, Error> in
+            guard let engine = RoutingEngine.shared else {
+                return .failure(RoutingError(message: "the routing engine is not available"))
+            }
+            return Result { try engine.directions(for: detail) }
+        }.value
+        // An edit that landed meanwhile asked for its own pass.
+        guard directionsKey(for: routeID) == key else { return }
+        switch result {
+        case .success(let directions):
+            directionsByRoute[routeID] = DirectionsEntry(key: key, directions: directions)
+        case .failure(let error):
+            NSLog("[Swiftcamp] no directions: %@", error.localizedDescription)
+            directionsByRoute[routeID] = DirectionsEntry(key: key, failure: error.localizedDescription)
+        }
+    }
+
+    /// Looks at a spot on the road, close enough to read the junction.
+    func look(at coordinate: Coordinate, zoom: Double = 15) {
+        nextCameraID += 1
+        camera = MapCameraRequest(id: nextCameraID, target: .point(coordinate, zoom: zoom))
     }
 
     // MARK: - Selection

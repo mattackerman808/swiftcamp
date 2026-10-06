@@ -52,6 +52,9 @@ struct LibrarySidebar: View {
             VStack(spacing: 0) {
                 if let id = model.selection.first, model.selection.count == 1 {
                     ItemInspector(model: model, id: id)
+                    if let detail = model.routes.first(where: { $0.route.id == id }) {
+                        DirectionsPane(model: model, detail: detail)
+                    }
                 }
                 // The background fill of the highway levels, while it runs. A
                 // rider should know why the network light is on, and when a

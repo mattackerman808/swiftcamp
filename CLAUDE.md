@@ -49,7 +49,9 @@ while dragging; without one they are straight lines. `docs/routing.md`.
 Each route also carries what its legs optimise for, Faster Time, Shorter
 Distance, Some Curves or Many Curves, and whether they avoid highways,
 tolls or ferries; the curvy levels are our own Valhalla patch on the
-edge curvature the graph already stores. `docs/routing.md`.
+edge curvature the graph already stores. A selected route's turn-by-turn
+directions, with the trip's time, are under its fields in the inspector.
+`docs/routing.md`.
 
 Waypoints are made from the map's right-click menu, the toolbar or ⇧⌘N,
 dragged into place, and edited in the inspector under the sidebar, which
