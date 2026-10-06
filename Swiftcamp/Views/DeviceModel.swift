@@ -141,9 +141,32 @@ final class DeviceModel {
         }
     }
 
+    /// Closes the USB session, or ejects the card.
+    ///
+    /// Eject has to mean eject for a card: a rider who presses it and
+    /// pulls the card is doing what the button said, and a volume pulled
+    /// while mounted is how a FAT card gets a half-written file. A folder
+    /// standing in for a card is not a mount point and is only forgotten.
     func disconnect() {
-        forgetDevice()
-        Task { await service.disconnect() }
+        guard let volume = snapshot?.unit.volume,
+              (try? volume.resourceValues(forKeys: [.isVolumeKey]))?.isVolume == true else {
+            forgetDevice()
+            Task { await service.disconnect() }
+            return
+        }
+        let name = snapshot?.model ?? volume.lastPathComponent
+        run("Ejecting \(name)…") { [service] in
+            await service.disconnect()
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                FileManager.default.unmountVolume(at: volume, options: [.allPartitionsAndEjectDisk, .withoutUI]) { error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                }
+            }
+            return {
+                self.forgetDevice()
+                self.status = "Ejected \(name). It is safe to remove."
+            }
+        }
     }
 
     /// Drops everything that described a device that is no longer there.

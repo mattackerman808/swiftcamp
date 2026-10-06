@@ -209,7 +209,7 @@ private struct DevicePane: View {
 
                     Button("Eject", systemImage: "eject") { device.disconnect() }
                         .labelStyle(.iconOnly)
-                        .help("Disconnect")
+                        .help(snapshot.unit.volume == nil ? "Disconnect" : "Eject the card so it is safe to remove")
                 }
                 breadcrumb
                 if device.browseStorage == nil, hasSeveralStorages {
