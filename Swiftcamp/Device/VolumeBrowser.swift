@@ -126,7 +126,26 @@ final class VolumeBrowser: DeviceBrowser {
         if let existing = try existing(named: name, in: folder) {
             try FileManager.default.removeItem(at: existing)
         }
+        // Finder leaves an AppleDouble twin, `._Name.gpx`, beside anything
+        // it copies to a FAT or exFAT card. It ends in .gpx, a unit reads
+        // it as a GPX file, and a zūmo XT3 then lists nothing to import
+        // from the whole folder. Our own write makes none; one left by an
+        // earlier Finder copy of the same name is cleared with it.
+        if let twin = try existing(named: "._" + name, in: folder) {
+            try FileManager.default.removeItem(at: twin)
+        }
         try data.write(to: folder.appendingPathComponent(name), options: .atomic)
+    }
+
+    /// Clears every AppleDouble twin from the GPX folder, for a card that
+    /// has been through Finder. Says how many went.
+    @discardableResult
+    func removeAppleDoubles(storage: UInt32) throws -> Int {
+        let folder = try url(for: gpxFolder(storage: storage, creating: false))
+        let twins = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("._") }
+        for twin in twins { try FileManager.default.removeItem(at: twin) }
+        return twins.count
     }
 
     func close() {}

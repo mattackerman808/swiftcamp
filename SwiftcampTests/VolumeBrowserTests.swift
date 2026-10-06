@@ -127,6 +127,27 @@ final class VolumeBrowserTests: XCTestCase {
         XCTAssertEqual(try browser.read(files[0]), Data("two".utf8))
     }
 
+    /// Finder's `._Name.gpx` twins end in .gpx and a zūmo reads them as
+    /// GPX, after which it lists nothing to import; a write clears the
+    /// twin of its own name, and the sweep clears them all.
+    ///
+    /// On APFS the system itself drops a stale twin when the real file is
+    /// written, which an exFAT card does not do, so the twins here are
+    /// made after their files and only the sweep is asserted exactly.
+    func testAppleDoubleTwinsAreCleared() throws {
+        try make("Garmin/GPX/Other.gpx", gpx([]))
+        try make("Garmin/GPX/._Other.gpx", "junk")
+        try make("Garmin/GPX/._Ride.gpx", "junk")
+        let browser = VolumeBrowser(root: root, name: "Card")
+        try browser.write(Data("ride".utf8), named: "Ride.gpx", storage: 1)
+        let folder = root.appendingPathComponent("Garmin/GPX").path
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: folder).contains("._Ride.gpx"))
+        _ = try browser.removeAppleDoubles(storage: 1)
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: folder)), ["Ride.gpx", "Other.gpx"])
+        XCTAssertEqual(try browser.contents(of: try browser.gpxFolder(storage: 1, creating: false), storage: 1).map(\.name),
+                       ["Other.gpx", "Ride.gpx"])
+    }
+
     func testTheStorageIsTheVolume() throws {
         try make("Garmin/GPX/Ride.gpx")
         let storages = try VolumeBrowser(root: root, name: "Card").storages()
