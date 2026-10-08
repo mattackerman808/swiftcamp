@@ -108,6 +108,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app.mac
+        # Apple Silicon only, like Valhalla and its libraries: an Intel Mac
+        # runs BaseCamp natively for as long as its macOS does, and the
+        # Macs losing BaseCamp are the ones losing Rosetta. Release builds
+        # every architecture by default and failed to link for Intel.
+        ARCHS: arm64
         ASSETCATALOG_COMPILER_APPICON_NAME: SwiftCamp
         PRODUCT_NAME: Swiftcamp
         GENERATE_INFOPLIST_FILE: YES
@@ -120,9 +125,11 @@ targets:
         # stubs.
         SWIFT_OBJC_BRIDGING_HEADER: Swiftcamp/Device/Swiftcamp-Bridging-Header.h
         # Valhalla, the routing engine, linked statically from the CMake
-        # build scripts/build-valhalla.sh makes in Vendor/valhalla: see
-        # docs/routing.md. Gitignored and fetched, like the basemap;
-        # packaging it as an XCFramework is the step after the spike.
+        # build scripts/build-valhalla.sh makes in Vendor/valhalla, with
+        # its libraries from scripts/build-deps.sh: see docs/routing.md.
+        # Gitignored and fetched, like the basemap. The app carries all of
+        # it inside; scripts/package-app.sh checks that it loads nothing
+        # else.
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/Swiftcamp/Device
@@ -133,6 +140,10 @@ targets:
           - $(SRCROOT)/Vendor/valhalla/third_party/rapidjson/include
           - $(SRCROOT)/Vendor/valhalla/third_party/date/include
           - $(SRCROOT)/Vendor/valhalla/third_party/unordered_dense/include
+          # protobuf's and abseil's headers from the build that is linked,
+          # ahead of Homebrew's; Homebrew is left for boost, which is
+          # headers alone and leaves nothing in the binary.
+          - $(SRCROOT)/Vendor/deps/include
           - /opt/homebrew/include
         LIBRARY_SEARCH_PATHS:
           - $(SRCROOT)/Vendor/valhalla/build/src
@@ -146,7 +157,11 @@ targets:
           - $(SRCROOT)/Vendor/valhalla/build/src/baldr
           - $(SRCROOT)/Vendor/valhalla/build/src/midgard
           - $(SRCROOT)/Vendor/valhalla/build/src/valhalla/proto
-          - /opt/homebrew/lib
+          # Static protobuf, abseil and lz4 for macOS 14, from
+          # scripts/build-deps.sh. Never /opt/homebrew/lib: its dylibs
+          # were built for this Mac's macOS, and an app linked against
+          # them runs on no other.
+          - $(SRCROOT)/Vendor/deps/lib
         OTHER_LDFLAGS:
           - -lvalhalla
           - -lvalhalla-tyr

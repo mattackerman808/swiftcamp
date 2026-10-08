@@ -46,7 +46,7 @@ routing engine the Mac links: `build-valhalla.sh` clones a pinned release into
 
 ```bash
 brew install xcodegen pmtiles librsvg rclone
-brew install cmake ninja pkgconf boost protobuf geos libspatialite \
+brew install cmake ninja pkgconf boost geos libspatialite \
              spatialite-tools luajit openssl@3 expat
 ./scripts/fetch-basemap.sh
 ./scripts/build-valhalla.sh

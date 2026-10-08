@@ -7,13 +7,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 git clone https://github.com/mattackerman808/swiftcamp.git && cd swiftcamp
 brew install xcodegen pmtiles librsvg rclone
-brew install cmake ninja pkgconf boost protobuf geos libspatialite \
+brew install cmake ninja pkgconf boost geos libspatialite \
              spatialite-tools luajit openssl@3 expat
 ./scripts/fetch-basemap.sh      # ~43 MB, not in git, ~1 second
 ./scripts/build-valhalla.sh     # routing engine into Vendor/, a few minutes
 xcodegen generate               # .xcodeproj is gitignored
 open Swiftcamp.xcodeproj
 ```
+
+To build what someone else installs, `scripts/package-app.sh`: a Release
+build, checked to load nothing outside the system and to need no macOS
+newer than 14, signed with the hardened runtime and packed in
+`dist/Swiftcamp-<version>.dmg`. Ad-hoc signed by default; with
+`SIGN_IDENTITY` and `NOTARY_PROFILE` it signs with a Developer ID and
+notarizes. Apple Silicon only. The script's header has the one-time setup.
 
 Without the basemap fetch the app builds but asserts at launch with no map.
 Without the Valhalla build the macOS target stops at its Check Valhalla
@@ -581,6 +588,13 @@ implements them; this is the index.
   allows one, at the top, and the map loaded nothing at all, which the
   style's unit tests passed happily. The page's forwarded console said so
   in one line. Load the real map after any style change.
+- **A Homebrew library is built for the Mac it was poured on.** The app
+  linked protobuf and abseil from `/opt/homebrew`, so it ran on no Mac
+  without them; and bundling them would only have moved the failure,
+  since every one said `minos 27.0` and dyld refuses a library newer than
+  the system, whatever the app's own deployment target of 14.0 claims.
+  `vtool -show-build` said so in a second. `scripts/build-deps.sh` builds
+  them static for 14.0; `package-app.sh` checks every Mach-O for both.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

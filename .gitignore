@@ -3,6 +3,8 @@
 xcuserdata/
 DerivedData/
 build/
+# Release disk images, from scripts/package-app.sh
+dist/
 
 # Generated from project.yml by XcodeGen — do not commit
 Swiftcamp.xcodeproj/

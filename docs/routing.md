@@ -225,10 +225,10 @@ libcurl to the link.
 There is no Homebrew formula and the `valhalla-mobile` Swift package targets
 iOS and Android only, so the Mac links a CMake build. It lives inside the
 repo at `Vendor/valhalla`, gitignored in the same spirit as the fetched
-basemap; packaging it as an XCFramework is the next step.
+basemap.
 
 ```bash
-brew install cmake ninja pkgconf boost protobuf geos libspatialite \
+brew install cmake ninja pkgconf boost geos libspatialite \
              spatialite-tools luajit openssl@3 expat
 ./scripts/build-valhalla.sh
 ```
@@ -262,9 +262,31 @@ Preferences above.
 
 `project.yml` points the macOS target at these under
 `$(SRCROOT)/Vendor/valhalla`, with a Check Valhalla build phase that stops
-early, and says what to run, when the library is missing. It links protobuf
-and its abseil dependencies from Homebrew. The abseil list came from `pkg-config --libs protobuf`; regenerate it if protobuf is
-upgraded, because abseil's library names carry its release date.
+early, and says what to run, when the library is missing.
+
+### Its libraries, inside the app
+
+protobuf, abseil and lz4 are built by `scripts/build-deps.sh`, which
+`build-valhalla.sh` runs first: static, Apple Silicon, for macOS 14, from
+the releases Homebrew's formulae use, pinned by checksum, into
+`Vendor/deps`. Valhalla is configured against that prefix first, and the
+app links the archives, so the shipped binary loads nothing but the system.
+
+They were Homebrew's dylibs until it came to shipping, and that could not
+ship twice over. They load from `/opt/homebrew`, so the app ran on no Mac
+without those exact versions installed; and copying them into the app
+would not have helped, because a bottle is built for the macOS it was
+poured on and every one of them said `minos 27.0`, which dyld refuses on
+an older system whatever the app's own deployment target says. Boost
+still comes from Homebrew, as headers, which leave nothing in the binary;
+the graph tools still link GEOS and SpatiaLite from there, which is fine
+for programs that only run on the machine that builds graphs.
+
+The abseil list in `project.yml` is `pkg-config --static --libs protobuf`
+against `Vendor/deps`; regenerate it when the pin moves, because abseil's
+library set changes between releases. `scripts/package-app.sh` checks
+every Mach-O in the built app for a load from outside the system and for
+a minimum macOS above 14, and refuses to package either.
 
 Services and Python bindings are off because the app needs neither and
 each brings a dependency (prime_server, nanobind). HTTP is on: it is how
@@ -397,8 +419,6 @@ actor the way drags already do is the fix, listed under Next.
 
 ## Next
 
-- Package libvalhalla and its dependencies as an XCFramework so the app
-  builds on a machine without the sibling checkout.
 - Decide what `access=permit` should mean.
 - Region packs as "keep this area for offline": pre-fill the same cache
   with a region's local tiles, the way the prefetcher fills the highway

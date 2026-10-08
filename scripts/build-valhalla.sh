@@ -13,7 +13,7 @@
 # behind each CMake option and each patch.
 #
 # Requires: Xcode, and
-#   brew install cmake ninja pkgconf boost protobuf geos libspatialite \
+#   brew install cmake ninja pkgconf boost geos libspatialite \
 #                spatialite-tools luajit openssl@3 expat
 
 set -euo pipefail
@@ -31,7 +31,7 @@ PATCHES=(
 )
 
 missing=()
-for f in cmake ninja pkgconf boost protobuf geos libspatialite \
+for f in cmake ninja pkgconf boost geos libspatialite \
          spatialite-tools luajit openssl@3 expat; do
   brew list --versions "$f" >/dev/null 2>&1 || missing+=("$f")
 done
@@ -69,17 +69,37 @@ if [[ "$(cat "$stamp" 2>/dev/null)" != "$want" ]]; then
   echo "$want" > "$stamp"
 fi
 
-if [[ ! -f "$SRC/build/build.ninja" ]]; then
-  cmake -S "$SRC" -B "$SRC/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIBRARY_MODULES=ON \
-    -DENABLE_SERVICES=OFF -DENABLE_PYTHON_BINDINGS=OFF -DENABLE_TESTS=OFF \
-    -DENABLE_HTTP=ON -DENABLE_GEOTIFF=OFF -DENABLE_CCACHE=OFF \
-    -DENABLE_TOOLS=ON -DENABLE_DATA_TOOLS=ON -DENABLE_SINGLE_FILES_WERROR=OFF \
-    -DCMAKE_PREFIX_PATH="/opt/homebrew;/opt/homebrew/opt/openssl@3" \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+# protobuf, abseil and lz4, static and for macOS 14, so the app carries
+# them inside rather than loading Homebrew's; see build-deps.sh.
+"$ROOT/scripts/build-deps.sh"
+DEPS="$ROOT/Vendor/deps"
+
+# Configured afresh whenever the configuration changes. CMake's cache
+# remembers every library it found, so a tree configured against
+# Homebrew's protobuf keeps linking it after the prefix path changes;
+# the cache has to go with the change.
+config=(
+  -G Ninja -DCMAKE_BUILD_TYPE=Release
+  -DBUILD_SHARED_LIBS=OFF -DENABLE_STATIC_LIBRARY_MODULES=ON
+  -DENABLE_SERVICES=OFF -DENABLE_PYTHON_BINDINGS=OFF -DENABLE_TESTS=OFF
+  -DENABLE_HTTP=ON -DENABLE_GEOTIFF=OFF -DENABLE_CCACHE=OFF
+  -DENABLE_TOOLS=ON -DENABLE_DATA_TOOLS=ON -DENABLE_SINGLE_FILES_WERROR=OFF
+  # Our own build first, so protobuf, abseil and lz4 come from it; the
+  # graph tools still take GEOS, SpatiaLite and the rest from Homebrew,
+  # which is fine for programs that only ever run here.
+  -DCMAKE_PREFIX_PATH="$DEPS;/opt/homebrew;/opt/homebrew/opt/openssl@3"
+  -DProtobuf_PROTOC_EXECUTABLE="$DEPS/bin/protoc"
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+  -DCMAKE_OSX_ARCHITECTURES=arm64
+)
+configured="$SRC/build/.swiftcamp-config"
+if [[ "$(cat "$configured" 2>/dev/null)" != "${config[*]}" ]]; then
+  rm -f "$SRC/build/CMakeCache.txt"
+  PKG_CONFIG_PATH="$DEPS/lib/pkgconfig" cmake -S "$SRC" -B "$SRC/build" "${config[@]}"
+  echo "${config[*]}" > "$configured"
 fi
 
-cmake --build "$SRC/build"
+PKG_CONFIG_PATH="$DEPS/lib/pkgconfig" cmake --build "$SRC/build"
 
 echo
 ls -lh "$SRC/build/src/libvalhalla.a"
