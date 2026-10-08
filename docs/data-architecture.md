@@ -38,7 +38,7 @@ Valhalla cannot work this way. It needs the graph on local disk, which is exactl
 
 All ODbL. Two obligations: attribution, and share-alike on derivative databases.
 
-**ODbL reaches the data, not the code.** Swiftcamp stays proprietary and can be a paid App Store product. What the license touches is OSM-derived data we redistribute, which in practice means the Valhalla routing tiles in a region pack. The conservative read is that a routing graph is a Derivative Database and those tiles must stay redistributable under ODbL.
+**ODbL reaches the data, not the code.** Swiftcamp's code is GPL-3.0 (see `LICENSE`); ODbL is a separate obligation on the data, and would apply the same under any code licence. What the license touches is OSM-derived data we redistribute, which in practice means the Valhalla routing tiles in a region pack. The conservative read is that a routing graph is a Derivative Database and those tiles must stay redistributable under ODbL.
 
 A user's exported GPX is almost certainly a Produced Work, like a rendered map image, carrying an attribution obligation only. That is the part that would have been awkward and it looks fine.
 
