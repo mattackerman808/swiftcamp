@@ -7,7 +7,7 @@
 #
 #   scripts/package-app.sh
 #       ad-hoc signed: runs here, and on another Mac only after Open Anyway
-#   SIGN_IDENTITY="Developer ID Application: 808 Heavy Industries LLC (HK6G8MB547)" scripts/package-app.sh
+#   SIGN_IDENTITY="Developer ID Application: <Your Name> (<TEAMID>)" scripts/package-app.sh
 #       signed for distribution
 #   SIGN_IDENTITY="..." NOTARY_PROFILE=swiftcamp scripts/package-app.sh
 #       signed, notarized and stapled: opens anywhere without a warning
@@ -16,7 +16,7 @@
 # certificate in the login keychain, and notarization credentials stored
 # under a profile name:
 #   xcrun notarytool store-credentials swiftcamp --apple-id <apple id> \
-#       --team-id HK6G8MB547 --password <app-specific password>
+#       --team-id <TEAMID> --password <app-specific password>
 #
 # Output: dist/Swiftcamp-<version>.dmg
 
@@ -77,7 +77,9 @@ while IFS= read -r -d '' f; do
   [[ "$f" == "$APP/Contents/MacOS/Swiftcamp" ]] && continue
   codesign "${opts[@]}" "$f"
 done < <(find "$APP/Contents" -type f -print0)
-codesign "${opts[@]}" "$APP"
+# The app's own entitlements go on the bundle, the code that asks for
+# them; without the location one the locate button is silently refused.
+codesign "${opts[@]}" --entitlements "$ROOT/Swiftcamp/Swiftcamp-macOS.entitlements" "$APP"
 codesign --verify --deep --strict "$APP"
 echo "signature ok"
 

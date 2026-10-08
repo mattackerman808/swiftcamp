@@ -150,8 +150,10 @@ enum MapStyle {
         static let trackPoints = "sc-track-points"
         /// What a Find Near turned up.
         static let nearby = "sc-nearby"
+        /// Where this Mac is, after the locate button found it.
+        static let here = "sc-here"
 
-        static let all = [trackLines, routeLines, viaPoints, waypoints, search, measure, trackPoints, nearby]
+        static let all = [trackLines, routeLines, viaPoints, waypoints, search, measure, trackPoints, nearby, here]
     }
 
     private static func overlaySources() -> [String: Any] {
@@ -729,6 +731,26 @@ enum MapStyle {
                     "circle-color": "rgba(0, 0, 0, 0)",
                     "circle-stroke-width": 2.0,
                     "circle-stroke-color": Palette.selection,
+                ],
+            ],
+
+            // Where this Mac is: the blue dot every map uses for it, with
+            // a soft halo so it reads over terrain and a route alike.
+            [
+                "id": "here-halo",
+                "type": "circle",
+                "source": Overlay.here,
+                "paint": ["circle-radius": 14.0, "circle-color": "rgba(10, 132, 255, 0.18)"],
+            ],
+            [
+                "id": "here-dot",
+                "type": "circle",
+                "source": Overlay.here,
+                "paint": [
+                    "circle-radius": 6.5,
+                    "circle-color": "#0a84ff",
+                    "circle-stroke-width": 2.5,
+                    "circle-stroke-color": "#ffffff",
                 ],
             ],
 

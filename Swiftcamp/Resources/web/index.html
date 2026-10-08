@@ -126,8 +126,13 @@ function post(message) {
   var map = new maplibregl.Map({
     container: 'map',
     style: style,
-    center: camera.center || [-104.99, 39.74],
-    zoom: camera.zoom !== undefined ? camera.zoom : 13,
+    // The lower 48, whole: a touring planner opens on the country, not on
+    // somebody's downtown. The bundled z0-6 archive draws this view with no
+    // network at all. A scripted run's -SwiftcampCenter wins.
+    center: camera.center,
+    zoom: camera.center ? (camera.zoom !== undefined ? camera.zoom : 13) : undefined,
+    bounds: camera.center ? undefined : [[-125.0, 24.4], [-66.9, 49.4]],
+    fitBoundsOptions: { padding: 24 },
     maxZoom: window.__SWIFTCAMP_MAX_ZOOM__,
     attributionControl: false,
     // Right-drag would rotate the map, and the right button is the context

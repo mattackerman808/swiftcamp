@@ -125,6 +125,21 @@ struct ContentView: View {
                 .padding(12)
                 .help(model.showsTerrain ? "Lay the map flat (⌘3)" : "Tilt the map over the terrain (⌘3)")
 
+                // Where this Mac is: one fix, and the map goes there.
+                Button {
+                    Task { await model.locateMe() }
+                } label: {
+                    Image(systemName: model.here == nil ? "location" : "location.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .background(.ultraThinMaterial, in: Circle())
+                .padding(.trailing, 12)
+                .padding(.bottom, 6)
+                .help("Show my location (⌘L)")
+
                 // The compass, while the map is turned: the needle points
                 // north, and a click faces north again. Hidden north-up,
                 // as Maps hides it, since then it says nothing.
@@ -151,16 +166,7 @@ struct ContentView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                // OSM attribution is an ODbL obligation, not decoration.
-                // See docs/data-architecture.md. The Forest Service is
-                // named while its trails are drawn, because the map is
-                // then making a legal claim and should say whose.
-                Text(model.showsTrails ? "\(BasemapSource.attribution) · \(BasemapSource.trailsAttribution)"
-                                       : BasemapSource.attribution)
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.ultraThinMaterial, in: Capsule())
+                AttributionBadge(trails: model.showsTrails)
                     .padding(8)
             }
             .overlay(alignment: .top) {
@@ -400,6 +406,58 @@ struct ContentView: View {
             }
             .labelStyle(.titleAndIcon)
             .help("Send routes to a Garmin over USB, or bring its rides in (⇧⌘T)")
+        }
+    }
+}
+
+/// The map's credits, bottom left. OSM attribution is an ODbL obligation,
+/// not decoration, and the terrain the hillshade draws on every view
+/// carries Copernicus's own sentence; see docs/data-architecture.md. The
+/// short form fits the corner and a click opens the whole of it, the way
+/// a map's attribution control does. The Forest Service is named while its
+/// trails are drawn, because the map is then making a legal claim and
+/// should say whose.
+private struct AttributionBadge: View {
+    var trails: Bool
+    @State private var expanded = false
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
+
+    var body: some View {
+        Button {
+            expanded.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Text(([BasemapSource.attribution, BasemapSource.terrainShortAttribution]
+                      + (trails ? [BasemapSource.trailsAttribution] : [])).joined(separator: " · "))
+                Image(systemName: "info.circle")
+            }
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Map data credits")
+        .popover(isPresented: $expanded, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Map data © OpenStreetMap contributors, available under the Open Database License.")
+                Text("Terrain from the Copernicus DEM via Mapterhorn: \(BasemapSource.terrainAttribution).")
+                if trails {
+                    Text("Dirt bike trails from the USDA Forest Service Motor Vehicle Use Maps and OpenStreetMap.")
+                }
+                #if os(macOS)
+                Button("Acknowledgements…") {
+                    expanded = false
+                    openWindow(id: AcknowledgementsView.id)
+                }
+                #endif
+            }
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: 340, alignment: .leading)
+            .padding(14)
         }
     }
 }

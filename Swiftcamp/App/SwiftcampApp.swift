@@ -14,6 +14,7 @@ struct SwiftcampApp: App {
         mainWindow
         #if os(macOS)
         transferWindow
+        acknowledgements
         settings
         #endif
     }
@@ -40,6 +41,16 @@ struct SwiftcampApp: App {
         // far too small to lay a route out on.
         .defaultSize(width: 1280, height: 860)
         .commands {
+            // The About box carries the licence and the data credits;
+            // Acknowledgements has every notice in full.
+            CommandGroup(replacing: .appInfo) {
+                Button("About Swiftcamp") {
+                    NSApp.orderFrontStandardAboutPanel(options: [.credits: AcknowledgementsView.aboutCredits])
+                }
+            }
+            CommandGroup(after: .help) {
+                AcknowledgementsCommand()
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Route") { model.newRoute() }
                     .keyboardShortcut("n")
@@ -120,6 +131,8 @@ struct SwiftcampApp: App {
                     TextEditing.send(#selector(NSResponder.moveToEndOfLine(_:))) ?? model.rotateMap(by: 15)
                 }
                 .keyboardShortcut(.rightArrow, modifiers: .command)
+                Button("Show My Location") { Task { await model.locateMe() } }
+                    .keyboardShortcut("l")
                 Button("Face North") {
                     TextEditing.send(#selector(NSResponder.moveToBeginningOfDocument(_:))) ?? model.faceNorth()
                 }
@@ -191,6 +204,21 @@ struct SwiftcampApp: App {
             Button("Map") { openWindow(id: SwiftcampApp.mapWindowID) }
                 .keyboardShortcut("1", modifiers: [.command, .shift])
         }
+    }
+
+    private struct AcknowledgementsCommand: View {
+        @Environment(\.openWindow) private var openWindow
+
+        var body: some View {
+            Button("Acknowledgements") { openWindow(id: AcknowledgementsView.id) }
+        }
+    }
+
+    private var acknowledgements: some Scene {
+        Window("Acknowledgements", id: AcknowledgementsView.id) {
+            AcknowledgementsView()
+        }
+        .defaultSize(width: 680, height: 640)
     }
 
     /// A window, not a sheet.

@@ -1134,6 +1134,7 @@ final class LibraryModel {
         let searchPin = self.searchPin
         let measure = measurement?.points ?? []
         let nearbyHits = nearby?.hits ?? []
+        let here = self.here
 
         // Only the newest rebuild matters. Three observations can land in
         // quick succession on one import, and the first two describe a state
@@ -1144,7 +1145,8 @@ final class LibraryModel {
             let built = await Task.detached(priority: .userInitiated) {
                 MapOverlay.make(routes: routes, tracks: tracks,
                                 waypoints: waypoints, selection: selection, searchPin: searchPin,
-                                measure: measure, editingTrack: editingTrack, nearby: nearbyHits)
+                                measure: measure, editingTrack: editingTrack, nearby: nearbyHits,
+                                here: here)
             }.value
             Timing.log("overlay.encode", since: started,
                        "\(built.sources.values.reduce(0) { $0 + $1.utf8.count } / 1000) KB")
@@ -1455,6 +1457,26 @@ final class LibraryModel {
         }
         guard profileKey(for: id) == key else { return }
         profiles[id] = ProfileEntry(key: key, profile: profile)
+    }
+
+    // MARK: - Location
+
+    /// Where this Mac was found, for the blue dot; nil until asked.
+    private(set) var here: Coordinate?
+    @ObservationIgnored private lazy var locator = Locator()
+
+    /// The locate button: asks Location Services once and brings the map
+    /// there, close enough to see the town. A refusal says where the
+    /// switch is, since macOS asks only the first time.
+    func locateMe() async {
+        do {
+            let found = try await locator.locate()
+            here = found
+            rebuildOverlay()
+            look(at: found, zoom: 11)
+        } catch {
+            failure = error.localizedDescription
+        }
     }
 
     // MARK: - Rotation
@@ -2440,9 +2462,10 @@ final class LibraryModel {
                                             // Whose data is on the page, as the map
                                             // says on screen: the Forest Service too
                                             // while its trails are drawn.
-                                            attribution: showsTrails
-                                                ? "\(BasemapSource.attribution) · \(BasemapSource.trailsAttribution)"
-                                                : BasemapSource.attribution,
+                                            attribution: ([BasemapSource.attribution,
+                                                           "Terrain: \(BasemapSource.terrainAttribution)"]
+                                                          + (showsTrails ? [BasemapSource.trailsAttribution] : []))
+                                                .joined(separator: " · "),
                                             sections: sections, width: MapPrinting.printableWidth)
         MapPrinting.print(document, to: url)
     }

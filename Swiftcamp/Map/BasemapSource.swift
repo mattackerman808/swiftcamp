@@ -113,11 +113,16 @@ enum BasemapSource {
     static let trailsAttribution = "USDA Forest Service MVUM"
 
     /// ODbL obligation, not decoration. Must stay visible on the map.
-    static let attribution = "© OpenStreetMap"
+    /// ODbL's own wording: the contributors hold the copyright, not the
+    /// project, and the credit says so.
+    static let attribution = "© OpenStreetMap contributors"
 
     /// Copernicus requires this exact notice wherever its DEM is shown,
     /// not a generic credit. Belongs on screen whenever terrain is visible.
-    static let terrainAttribution = "© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA"
+    static let terrainAttribution = "© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved"
+    /// The terrain's credit where a whole sentence does not fit: the map's
+    /// corner, which opens to the full notice above.
+    static let terrainShortAttribution = "Terrain: Copernicus DEM"
 
     /// Bundled glyph directory, as a `file://` URL template.
     ///

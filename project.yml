@@ -34,6 +34,7 @@ targets:
         excludes:
           - "Info.plist"
           - "Resources"
+          - "*.entitlements"
       # Folder references, so these directories survive into the bundle
       # with their subpaths intact.
       #
@@ -82,6 +83,7 @@ targets:
         excludes:
           - "Info.plist"
           - "Resources"
+          - "*.entitlements"
       - path: Swiftcamp/Resources/basemap
         type: folder
       - path: Swiftcamp/Resources/web
@@ -94,6 +96,13 @@ targets:
       - path: Swiftcamp/Resources/routing
         type: folder
       - path: SwiftCamp.icon
+        buildPhase: resources
+      # The licence and the third-party notices, which the app shows under
+      # Help, Acknowledgements: they have to travel with the binary, not
+      # only live in the repository.
+      - path: LICENSE
+        buildPhase: resources
+      - path: THIRD_PARTY_NOTICES.md
         buildPhase: resources
     # Without this, a missing Valhalla build surfaces as a missing header
     # deep in the C++ bridge, which does not say what to run.
@@ -117,9 +126,14 @@ targets:
         PRODUCT_NAME: Swiftcamp
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.navigation
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026 Matt Ackerman. Free software under the GNU GPL, version 3."
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: YES
+        # Location for the locate button, which the hardened runtime
+        # withholds without the entitlement; see Map/Locator.swift.
+        CODE_SIGN_ENTITLEMENTS: Swiftcamp/Swiftcamp-macOS.entitlements
+        INFOPLIST_KEY_NSLocationUsageDescription: "Swiftcamp centres the map on where you are when you click the location button."
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "Swiftcamp centres the map on where you are when you click the location button."
         # The C USB transport. Only macOS gets the bridging header: IOKit's
         # USB interfaces do not exist on iOS, where the same .c compiles to
         # stubs.

@@ -38,7 +38,8 @@ struct MapOverlay: Equatable, Sendable {
                      searchPin: SearchResult? = nil,
                      measure: [Coordinate] = [],
                      editingTrack: (id: String, color: String?, handles: [TrackPoint])? = nil,
-                     nearby: [NearbyHit] = []) -> MapOverlay {
+                     nearby: [NearbyHit] = [],
+                     here: Coordinate? = nil) -> MapOverlay {
         func encode(_ collection: OverlayGeoJSON.FeatureCollection) -> String {
             (try? collection.json()) ?? emptyCollection
         }
@@ -53,6 +54,9 @@ struct MapOverlay: Equatable, Sendable {
             MapStyle.Overlay.waypoints: encode(OverlayGeoJSON.waypoints(waypoints, selected: selection)),
             MapStyle.Overlay.search: encode(OverlayGeoJSON.searchPin(searchPin)),
             MapStyle.Overlay.nearby: encode(OverlayGeoJSON.nearby(nearby)),
+            MapStyle.Overlay.here: encode(OverlayGeoJSON.FeatureCollection(features: here.map {
+                [OverlayGeoJSON.Feature(geometry: .point($0), properties: OverlayGeoJSON.Properties())]
+            } ?? [])),
             MapStyle.Overlay.measure: encode(OverlayGeoJSON.measure(measure)),
         ])
     }
