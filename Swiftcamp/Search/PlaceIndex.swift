@@ -72,6 +72,53 @@ actor PlaceIndex: Geocoder {
         }
     }
 
+    // MARK: - Near a point or along a route
+
+    /// The index files a corridor search reads: the cell under every
+    /// station and a radius around it.
+    nonisolated static func shards(for corridor: Corridor) -> [String] {
+        Array(Set(corridor.reach.map(shard(for:)))).sorted()
+    }
+
+    /// Everything of a category inside a corridor, nearest the line first
+    /// for a point and in order along it for a route, at most `limit`.
+    /// Each cell's file is fetched if it is not already here, which for a
+    /// cross-country route is most of them; the caller says so.
+    func nearby(_ category: NearbyCategory, along corridor: Corridor, limit: Int) async -> [NearbyHit] {
+        guard let first = corridor.stations.first else { return [] }
+        var south = first.coordinate.lat, north = south, west = first.coordinate.lon, east = west
+        for station in corridor.stations {
+            south = min(south, station.coordinate.lat); north = max(north, station.coordinate.lat)
+            west = min(west, station.coordinate.lon); east = max(east, station.coordinate.lon)
+        }
+        let padLat = corridor.radius / 111_195.0
+        let padLon = padLat / max(0.1, cos(max(abs(south), abs(north)) * .pi / 180))
+        let kinds = Array(category.kinds)
+        let sql = """
+            SELECT kind, name, detail, lat, lon FROM feature
+            WHERE kind IN (\(databaseQuestionMarks(count: kinds.count)))
+              AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
+            """
+        let arguments = StatementArguments(kinds) + [south - padLat, north + padLat, west - padLon, east + padLon]
+
+        var hits: [NearbyHit] = []
+        for name in Self.shards(for: corridor) {
+            guard let cell = await files.database(name) else { continue }
+            let rows = (try? await cell.read { db in try Row.fetchAll(db, sql: sql, arguments: arguments) }) ?? []
+            for row in rows {
+                let coordinate = Coordinate(lat: row["lat"], lon: row["lon"])
+                guard let station = corridor.nearest(to: coordinate) else { continue }
+                hits.append(NearbyHit(result: SearchResult(name: row["name"], detail: row["detail"],
+                                                           coordinate: coordinate, kind: .poi),
+                                      offset: GeoMath.distance(coordinate, station.coordinate),
+                                      along: station.along))
+            }
+        }
+        let alongARoute = corridor.stations.count > 1
+        hits.sort { alongARoute ? ($0.along, $0.offset) < ($1.along, $1.offset) : $0.offset < $1.offset }
+        return Array(hits.prefix(limit))
+    }
+
     // MARK: - Querying
 
     /// An address as the index spells streets: the house number dropped,

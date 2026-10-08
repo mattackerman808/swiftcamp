@@ -65,7 +65,25 @@ struct SwiftcampApp: App {
                 Button("Redo") { model.undoManager.redo() }
                     .keyboardShortcut("z", modifiers: [.command, .shift])
             }
-            CommandGroup(after: .pasteboard) {
+            // The library's own Cut, Copy and Paste, in place of the stock
+            // items, which act on the first responder: over the map that
+            // is the web view, which has nothing to copy. A text field
+            // with the keyboard, a name being typed or the notes, still
+            // gets its own; see `TextEditing`.
+            CommandGroup(replacing: .pasteboard) {
+                Button("Cut") { TextEditing.send(#selector(NSText.cut(_:))) ?? model.cutSelection() }
+                    .keyboardShortcut("x")
+                Button("Copy") { TextEditing.send(#selector(NSText.copy(_:))) ?? model.copySelection() }
+                    .keyboardShortcut("c")
+                Button("Paste") { TextEditing.send(#selector(NSText.paste(_:))) ?? model.paste() }
+                    .keyboardShortcut("v")
+                Button("Delete") {
+                    TextEditing.send(#selector(NSText.delete(_:))) ?? model.deleteSelection()
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                Button("Select All") { TextEditing.send(#selector(NSText.selectAll(_:))) ?? model.selectAllShown() }
+                    .keyboardShortcut("a")
+                Divider()
                 Button("Duplicate") { model.duplicateSelection() }
                     .keyboardShortcut("d")
             }
@@ -84,11 +102,28 @@ struct SwiftcampApp: App {
                 Divider()
                 Toggle("Show Dirt Bike Trails", isOn: Binding(get: { model.showsTrails },
                                                               set: { model.showsTrails = $0 }))
+                Toggle("Show Contour Lines", isOn: Binding(get: { model.showsContours },
+                                                           set: { model.showsContours = $0 }))
                 // The map's own 2D/3D button, as a menu item for the key.
                 Button("Toggle 2D / 3D") { model.showsTerrain.toggle() }
                     .keyboardShortcut("3")
                 Button("Measure Distance") { model.toggleMeasuring() }
                     .keyboardShortcut("m", modifiers: [.command, .shift])
+                Divider()
+                // Maps' own keys. A text field with the keyboard keeps
+                // them for moving its cursor; see `TextEditing`.
+                Button("Rotate Left") {
+                    TextEditing.send(#selector(NSResponder.moveToBeginningOfLine(_:))) ?? model.rotateMap(by: -15)
+                }
+                .keyboardShortcut(.leftArrow, modifiers: .command)
+                Button("Rotate Right") {
+                    TextEditing.send(#selector(NSResponder.moveToEndOfLine(_:))) ?? model.rotateMap(by: 15)
+                }
+                .keyboardShortcut(.rightArrow, modifiers: .command)
+                Button("Face North") {
+                    TextEditing.send(#selector(NSResponder.moveToBeginningOfDocument(_:))) ?? model.faceNorth()
+                }
+                .keyboardShortcut(.upArrow, modifiers: .command)
             }
             // A way back to the map. ⌘N makes a route here rather than a
             // window, so once the map window is closed while the Transfer
@@ -118,11 +153,34 @@ struct SwiftcampApp: App {
                 Button("Back Up Library…") { model.backupLibrary() }
                 Button("Restore Library from Backup…") { model.restoreLibrary() }
             }
+            // The map as it stands, with the selection's turns, statistics
+            // or notes under it.
+            CommandGroup(replacing: .printItem) {
+                Button("Print…") { Task { await model.printMap() } }
+                    .keyboardShortcut("p")
+            }
         }
         #endif
     }
 
     #if os(macOS)
+    /// The stock editing commands, for a text field that has the keyboard.
+    ///
+    /// Replacing the pasteboard group takes Cut, Copy and Paste away from
+    /// every text field in the app, the sidebar's rename field and the
+    /// inspector's notes included, since a menu item answers its key
+    /// before the field sees it. So each item asks first: while the first
+    /// responder is text, the action goes down the responder chain as the
+    /// stock item would have sent it, and only otherwise to the library.
+    enum TextEditing {
+        /// Sends `action` to a text first responder; nil when there is none.
+        static func send(_ action: Selector) -> Void? {
+            guard NSApp.keyWindow?.firstResponder is NSText else { return nil }
+            NSApp.sendAction(action, to: nil, from: nil)
+            return ()
+        }
+    }
+
     /// Opens, or brings forward, the map window. A view rather than a
     /// button in the `App`, because `openWindow` is an environment action
     /// and a scene has no environment to read it from.

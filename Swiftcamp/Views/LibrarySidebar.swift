@@ -92,6 +92,7 @@ struct LibrarySidebar: View {
                 .tag(Self.collection)
                 .contextMenu {
                     Button("New List") { model.newList() }
+                    Button("Paste") { model.paste(into: nil) }
                 }
                 .dropDestination(for: String.self) { ids, _ in drop(ids, onList: nil) }
             ForEach(model.lists(in: nil)) { list in
@@ -127,6 +128,7 @@ struct LibrarySidebar: View {
             .contextMenu {
                 Button("New List Inside") { model.newList(in: list.id) }
                 renameButton(list.id, list.name)
+                Button("Paste") { model.paste(into: list.id) }
                 if model.isListShown(list.id) {
                     Button("Hide List on Map") { model.setHidden(true, for: model.members(of: list.id)) }
                 } else {
@@ -230,12 +232,20 @@ struct LibrarySidebar: View {
                             Button("Edit Route") { model.editRoute(detail.route.id) }
                             Button("Reverse Route") { model.reverseRoute(detail.route.id) }
                             routingMenu(for: detail)
-                            preferMenu(for: detail)
-                            avoidMenu(for: detail)
+                            if detail.route.mode != .direct {
+                                preferMenu(for: detail)
+                                avoidMenu(for: detail)
+                            }
+                            Menu("Find Along Route") {
+                                ForEach(NearbyCategory.allCases, id: \.self) { category in
+                                    Button(category.title) { model.findAlong(category, route: detail.route.id) }
+                                }
+                            }
                             Button("Create Track from Route") { model.makeTrack(fromRoute: detail.route.id) }
                             Divider()
                             renameButton(detail.route.id, detail.route.name)
                             hideButton(detail.route.id)
+                            clipboardButtons(detail.route.id)
                             Button("Duplicate") { model.duplicate(detail.route.id) }
                             colorMenu(for: detail.route.id)
                             listMenu(for: detail.route.id)
@@ -269,6 +279,11 @@ struct LibrarySidebar: View {
                         .tag(detail.track.id)
                         .draggable(detail.track.id)
                         .contextMenu {
+                            if model.editingTrackID == detail.track.id {
+                                Button("Done Editing Points") { model.finishEditingTrack() }
+                            } else {
+                                Button("Edit Points") { model.editTrack(detail.track.id) }
+                            }
                             Button("Create Route from Track") { model.makeRoute(fromTrack: detail.track.id) }
                             Button("Invert Track") { model.invertTrack(detail.track.id) }
                             if selectedTrackCount >= 2, model.selection.contains(detail.track.id) {
@@ -278,6 +293,7 @@ struct LibrarySidebar: View {
                             Divider()
                             renameButton(detail.track.id, detail.track.name)
                             hideButton(detail.track.id)
+                            clipboardButtons(detail.track.id)
                             Button("Duplicate") { model.duplicate(detail.track.id) }
                             colorMenu(for: detail.track.id)
                             listMenu(for: detail.track.id)
@@ -308,9 +324,17 @@ struct LibrarySidebar: View {
                                 model.startRoute(from: waypoint)
                             }
                             addToRouteMenu(for: waypoint)
+                            Menu("Find Near") {
+                                ForEach(NearbyCategory.allCases, id: \.self) { category in
+                                    Button(category.title) {
+                                        model.findNear(category, at: waypoint.coordinate, name: waypoint.name)
+                                    }
+                                }
+                            }
                             Divider()
                             renameButton(waypoint.id, waypoint.name)
                             hideButton(waypoint.id)
+                            clipboardButtons(waypoint.id)
                             Button("Duplicate") { model.duplicate(waypoint.id) }
                             symbolMenu(for: waypoint)
                             listMenu(for: waypoint.id)
@@ -342,6 +366,9 @@ struct LibrarySidebar: View {
             }
         }
         .listStyle(.sidebar)
+        // The Delete key while the list has focus, as in the Finder. Over
+        // the map the page has the key instead; see `MapKey`.
+        .onDeleteCommand { model.deleteSelection() }
     }
 
     // MARK: - Route points
@@ -568,7 +595,7 @@ struct LibrarySidebar: View {
                                                 next.prefer = prefer
                                                 model.setPreferences(next, forRoute: detail.route.id)
                                             })) {
-            ForEach(RoutePreferences.Preference.allCases, id: \.self) { Text($0.title).tag($0) }
+            ForEach(detail.route.mode.preferences, id: \.self) { Text($0.title).tag($0) }
         }
     }
 
@@ -577,9 +604,9 @@ struct LibrarySidebar: View {
     /// there.
     private func avoidMenu(for detail: RouteDetail) -> some View {
         Menu("Avoid") {
-            avoidToggle("Highways", detail, \.avoidHighways)
-            avoidToggle("Tolls", detail, \.avoidTolls)
-            avoidToggle("Ferries", detail, \.avoidFerries)
+            ForEach(detail.route.mode.avoidances, id: \.title) { kind in
+                avoidToggle(kind.title, detail, kind.path)
+            }
         }
     }
 
@@ -634,8 +661,17 @@ struct LibrarySidebar: View {
         }
     }
 
+    /// Cut and Copy for the row, the whole selection when it is part of
+    /// one. Paste is on the lists, which are where things land.
+    @ViewBuilder
+    private func clipboardButtons(_ id: String) -> some View {
+        Button("Cut") { model.cut(idsWith(id)) }
+        Button("Copy") { model.copy(idsWith(id)) }
+    }
+
+    /// The whole selection when the row is part of it, undoably.
     private func deleteButton(_ id: String) -> some View {
-        Button("Delete", role: .destructive) { model.delete(id) }
+        Button("Delete", role: .destructive) { model.delete(idsWith(id)) }
     }
 
     private func coordinate(_ c: Coordinate) -> String {

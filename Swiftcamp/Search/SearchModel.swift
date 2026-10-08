@@ -49,6 +49,11 @@ final class SearchModel {
     @ObservationIgnored private var index: PlaceIndex?
     @ObservationIgnored private var addresses: AddressIndex?
 
+    /// A category near a point or along a route, from the place index.
+    func nearby(_ category: NearbyCategory, along corridor: Corridor, limit: Int) async -> [NearbyHit] {
+        await index?.nearby(category, along: corridor, limit: limit) ?? []
+    }
+
     /// The map moved: fetch what a search here would need.
     func prepare(near coordinate: Coordinate) {
         near = coordinate

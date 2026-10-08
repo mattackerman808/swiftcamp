@@ -59,22 +59,40 @@ final class RoutingEngine: @unchecked Sendable {
     /// the toll road still gets there. `use_curvature` is ours, from
     /// `scripts/valhalla-curvature.patch`; an unpatched engine warns and
     /// ignores it.
+    ///
+    /// Driving is the car costing with the road mode's surfaces. Walking is
+    /// the pedestrian costing up to `max_hiking_difficulty` 3, demanding
+    /// mountain hiking on the SAC scale; its default of 1 refuses most
+    /// trails above treeline, which is where a walk in Colorado goes.
     static func costingOptions(for mode: RoutingMode, preferences: RoutePreferences) -> [String: Any] {
         var options: [String: Any]
         switch mode {
-        case .road: options = ["exclude_unpaved": true, "use_tracks": 0, "use_trails": 0]
+        case .road, .driving: options = ["exclude_unpaved": true, "use_tracks": 0]
         case .adventure: options = ["exclude_unpaved": false, "use_tracks": 1, "use_trails": 1]
+        case .walking: options = ["max_hiking_difficulty": 3]
         case .direct: return [:]   // never routed; here so the switch is total
         }
-        if preferences.avoidHighways { options["use_highways"] = 0 }
-        if preferences.avoidTolls { options["use_tolls"] = 0 }
-        if preferences.avoidFerries { options["use_ferry"] = 0 }
+        if mode == .road { options["use_trails"] = 0 }
+        let avoidable = Set(mode.avoidances.map(\.path))
+        if preferences.avoidHighways, avoidable.contains(\.avoidHighways) { options["use_highways"] = 0 }
+        if preferences.avoidTolls, avoidable.contains(\.avoidTolls) { options["use_tolls"] = 0 }
+        if preferences.avoidFerries, avoidable.contains(\.avoidFerries) { options["use_ferry"] = 0 }
         switch preferences.prefer {
         case .fasterTime: break
         case .shorterDistance: options["shortest"] = true
-        case .someCurves, .manyCurves: options["use_curvature"] = preferences.prefer.curvature
+        case .someCurves, .manyCurves:
+            if mode.preferences.contains(preferences.prefer) { options["use_curvature"] = preferences.prefer.curvature }
         }
         return options
+    }
+
+    /// Valhalla's costing model for a mode.
+    static func costing(for mode: RoutingMode) -> String {
+        switch mode {
+        case .road, .adventure, .direct: "motorcycle"
+        case .driving: "auto"
+        case .walking: "pedestrian"
+        }
     }
 
     /// Opens Valhalla on a configuration document.
@@ -108,9 +126,10 @@ final class RoutingEngine: @unchecked Sendable {
     /// main actor: the first call opens the engine.
     static func shaping(for route: Route) -> (snap: RouteEditing.Snap, shape: RouteEditing.LegShaper)? {
         guard route.mode != .direct, let engine = shared else { return nil }
+        let shaper = engine.legShaper(for: route.mode, preferences: route.preferences)
         switch route.mode {
-        case .road: return (.always, engine.legShaper(for: .road, preferences: route.preferences))
-        case .adventure: return (.within(adventureSnap), engine.legShaper(for: .adventure, preferences: route.preferences))
+        case .road, .driving: return (.always, shaper)
+        case .adventure, .walking: return (.within(adventureSnap), shaper)
         case .direct: return nil
         }
     }
@@ -260,8 +279,8 @@ final class RoutingEngine: @unchecked Sendable {
                                 directions: Bool) -> [String: Any] {
         [
             "locations": locations,
-            "costing": "motorcycle",
-            "costing_options": ["motorcycle": costingOptions(for: mode, preferences: preferences)],
+            "costing": costing(for: mode),
+            "costing_options": [costing(for: mode): costingOptions(for: mode, preferences: preferences)],
             "directions_type": directions ? "instructions" : "none",
             "language": "en-US",
             // Kilometres, so a length is metres with one multiplication;

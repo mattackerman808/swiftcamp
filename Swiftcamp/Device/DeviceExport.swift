@@ -94,10 +94,11 @@ struct DeviceExport: Equatable, Sendable {
     }
 
     /// Whether a route's legs may leave the roads a unit's map is sure to
-    /// have. Adventure takes tracks and trails, and Direct takes no road
-    /// at all, so the unit would re-route either onto pavement.
+    /// have. Adventure takes tracks and trails, Walking takes footpaths,
+    /// and Direct takes no road at all, so the unit would re-route any of
+    /// them onto pavement.
     static func isOffRoad(_ detail: RouteDetail) -> Bool {
-        detail.route.mode != .road
+        detail.route.mode.leavesTheRoad
     }
 
     func apply(to document: GPXDocument) -> GPXDocument {

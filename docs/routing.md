@@ -38,6 +38,8 @@ recalculates the way the planner did. `RoutingMode` in `Library.swift`.
 | --- | --- | --- |
 | Road | Paved ways the map knows: `exclude_unpaved`, no tracks or trails | Moves onto the nearest one, however far |
 | Adventure | Any way the map knows, unpaved and tracks included | Moves onto a way within 50 m; otherwise stays, with a straight leg to the nearest way |
+| Driving | Paved roads for a car: Valhalla's `auto` costing, `exclude_unpaved` | Moves onto the nearest one, however far |
+| Walking | Footpaths, trails and streets: the `pedestrian` costing, `max_hiking_difficulty` 3 | Moves onto a way within 50 m; otherwise stays |
 | Direct | Straight lines, no routing | Stays |
 
 Road cannot promise a *named* way, only a known one: the router knows
@@ -52,10 +54,14 @@ Changing a route's mode routes every leg again, and undo restores the legs
 exactly rather than re-routing in the old mode, because a point Road
 snapped onto the pavement would otherwise stay there under Adventure.
 
-In the file, Road and Adventure are both `Motorcycling` to Garmin, and
-Direct is `Direct`; which of the first two it was is written in our own
-namespace so a re-import keeps it. New routes take their mode from
-Settings.
+In the file, Road and Adventure are both `Motorcycling` to Garmin,
+Driving is `Automotive`, Walking is `Walking` and Direct is `Direct`;
+which of the first two it was is written in our own namespace so a
+re-import keeps it. The curvy preferences are a patch on the motorcycle
+costing alone, so Driving and Walking offer only Faster Time and Shorter
+Distance, and Walking avoids only ferries. Driving, Walking and the
+motorcycle modes all route on the same graph, which carries every mode's
+access. New routes take their mode from Settings.
 
 ## Preferences
 

@@ -60,13 +60,13 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Waypoints, routes, tracks as first-class types | **Have** |
 | Lists and list folders, nested | **Have** — a lists pane above the items; the map follows the selected list |
 | Rename, duplicate, delete | **Have** — Duplicate on every item's menu and ⌘D on the selection; the copy is named after the original and selected |
-| Cut, copy, paste between lists | **Build** |
+| Cut, copy, paste between lists | **Have** — Edit menu and each row's menu; a paste lands in the list being looked at, or the list whose menu it came from. Inside the app it is exact: a copy pastes as copies, a cut moves the items themselves. The pasteboard carries GPX, so a route pastes into another app as a file, and GPX copied elsewhere, as text or as files in the Finder, pastes in as an import |
 | Drag items between lists | **Have** — drag onto a list, or Move to List in the menu; a list dragged onto a list nests |
 | Search within the collection | **Have** — the filter field, over name, comment and notes |
 | Sort and filter by type, name, date, length | **Have** |
 | Multiple databases | **Build**, low priority |
 | Backup and restore | **Have** — File, Back Up Library writes the library file with `VACUUM INTO`; Restore replaces everything from one, row by row through the open pool, after a warning |
-| Undo and redo | **Partial** — every edit in the planner; deleting a route or a track is not undoable yet |
+| Undo and redo | **Have** — every edit in the planner, and deleting anything: a route or a track comes back whole, points and all, unfiled if its list went meanwhile |
 
 ### Import and export
 
@@ -87,15 +87,15 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | --- | --- |
 | Street map with labels and route shields | **Have** |
 | Terrain shading, ground cover | **Have** |
-| Pan, zoom, rotate | **Partial** — no rotate control |
+| Pan, zoom, rotate | **Have** — ⌥-drag turns the map, and in 3-D tilts it; two fingers twisting on a trackpad turn it too (not yet tried on a real trackpad); Rotate Left, Rotate Right and Face North in the View menu on Maps' keys, and a compass on the map while it is turned, which faces north when clicked |
 | 2-D and 3-D views, tilt, elevation exaggeration | **Have** — the 2D/3D button at the map's top right (⌘3) tilts the map over the DEM at a mild exaggeration, and lays it flat and north-up again; a navigator's track-up has no meaning on a desk |
 | Overview map inset | **Build**, low priority |
 | Map product switching | **Build** — our equivalent is a layer picker |
-| Contour lines | **Build** — noted in CLAUDE.md as the one place the split-backend plan costs something |
+| Contour lines | **Have**, macOS only — Show Contour Lines in the View menu: drawn in the page from the same DEM as the hillshade by maplibre-contour, in feet, every 500 ft at a regional zoom down to every 40 ft close in, majors labelled. iOS would need pre-built contour tiles |
 | Dirt bike trails (not in BaseCamp) | **Have** — Show Dirt Bike Trails in the View menu draws the Forest Service's Motor Vehicle Use Maps and OpenStreetMap's motorcycle-legal ways, coloured by who may ride them, seasonal ones dashed, with the dates in the hover; `docs/data-architecture.md` |
 | Show and hide items on the map | **Have** — a checkbox on every sidebar row and Hide on Map in its menu, per list for everything filed in it, and Show Routes, Tracks and Waypoints in the View menu, with Show Everything on Map as the way back; editing a hidden route ticks it back on |
 | Draw order of overlays | **Build**, low priority |
-| Print, including multi-page posters | **Build** |
+| Print, including multi-page posters | **Partial** — File, Print prints the map as it is on screen, with its attribution, and under it the selected route's stops and turn-by-turn directions, a track's statistics or a waypoint's notes, running onto further pages. Multi-page posters of the map itself are not built |
 
 ### Route planning
 
@@ -111,7 +111,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Reverse a route | **Have** |
 | Route from a track | **Have** — the track is the route's shape, with its bends as shaping points |
 | Track from a route | **Have** — this is how riders defeat device re-routing |
-| Activity profiles: motorcycling, driving, walking | **Partial** — Road, Adventure and Direct per route, written as Garmin's transportation mode; driving and walking to come |
+| Activity profiles: motorcycling, driving, walking | **Have** — Road, Adventure, Driving, Walking and Direct per route, written as Garmin's transportation mode: Motorcycling, Automotive, Walking, Direct. Driving is Valhalla's car costing, Walking its pedestrian costing on trails up to demanding hiking. `Walking` on a unit is not yet measured |
 | Routing preferences: faster time, shorter distance | **Have** — plus Some Curves and Many Curves, the zūmo's curvy roads, from Valhalla's edge curvature |
 | Avoidances: tolls, ferries, unpaved, highways | **Have** — unpaved and tracks through the mode; highways, tolls and ferries per route |
 | Road snapping and recalculation on drag | **Have** — the whole US graph streams from the CDN, tile by tile, and is cached |
@@ -127,7 +127,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Split and join | **Have** — Split Track Here on the map's menu cuts at the nearest fix, both halves keeping it; Join on the sidebar's menu with two or more selected, each ride staying its own segments |
 | Invert | **Have** |
 | Filter and simplify, point count reduction | **Have** — Simplify Track to 500, 2,000 or 10,000 points, each segment keeping its share and its ends |
-| Insert, move, erase points | **Build** |
+| Insert, move, erase points | **Have** — Edit Points on the track's menu puts its fixes out as handles: drag one to move it, click or drag the line to add one with its time and height read off its neighbours, right-click to delete it or trim everything before or after it. In place, each edit one undo, and a few rows of SQL however long the ride; handles are drawn for the fixes in view, up to 1,500 |
 | Elevation profile | **Have** — under the route or track in the inspector, hover for the height at a distance; a recording's own heights, else the DEM read straight from the terrain archive by our own reader (`PMTiles`, `TerrainSampler`) |
 | Playback along a track | **Build**, low priority |
 | Statistics: distance, time, ascent, moving average | **Have** — moving and elapsed time, moving speed, climb and descent with a five-metre noise gate, in the inspector when the recording has a clock and an altimeter |
@@ -150,7 +150,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Coordinate entry and goto | **Have** — decimal, degrees-minutes, DMS, with or without hemisphere letters |
 | Address search | **Have** — house numbers from the US Census geocoder, online; places and streets from our own index, offline once fetched |
 | POI search | **Have** — fuel, food, lodging, camping, hospitals, pharmacies, motorcycle shops, peaks, passes, viewpoints, from our index |
-| Find near a selected item | **Build** |
+| Find near a selected item | **Have** — Find Near on a waypoint, the pinned result or empty map, and Find Along Route on a route: fuel, food, lodging, camping, motorcycle shops, groceries, medical, EV charging, sights, from our own index. A panel over the map lists them nearest first, or in the order the road meets them within two miles of it, and dots mark them; a click pins one to keep. A long route reads every index cell it crosses, each fetched once |
 | Geocaching | **Won't for now** — CLAUDE.md defers it explicitly |
 
 ### Measuring
@@ -158,7 +158,7 @@ incomplete, **Build** is planned, **Won't** is out of scope above.
 | Feature | Status |
 | --- | --- |
 | Distance and heading between points | **Have** — Measure on the toolbar or ⇧⌘M; every click adds a point, the bar shows the total, the last leg and its heading, and the straight line; Delete takes a point back, Escape finishes |
-| Enclosed area | **Build** |
+| Enclosed area | **Have** — from the ruler's third point on, the bar says what the clicks enclose, in acres or square miles, and the map fills it, closed back to the first point |
 | Elevation readout under the cursor | **Have** — position and height at the pointer, bottom right of the map, read off the terrain tiles in the page |
 
 ### Device transfer

@@ -67,6 +67,27 @@ enum MapStyle {
     }
 
     private static func dictionary(bundledURL: String, glyphsURL: String, spriteURL: String) -> [String: Any] {
+        var style = baseDictionary(bundledURL: bundledURL, glyphsURL: glyphsURL, spriteURL: spriteURL)
+        #if os(macOS)
+        // Contour lines are made in the page from the DEM, by
+        // maplibre-contour, which is JavaScript: the one place the split
+        // renderer costs iOS a layer. The source's tiles are a placeholder
+        // the page replaces with the library's own protocol URL, built from
+        // the intervals here, before the map reads the style.
+        var sources = style["sources"] as! [String: Any]
+        sources["contours"] = ["type": "vector", "tiles": ["contour://{z}/{x}/{y}"], "minzoom": 9, "maxzoom": 15]
+        style["sources"] = sources
+        style["metadata"] = ["swiftcamp:contours": contourIntervals()]
+        var layers = style["layers"] as! [[String: Any]]
+        if let relief = layers.firstIndex(where: { $0["id"] as? String == "hillshade" }) {
+            layers.insert(contentsOf: contourLayers(), at: relief + 1)
+        }
+        style["layers"] = layers
+        #endif
+        return style
+    }
+
+    private static func baseDictionary(bundledURL: String, glyphsURL: String, spriteURL: String) -> [String: Any] {
         [
             "version": 8,
             "name": "Swiftcamp Base",
@@ -125,8 +146,12 @@ enum MapStyle {
         /// The ruler: the points clicked while measuring and the line
         /// through them.
         static let measure    = "sc-measure"
+        /// The fixes of the track being edited, as handles.
+        static let trackPoints = "sc-track-points"
+        /// What a Find Near turned up.
+        static let nearby = "sc-nearby"
 
-        static let all = [trackLines, routeLines, viaPoints, waypoints, search, measure]
+        static let all = [trackLines, routeLines, viaPoints, waypoints, search, measure, trackPoints, nearby]
     }
 
     private static func overlaySources() -> [String: Any] {
@@ -209,6 +234,12 @@ enum MapStyle {
         static let trailAny        = "#d9600b"   // any motorcycle, plated or not
         static let trailStreet     = "#6f4fb8"   // highway-legal only: a plated dual-sport
         static let trailUnknown    = "#8a8f98"   // listed, and the motorcycle rule not stated
+
+        // Contours: the brown a topographic sheet uses, faint, since the
+        // hillshade already says where the mountains are and these only
+        // put numbers on it.
+        static let contour         = "rgba(128, 92, 52, 0.42)"
+        static let contourLabel    = "#80603c"
         static let trailCasing     = "#ffffff"
     }
 
@@ -462,6 +493,63 @@ enum MapStyle {
     ///
     /// Dash patterns are separate layers, not a data-driven
     /// `line-dasharray`, which MapLibre Native does not evaluate per feature.
+    // MARK: - Contours
+
+    /// Feet between contour lines at each zoom, minor and major, the way a
+    /// US quad labels them: the elevations arrive in metres and are
+    /// multiplied into feet before the lines are drawn, so a 200 ft line
+    /// really is at 200 ft. A zoom without an entry takes the one below.
+    static func contourIntervals() -> [String: Any] {
+        ["multiplier": 3.28084,
+         "thresholds": ["9": [500, 2500], "11": [200, 1000], "12": [100, 500], "14": [40, 200]]]
+    }
+
+    /// The lines, thicker on the majors, and the majors' heights along
+    /// them. Hidden until the View menu turns them on, as the trails are.
+    private static func contourLayers() -> [[String: Any]] {
+        [
+            [
+                "id": "contour-lines",
+                "type": "line",
+                "source": "contours",
+                "source-layer": "contours",
+                "layout": ["line-join": "round", "visibility": "none"],
+                "paint": [
+                    "line-color": Palette.contour,
+                    // Zoom outermost: MapLibre allows one zoom curve per
+                    // expression and only at the top, and a `case` around
+                    // two of them fails the whole style, not this layer.
+                    "line-width": ["interpolate", ["linear"], ["zoom"],
+                                   9, ["case", [">", ["get", "level"], 0], 0.7, 0.3],
+                                   14, ["case", [">", ["get", "level"], 0], 1.3, 0.6]],
+                ],
+            ],
+            [
+                "id": "contour-labels",
+                "type": "symbol",
+                "source": "contours",
+                "source-layer": "contours",
+                "filter": [">", ["get", "level"], 0],
+                "minzoom": 11,
+                "layout": [
+                    "visibility": "none",
+                    "symbol-placement": "line",
+                    "text-field": ["concat", ["number-format", ["get", "ele"], ["locale": "en-US"]], " ft"],
+                    "text-font": ["Noto Sans Regular"],
+                    "text-size": 9.5,
+                    "symbol-spacing": 320,
+                    "text-max-angle": 25,
+                    "text-padding": 6,
+                ],
+                "paint": [
+                    "text-color": Palette.contourLabel,
+                    "text-halo-color": Palette.labelHalo,
+                    "text-halo-width": 1.2,
+                ],
+            ],
+        ]
+    }
+
     private static func trailLayers() -> [[String: Any]] {
         let color: [Any] = ["match", ["get", "legal"],
                             "any", Palette.trailAny,
@@ -529,13 +617,32 @@ enum MapStyle {
                         color: ["coalesce", ["get", "color"], Palette.routeLine],
                         widths: [[6, 2.0], [11, 4.0], [16, 7.0]]),
 
+            // What the ruler encloses, faintly, under its line; and the
+            // line that closes it, thinner, since nobody clicked it.
+            [
+                "id": "measure-area",
+                "type": "fill",
+                "source": Overlay.measure,
+                "filter": ["==", ["geometry-type"], "Polygon"],
+                "paint": ["fill-color": Palette.selection, "fill-opacity": 0.12],
+            ],
+            [
+                "id": "measure-closing",
+                "type": "line",
+                "source": Overlay.measure,
+                "filter": ["all", ["==", ["geometry-type"], "LineString"], ["==", ["get", "name"], "closing"]],
+                "layout": ["line-cap": "round"],
+                "paint": ["line-color": Palette.selection, "line-width": 1.25, "line-opacity": 0.6,
+                          "line-dasharray": [2, 2]],
+            ],
             // The ruler, dashed so it reads as a measurement and not a
             // route, over the routes since it is what is being looked at.
             [
                 "id": "measure-line",
                 "type": "line",
                 "source": Overlay.measure,
-                "filter": ["==", ["geometry-type"], "LineString"],
+                "filter": ["all", ["==", ["geometry-type"], "LineString"],
+                           ["!=", ["coalesce", ["get", "name"], ""], "closing"]],
                 "layout": ["line-cap": "round", "line-join": "round"],
                 "paint": ["line-color": Palette.selection, "line-width": 2.5, "line-dasharray": [2, 1.5]],
             ],
@@ -544,6 +651,21 @@ enum MapStyle {
 
     private static func overlayPointLayers() -> [[String: Any]] {
         [
+            // The edited track's fixes: small, ringed in the track's
+            // colour, under everything a route or a waypoint draws, since
+            // they are many and those are few.
+            [
+                "id": "track-point",
+                "type": "circle",
+                "source": Overlay.trackPoints,
+                "paint": [
+                    "circle-radius": ["case", ["==", ["coalesce", ["get", "selected"], false], true], 6.0, 4.0],
+                    "circle-color": "#ffffff",
+                    "circle-stroke-width": 2.0,
+                    "circle-stroke-color": ["case", ["==", ["coalesce", ["get", "selected"], false], true],
+                                            Palette.selection, ["coalesce", ["get", "color"], Palette.routeLine]],
+                ],
+            ],
             // A ring on the place, under the symbol. The symbol's own
             // outline cannot change with selection, since it is a picture,
             // and a ring at the anchor works for a pin's tip and a block's
@@ -607,6 +729,20 @@ enum MapStyle {
                     "circle-color": "rgba(0, 0, 0, 0)",
                     "circle-stroke-width": 2.0,
                     "circle-stroke-color": Palette.selection,
+                ],
+            ],
+
+            // What a Find Near turned up: orange, the colour a map gives
+            // a place to stop, under the pin a chosen one gets.
+            [
+                "id": "nearby-point",
+                "type": "circle",
+                "source": Overlay.nearby,
+                "paint": [
+                    "circle-radius": interpolate([[6, 3.5], [11, 5.0], [16, 7.0]]),
+                    "circle-color": "#f28c00",
+                    "circle-stroke-width": 1.5,
+                    "circle-stroke-color": "#ffffff",
                 ],
             ],
 

@@ -318,15 +318,17 @@ extension GPXReader: XMLParserDelegate {
         }
     }
 
-    /// The route's activity profile. Direct is the one word of Garmin's
-    /// that changes how a route is edited here; every other profile is a
-    /// road route, which is also what an unmarked route is.
+    /// The route's activity profile, in Garmin's words; see
+    /// `RoutingMode.garmin`. A word we do not know leaves a road route,
+    /// which is also what an unmarked route is.
     private func endTripElement(_ element: String) {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         text = ""
         guard route != nil else { return }
         if routePoint == nil, element == "TransportationMode" {
-            if value == "Direct" { route?.mode = .direct }
+            // Motorcycling says nothing our own RoutingMode element has not,
+            // and must not undo an Adventure that element already set.
+            if let mode = RoutingMode.garmin(value), mode != .road { route?.mode = mode }
         } else if routePoint != nil, element == "CalculationMode", !sawPreference {
             // BaseCamp's word for what the route optimises, on each via
             // point. The first one speaks for the route, unless our own

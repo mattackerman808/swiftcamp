@@ -292,7 +292,8 @@ final class GPXTests: XCTestCase {
             ])]
 
             let text = GPXWriter.write(document)
-            let garmin = mode == .direct ? "Direct" : "Motorcycling"
+            let garmin = ["road": "Motorcycling", "adventure": "Motorcycling", "driving": "Automotive",
+                          "walking": "Walking", "direct": "Direct"][mode.rawValue]!
             XCTAssertTrue(text.contains("<trp:TransportationMode>\(garmin)</trp:TransportationMode>"), "\(mode)")
             XCTAssertEqual(text.contains("<sc:RoutingMode>"), mode == .adventure, "\(mode)")
 
@@ -380,8 +381,9 @@ final class GPXTests: XCTestCase {
         XCTAssertTrue(route.straightLegs == [0], "no road in the file; the leg is straight until routed here")
     }
 
-    /// A BaseCamp file with a Direct profile reads as a direct route, by
-    /// namespace; any other profile it names is a road route.
+    /// A BaseCamp file's profile reads by namespace: Direct and Automotive
+    /// are their own modes, and a profile we have no mode for is a road
+    /// route.
     func testGarminTransportationModeIsReadByNamespace() throws {
         let xml = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -395,10 +397,14 @@ final class GPXTests: XCTestCase {
             <extensions><t:Trip><t:TransportationMode>Automotive</t:TransportationMode></t:Trip></extensions>
             <rtept lat="40.0" lon="-105.0"/><rtept lat="40.1" lon="-105.1"/>
           </rte>
+          <rte><name>Bike</name>
+            <extensions><t:Trip><t:TransportationMode>Mountain Biking</t:TransportationMode></t:Trip></extensions>
+            <rtept lat="40.0" lon="-105.0"/><rtept lat="40.1" lon="-105.1"/>
+          </rte>
         </gpx>
         """
         let document = try GPXReader.read(data: Data(xml.utf8))
-        XCTAssertEqual(document.routes.map(\.route.mode), [.direct, .road])
+        XCTAssertEqual(document.routes.map(\.route.mode), [.direct, .driving, .road])
     }
 
     func testWrittenFileDeclaresGPX11AndTheGarminNamespace() throws {

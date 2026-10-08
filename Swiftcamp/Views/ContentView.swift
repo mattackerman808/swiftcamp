@@ -69,10 +69,13 @@ struct ContentView: View {
 
     private var map: some View {
         MapContainer(overlay: model.overlay, camera: model.camera,
-                     editingRouteID: model.editingRouteID, pageEvent: model.pageEvent,
+                     editingRouteID: model.editingRouteID, editingTrackID: model.editingTrackID,
+                     pageEvent: model.pageEvent,
                      onClick: model.select, onDrag: model.drag, onKey: model.key,
                      onContextMenu: model.contextMenu, onView: model.viewChanged,
-                     terrain: model.showsTerrain, trails: model.showsTrails)
+                     onBearing: model.bearingChanged,
+                     terrain: model.showsTerrain, trails: model.showsTrails,
+                     contours: model.showsContours)
             #if os(macOS)
             // A scripted run floats its window. WebKit stops rendering a
             // view its window does not show, and a second copy of the app
@@ -101,6 +104,7 @@ struct ContentView: View {
             .ignoresSafeArea()
             #endif
             .overlay(alignment: .topTrailing) {
+              VStack(alignment: .trailing, spacing: 0) {
                 // The view cycle a navigator has on its map, cut to the two
                 // that mean something on a desk: flat north-up, or tilted
                 // over the terrain. A button on the map rather than a menu
@@ -120,6 +124,31 @@ struct ContentView: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .padding(12)
                 .help(model.showsTerrain ? "Lay the map flat (⌘3)" : "Tilt the map over the terrain (⌘3)")
+
+                // The compass, while the map is turned: the needle points
+                // north, and a click faces north again. Hidden north-up,
+                // as Maps hides it, since then it says nothing.
+                if model.mapBearing != 0 {
+                    Button {
+                        model.faceNorth()
+                    } label: {
+                        Image(systemName: "location.north.line.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.red)
+                            .rotationEffect(.degrees(-model.mapBearing))
+                            .frame(width: 30, height: 30)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .padding(.trailing, 12)
+                    .help("Face north (⌘↑). ⌥-drag the map, or twist two fingers, to turn it")
+                }
+              }
+            }
+            .overlay(alignment: .topLeading) {
+                if let panel = model.nearby {
+                    nearbyPanel(panel)
+                }
             }
             .overlay(alignment: .bottomLeading) {
                 // OSM attribution is an ODbL obligation, not decoration.
@@ -143,6 +172,8 @@ struct ContentView: View {
                     measureBar(measurement)
                 } else if model.editingRouteID != nil {
                     editBar
+                } else if model.editingTrackID != nil {
+                    trackEditBar
                 } else if model.isBusy {
                     Label("Reading…", systemImage: "clock")
                         .font(.callout)
@@ -181,6 +212,24 @@ struct ContentView: View {
         .padding(12)
     }
 
+    /// The same for a track's fixes, and why none are drawn when the view
+    /// holds too many to draw as dots.
+    private var trackEditBar: some View {
+        HStack(spacing: 12) {
+            Label(model.trackHandlesHidden
+                    ? "Zoom in to see the track's points."
+                    : "Drag a point to move it. Click or drag the line to add one. Right-click a point to delete it, or everything before or after it.",
+                  systemImage: "point.3.connected.trianglepath.dotted")
+                .font(.callout)
+            Button("Done") { model.finishEditingTrack() }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+    }
+
     /// The ruler's readout: how far along the clicks, the last leg and
     /// its heading, and the straight line from first to last.
     private func measureBar(_ m: Measurement) -> some View {
@@ -192,7 +241,8 @@ struct ContentView: View {
                     let total = Text(Self.miles(m.total)).bold()
                     let leg = m.lastLeg.map { "last leg \(Self.miles($0.distance)) at \(Int($0.bearing.rounded()))°" } ?? ""
                     let direct = m.direct.map { "direct \(Self.miles($0))" } ?? ""
-                    total + Text("  ·  \(leg)  ·  \(direct)").foregroundStyle(.secondary)
+                    let area = m.area.map { "  ·  encloses \(Self.area($0))" } ?? ""
+                    total + Text("  ·  \(leg)  ·  \(direct)\(area)").foregroundStyle(.secondary)
                 }
             } icon: {
                 Image(systemName: "ruler")
@@ -211,6 +261,84 @@ struct ContentView: View {
     private static func miles(_ metres: Double) -> String {
         let miles = metres / 1609.344
         return miles < 10 ? String(format: "%.2f mi", miles) : String(format: "%.1f mi", miles)
+    }
+
+    /// Acres under a square mile, the way land is talked about in the US,
+    /// and square miles above.
+    private static func area(_ squareMetres: Double) -> String {
+        let acres = squareMetres / 4046.8564224
+        if acres < 640 { return acres < 10 ? String(format: "%.1f acres", acres) : "\(Int(acres.rounded())) acres" }
+        let squareMiles = acres / 640
+        return squareMiles < 100 ? String(format: "%.1f sq mi", squareMiles) : "\(Int(squareMiles.rounded())) sq mi"
+    }
+
+    /// What a Find Near turned up, nearest first or in the order the
+    /// route meets it. A click pins one, with the bar to keep it; the
+    /// dots on the map are the same list.
+    private func nearbyPanel(_ panel: LibraryModel.NearbyPanel) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(panel.title).font(.callout.weight(.semibold)).lineLimit(1)
+                Spacer()
+                Button { model.dismissNearby() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Close")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+            if panel.isSearching {
+                Label(panel.note ?? "Searching…", systemImage: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+            } else if panel.hits.isEmpty {
+                Text(panel.alongRoute ? "Nothing within two miles of the route." : "Nothing within 25 miles.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(panel.hits) { hit in
+                            Button {
+                                model.show(hit.result)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(hit.result.name).lineLimit(1)
+                                    Text(Self.nearbyDetail(hit, alongRoute: panel.alongRoute))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 5)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                // Its own rows' height, up to a dozen or so: a ScrollView
+                // takes all the room it is offered, and seven results sat
+                // over a band of empty panel.
+                .frame(height: min(340, CGFloat(panel.hits.count) * 32 + 6))
+            }
+        }
+        .frame(width: 300)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+    }
+
+    /// "Fuel · Lyons, CO · 0.4 mi", or along a route "at mile 42, 0.3 mi off".
+    private static func nearbyDetail(_ hit: NearbyHit, alongRoute: Bool) -> String {
+        let place = hit.result.detail.split(separator: "·").dropFirst().joined(separator: "·")
+            .trimmingCharacters(in: .whitespaces)
+        let off = String(format: "%.1f mi", hit.offset / 1609.344)
+        let position = alongRoute ? "mile \(Int((hit.along / 1609.344).rounded())), \(off) off" : off
+        return [place, position].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// The pinned search result: what it is, and the two things to do

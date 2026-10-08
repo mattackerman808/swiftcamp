@@ -130,15 +130,15 @@ struct ItemInspector: View {
                                                         next.prefer = prefer
                                                         model.setPreferences(next, forRoute: route.id)
                                                     })) {
-                    ForEach(RoutePreferences.Preference.allCases, id: \.self) { Text($0.title).tag($0) }
+                    ForEach(route.mode.preferences, id: \.self) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
             }
             labelled("Avoid") {
                 HStack(spacing: 10) {
-                    avoidToggle("Highways", route, \.avoidHighways)
-                    avoidToggle("Tolls", route, \.avoidTolls)
-                    avoidToggle("Ferries", route, \.avoidFerries)
+                    ForEach(route.mode.avoidances, id: \.title) { kind in
+                        avoidToggle(kind.title, route, kind.path)
+                    }
                 }
             }
         }

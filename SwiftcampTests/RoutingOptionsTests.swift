@@ -52,4 +52,38 @@ final class RoutingOptionsTests: XCTestCase {
         route.preferences.avoidTolls = true
         XCTAssertNotEqual(route.routingKey, key, "a refused leg is remembered against the settings that refused it")
     }
+
+    /// Driving is the car costing on the road mode's surfaces, and walking
+    /// the pedestrian costing with trails up to demanding hiking; neither
+    /// is sent a curvature the motorcycle patch alone understands, nor an
+    /// avoidance that means nothing on foot.
+    func testDrivingAndWalkingUseTheirOwnCosting() {
+        XCTAssertEqual(RoutingEngine.costing(for: .road), "motorcycle")
+        XCTAssertEqual(RoutingEngine.costing(for: .driving), "auto")
+        XCTAssertEqual(RoutingEngine.costing(for: .walking), "pedestrian")
+
+        var prefs = RoutePreferences()
+        prefs.prefer = .manyCurves
+        prefs.avoidHighways = true
+        prefs.avoidFerries = true
+        let driving = RoutingEngine.costingOptions(for: .driving, preferences: prefs)
+        XCTAssertEqual(driving["exclude_unpaved"] as? Bool, true)
+        XCTAssertEqual(driving["use_highways"] as? Int, 0)
+        XCTAssertNil(driving["use_curvature"])
+
+        let walking = RoutingEngine.costingOptions(for: .walking, preferences: prefs)
+        XCTAssertEqual(walking["max_hiking_difficulty"] as? Int, 3)
+        XCTAssertNil(walking["use_highways"])
+        XCTAssertEqual(walking["use_ferry"] as? Int, 0)
+        XCTAssertNil(walking["use_curvature"])
+    }
+
+    func testGarminWordsForTheModes() {
+        XCTAssertEqual(RoutingMode.garmin("Automotive"), .driving)
+        XCTAssertEqual(RoutingMode.garmin("Walking"), .walking)
+        XCTAssertEqual(RoutingMode.garmin("Direct"), .direct)
+        XCTAssertNil(RoutingMode.garmin("Mountain Biking"))
+        XCTAssertTrue(RoutingMode.walking.leavesTheRoad)
+        XCTAssertFalse(RoutingMode.driving.leavesTheRoad)
+    }
 }

@@ -26,6 +26,8 @@ struct MapWebView: NSViewRepresentable {
     var overlay: MapOverlay
     var camera: MapCameraRequest?
     var editingRouteID: String?
+    /// The track whose fixes are out as handles, if one is being edited.
+    var editingTrackID: String?
     var pageEvent: MapPageEvent?
     var onClick: ((MapClick) -> Void)?
     var onDrag: ((MapDrag) -> Void)?
@@ -33,10 +35,14 @@ struct MapWebView: NSViewRepresentable {
     var onContextMenu: ((MapClick) -> [MapMenuItem])?
     /// The view after each move, with its zoom.
     var onView: ((BoundingBox, Double) -> Void)?
+    /// Which way the map faces, in degrees clockwise from north, as it turns.
+    var onBearing: ((Double) -> Void)?
     /// Whether the map is drawn in 3-D, tilted over the DEM.
     var terrain = false
     /// Whether the dirt bike trails layer is drawn.
     var trails = false
+    /// Whether contour lines are drawn.
+    var contours = false
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -68,16 +74,20 @@ struct MapWebView: NSViewRepresentable {
         view.load(URLRequest(url: BundleSchemeHandler.indexURL))
 
         context.coordinator.webView = view
+        MapPrinting.mapView = view
         context.coordinator.onClick = onClick
         context.coordinator.onDrag = onDrag
         context.coordinator.onKey = onKey
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.onView = onView
+        context.coordinator.onBearing = onBearing
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
+        context.coordinator.editTrack(editingTrackID)
         context.coordinator.setTerrain(terrain)
         context.coordinator.setTrails(trails)
+        context.coordinator.setContours(contours)
         context.coordinator.synthesize(pageEvent)
         return view
     }
@@ -88,11 +98,14 @@ struct MapWebView: NSViewRepresentable {
         context.coordinator.onKey = onKey
         context.coordinator.onContextMenu = onContextMenu
         context.coordinator.onView = onView
+        context.coordinator.onBearing = onBearing
         context.coordinator.push(overlay)
         context.coordinator.move(camera)
         context.coordinator.edit(editingRouteID)
+        context.coordinator.editTrack(editingTrackID)
         context.coordinator.setTerrain(terrain)
         context.coordinator.setTrails(trails)
+        context.coordinator.setContours(contours)
         context.coordinator.synthesize(pageEvent)
     }
 
@@ -147,6 +160,7 @@ struct MapWebView: NSViewRepresentable {
         var onKey: ((MapKey) -> Void)?
         var onContextMenu: ((MapClick) -> [MapMenuItem])?
         var onView: ((BoundingBox, Double) -> Void)?
+        var onBearing: ((Double) -> Void)?
 
         /// Nothing can be pushed until the page reports that its style has
         /// parsed and its sources exist. `makeNSView` returns long before
@@ -225,6 +239,15 @@ struct MapWebView: NSViewRepresentable {
                     "window.swiftcamp.flyTo(lon, lat, zoom);",
                     arguments: ["lon": coordinate.lon, "lat": coordinate.lat, "zoom": zoom],
                     in: nil, in: .page, completionHandler: Self.report)
+
+            case .rotate(let degrees):
+                webView?.callAsyncJavaScript("window.swiftcamp.rotateBy(degrees);",
+                                             arguments: ["degrees": degrees],
+                                             in: nil, in: .page, completionHandler: Self.report)
+
+            case .north:
+                webView?.callAsyncJavaScript("window.swiftcamp.faceNorth();", arguments: [:],
+                                             in: nil, in: .page, completionHandler: Self.report)
             }
         }
 
@@ -251,6 +274,20 @@ struct MapWebView: NSViewRepresentable {
         }
 
         private var editingRouteID: String?
+
+        /// The same for the track whose fixes are out: the page needs it
+        /// to know a press on that track's line is a grab, not a pan.
+        func editTrack(_ trackID: String?) {
+            editingTrackID = trackID
+            guard isReady, appliedEditingTrackID != .some(trackID) else { return }
+            appliedEditingTrackID = .some(trackID)
+            webView?.callAsyncJavaScript("window.swiftcamp.setEditingTrack(id);",
+                                         arguments: ["id": trackID.map { $0 as Any } ?? NSNull()],
+                                         in: nil, in: .page, completionHandler: Self.report)
+        }
+
+        private var editingTrackID: String?
+        private var appliedEditingTrackID: String??
 
         /// Tilts the map over the DEM, or lays it flat. Off is never sent
         /// to a page that has not been told on, which is the state it
@@ -280,6 +317,20 @@ struct MapWebView: NSViewRepresentable {
 
         private var trails = false
         private var appliedTrails = false
+
+        /// Contour lines, the same way: hidden in the style, so off is
+        /// never sent to a page that was not told on.
+        func setContours(_ on: Bool) {
+            contours = on
+            guard isReady, appliedContours != on else { return }
+            appliedContours = on
+            webView?.callAsyncJavaScript("window.swiftcamp.setContours(on);",
+                                         arguments: ["on": on],
+                                         in: nil, in: .page, completionHandler: Self.report)
+        }
+
+        private var contours = false
+        private var appliedContours = false
 
         /// Replays scripted input on the page. Debug only; see `MapPageEvent`.
         private var appliedPageEventID = 0
@@ -395,8 +446,10 @@ struct MapWebView: NSViewRepresentable {
                     move(request)
                 }
                 edit(editingRouteID)
+                editTrack(editingTrackID)
                 setTerrain(terrain)
                 setTrails(trails)
+                setContours(contours)
 
             case "idle":
                 snapshotIfRequested()
@@ -416,6 +469,9 @@ struct MapWebView: NSViewRepresentable {
                    let zoom = body["zoom"] as? Double {
                     onView?(BoundingBox(west: west, south: south, east: east, north: north), zoom)
                 }
+
+            case "bearing":
+                if let bearing = body["bearing"] as? Double { onBearing?(bearing) }
 
             case "contextmenu":
                 guard let click = Self.click(from: body),
@@ -452,9 +508,15 @@ struct MapWebView: NSViewRepresentable {
                 target = .waypoint(id: id)
             case "search-pin":
                 target = .searchPin
+            case "nearby-point":
+                guard let id else { return nil }
+                target = .nearby(id: id)
             case "track-line":
                 guard let id else { return nil }
                 target = .track(id: id)
+            case "track-point":
+                guard let id, let seq else { return nil }
+                target = .trackPoint(trackID: id, index: seq)
             default:
                 target = .ground
             }
@@ -468,9 +530,12 @@ struct MapWebView: NSViewRepresentable {
                   let phase = (body["phase"] as? String).flatMap({ Self.phases[$0] }) else { return nil }
             // A grab on the line sends `seq: null`, which crosses the
             // bridge as NSNull and reads as nil here, the same as absent.
-            let subject: MapDrag.Subject = body["layer"] as? String == "waypoint-icon"
-                ? .waypoint(id: id)
-                : .routePoint(routeID: id, seq: body["seq"] as? Int)
+            let subject: MapDrag.Subject
+            switch body["layer"] as? String {
+            case "waypoint-icon": subject = .waypoint(id: id)
+            case "track-point", "track-line": subject = .trackPoint(trackID: id, index: body["seq"] as? Int)
+            default: subject = .routePoint(routeID: id, seq: body["seq"] as? Int)
+            }
             return MapDrag(subject: subject,
                            coordinate: Coordinate(lat: lat, lon: lon),
                            phase: phase)

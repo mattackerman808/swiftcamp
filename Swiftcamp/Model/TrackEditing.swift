@@ -1,10 +1,9 @@
 import Foundation
 
 /// The edits a track can take, as pure functions over its points: what
-/// BaseCamp's track menu offers, minus moving single fixes, which nobody
-/// does to a day's recording.
+/// BaseCamp's track menu offers.
 ///
-/// Every result is a new track with a new id. A recording is the rider's
+/// Every whole-track result is a new track with a new id. A recording is the rider's
 /// own evidence of where they went, so an edit makes a track beside it
 /// rather than rewriting it; the caller decides whether the original
 /// goes, and undo brings it back whole.
@@ -101,6 +100,57 @@ extension TrackDetail {
             if best == nil || d < best!.distance { best = (i, d) }
         }
         return best?.index
+    }
+
+    // MARK: - Editing points in place
+
+    /// The fixes in order, `seq` equal to the index: the shape every edit
+    /// below assumes and returns.
+    var orderedPoints: [TrackPoint] { points.sorted { $0.seq < $1.seq } }
+
+    /// The same track, its fixes in `range` of the ordered list replaced
+    /// by `replacement`: one shape for moving a fix, adding one or
+    /// erasing a run, so each is a single store write and a single undo.
+    ///
+    /// The same id, unlike the edits above. Those make a new track from a
+    /// whole recording; these are the rider correcting a fix the GPS put
+    /// in a field, and a track beside it for every dot moved would be a
+    /// sidebar of near-identical rides.
+    func replacing(_ range: Range<Int>, with replacement: [TrackPoint]) -> TrackDetail {
+        var ordered = orderedPoints
+        ordered.replaceSubrange(range, with: replacement)
+        var out = self
+        out.points = Self.renumber(ordered, for: track.id)
+        return out
+    }
+
+    /// The gap between fixes `i` and `i + 1` nearest a spot, among those
+    /// two fixes of one segment bound: where a click on the line adds a
+    /// fix. Across a segment break there is no line to click.
+    func nearestLeg(to coordinate: Coordinate) -> Int? {
+        let ordered = orderedPoints
+        guard ordered.count > 1 else { return nil }
+        var best: (leg: Int, distance: Double)?
+        for i in 0..<(ordered.count - 1) where ordered[i].segment == ordered[i + 1].segment {
+            let d = GeoMath.distance(coordinate, toSegment: ordered[i].coordinate, ordered[i + 1].coordinate)
+            if best == nil || d < best!.distance { best = (i, d) }
+        }
+        return best?.leg
+    }
+
+    /// A fix at `coordinate` between `leg` and `leg + 1`, its time and
+    /// height read off its neighbours by how far along it lies, so the
+    /// statistics and the profile do not see a fix from nowhere.
+    func interpolatedPoint(at coordinate: Coordinate, inLeg leg: Int) -> TrackPoint {
+        let ordered = orderedPoints
+        let a = ordered[leg], b = ordered[leg + 1]
+        let toA = GeoMath.distance(a.coordinate, coordinate), toB = GeoMath.distance(coordinate, b.coordinate)
+        let t = toA + toB > 0 ? toA / (toA + toB) : 0.5
+        var point = TrackPoint(trackID: track.id, seq: leg + 1, segment: a.segment,
+                               lat: coordinate.lat, lon: coordinate.lon)
+        if let ea = a.elevation, let eb = b.elevation { point.elevation = ea + (eb - ea) * t }
+        if let ta = a.time, let tb = b.time { point.time = ta.addingTimeInterval(tb.timeIntervalSince(ta) * t) }
+        return point
     }
 
     /// A header like this one's under a new id, with no points yet.

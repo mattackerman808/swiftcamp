@@ -84,9 +84,22 @@ the unit re-routes on its own map and a trail it lacks would be moved onto
 pavement. Mountain biking is deferred until there is a bike unit to test.
 `docs/data-architecture.md`.
 
-The map tilts into 3-D over the DEM from the 2D/3D button at its top right, a ruler measures
-distance and heading between clicks (Measure on the toolbar), and the
+The map tilts into 3-D over the DEM from the 2D/3D button at its top right,
+turns with ⌥-drag, a trackpad twist or ⌘← ⌘→ (⌘↑ and a compass face
+north), and draws contour lines in feet from the View menu, made in the
+page by a vendored `maplibre-contour`. A ruler measures distance, heading
+and the area its points enclose (Measure on the toolbar), and the
 position and height under the pointer sit at the map's bottom right.
+File, Print prints the map on screen with the selected route's stops and
+turns under it.
+
+Find Near on a waypoint or a spot, and Find Along Route on a route, list
+fuel, food, lodging and the rest from our own index in a panel over the
+map. Routes route as Road, Adventure, Driving (Valhalla's car costing),
+Walking (pedestrian) or Direct. Cut, copy and paste move items between
+lists exactly, and carry GPX to and from other apps. Deleting anything
+is undoable. A track's fixes can be moved, added and erased on the map
+from Edit Points.
 
 Search: coordinates in any common form; places, streets and points of
 interest from our own index on the CDN; house numbers from our own index
@@ -182,12 +195,12 @@ Resolved:
 
 - **Map renderer is a split backend**, now built and working. MapLibre Native ships iOS-only slices, confirmed by reading `Info.plist` in the 6.29.0 XCFramework: `ios-arm64` and `ios-arm64_x86_64-simulator`, no macOS and no Mac Catalyst. Upstream considers the AppKit port bit-rotted. So iOS uses MapLibre Native and macOS uses MapLibre GL JS in a `WKWebView`. The divergence is confined to `MapContainer.swift`; both consume the same `MapStyle` and the same archives, so cartography cannot drift.
 - **XcodeGen**, with `project.yml` committed and `.xcodeproj` gitignored. Regenerate after pulling.
+- **Contours are macOS-only**, made in the page by a vendored `maplibre-contour` from the terrain archive, whose tile fetch is swapped for a read through the page's own PMTiles instance. iOS would need pre-built contour tiles; the style leaves the source out there.
 
 Still open:
 
 - **Persistence.** GRDB is the tachbase precedent. SwiftData fits a document-shaped Mac app more naturally.
 - **App shape.** `NSDocument`-based, versus a single-library app with an internal database the way BaseCamp works.
-- **Contours.** The usual generator, `maplibre-contour`, is JavaScript, so it would work on macOS and not on iOS. Either pre-generate contour vector tiles for both or accept contours as macOS-only. Hillshade already works on both.
 
 
 ## Conventions carried from tachbase
@@ -563,6 +576,11 @@ implements them; this is the index.
   the app's windows found it, after a sandbox theory and a saved-state
   theory. A second `open` sends a reopen, which SwiftUI answers with the
   window.
+- **One bad expression fails the whole style, not its layer.** A
+  contour layer's width put two zoom curves inside a `case`; MapLibre
+  allows one, at the top, and the map loaded nothing at all, which the
+  style's unit tests passed happily. The page's forwarded console said so
+  in one line. Load the real map after any style change.
 - **A launch argument whose value starts with `-` never arrives.** The
   `UserDefaults` argument domain reads any dashed token as a key, so
   `-SwiftcampCenter -105.6,40.3` silently leaves the default nil and the map

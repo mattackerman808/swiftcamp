@@ -18,6 +18,7 @@ struct SettingsView: View {
             }
             Text("Road follows paved ways and moves a dropped point onto the nearest one. "
                  + "Adventure follows any way the map knows and lands a point only when a way is within 50 m. "
+                 + "Driving routes a car on paved roads; Walking follows footpaths and trails. "
                  + "Direct draws straight lines and routes nothing.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

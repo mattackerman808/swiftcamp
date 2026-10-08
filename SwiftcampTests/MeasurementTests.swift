@@ -34,4 +34,43 @@ final class MeasurementTests: XCTestCase {
         m.removeLast(); m.removeLast()
         XCTAssertTrue(m.points.isEmpty)
     }
+
+    /// A square mile is 640 acres, near enough on the sphere at 40°N, and
+    /// the order of the clicks does not change what they enclose.
+    func testThreePointsAndUpEncloseAnArea() throws {
+        var m = Measurement()
+        m.add(estes); m.add(lyons)
+        XCTAssertNil(m.area, "two points enclose nothing")
+
+        let side = 1609.344   // one mile, in degrees at 40°N below
+        let dLat = side / 111_195.0
+        let dLon = dLat / cos(40 * Double.pi / 180)
+        let square = [Coordinate(lat: 40, lon: -105), Coordinate(lat: 40, lon: -105 + dLon),
+                      Coordinate(lat: 40 + dLat, lon: -105 + dLon), Coordinate(lat: 40 + dLat, lon: -105)]
+        m = Measurement(points: square)
+        let acres = try XCTUnwrap(m.area) / 4046.8564224
+        XCTAssertEqual(acres, 640, accuracy: 3)
+        XCTAssertEqual(GeoMath.area(square.reversed()), GeoMath.area(square), accuracy: 0.001)
+    }
+}
+
+/// The corridor a Find Along Route searches.
+final class CorridorTests: XCTestCase {
+    /// A spot a mile off the middle of a forty-mile line is inside a
+    /// two-mile corridor at about mile twenty, and one five miles off is
+    /// not; a point's corridor is a circle.
+    func testNearestStationAndAlong() throws {
+        let path = [Coordinate(lat: 40, lon: -105), Coordinate(lat: 40, lon: -104.25)]
+        let corridor = Corridor(path: path, radius: 3_200)
+        let mid = Coordinate(lat: 40 + 1609.344 / 111_195, lon: -104.625)
+        let station = try XCTUnwrap(corridor.nearest(to: mid))
+        XCTAssertEqual(station.along / 1609.344, 19.8, accuracy: 0.5)
+        XCTAssertEqual(GeoMath.distance(mid, station.coordinate), 1609, accuracy: 250)
+        XCTAssertNil(corridor.nearest(to: Coordinate(lat: 40 + 5 * 1609.344 / 111_195, lon: -104.625)))
+
+        let point = Corridor(path: [Coordinate(lat: 40, lon: -105)], radius: 40_000)
+        XCTAssertNotNil(point.nearest(to: Coordinate(lat: 40.3, lon: -105)))
+        XCTAssertNil(point.nearest(to: Coordinate(lat: 40.5, lon: -105)))
+        XCTAssertFalse(PlaceIndex.shards(for: corridor).isEmpty)
+    }
 }

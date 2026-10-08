@@ -36,17 +36,23 @@ struct MapOverlay: Equatable, Sendable {
                      waypoints: [Waypoint] = [],
                      selection: Set<String> = [],
                      searchPin: SearchResult? = nil,
-                     measure: [Coordinate] = []) -> MapOverlay {
+                     measure: [Coordinate] = [],
+                     editingTrack: (id: String, color: String?, handles: [TrackPoint])? = nil,
+                     nearby: [NearbyHit] = []) -> MapOverlay {
         func encode(_ collection: OverlayGeoJSON.FeatureCollection) -> String {
             (try? collection.json()) ?? emptyCollection
         }
 
         return MapOverlay(sources: [
-            MapStyle.Overlay.trackLines: encode(OverlayGeoJSON.trackLines(tracks)),
+            MapStyle.Overlay.trackLines: encode(OverlayGeoJSON.trackLines(tracks, unthinned: editingTrack?.id)),
+            MapStyle.Overlay.trackPoints: encode(editingTrack.map {
+                OverlayGeoJSON.trackHandles(trackID: $0.id, color: $0.color, points: $0.handles, selected: selection)
+            } ?? OverlayGeoJSON.FeatureCollection(features: [])),
             MapStyle.Overlay.routeLines: encode(OverlayGeoJSON.routeLines(routes)),
             MapStyle.Overlay.viaPoints: encode(OverlayGeoJSON.handles(routes, selected: selection)),
             MapStyle.Overlay.waypoints: encode(OverlayGeoJSON.waypoints(waypoints, selected: selection)),
             MapStyle.Overlay.search: encode(OverlayGeoJSON.searchPin(searchPin)),
+            MapStyle.Overlay.nearby: encode(OverlayGeoJSON.nearby(nearby)),
             MapStyle.Overlay.measure: encode(OverlayGeoJSON.measure(measure)),
         ])
     }
@@ -71,6 +77,11 @@ struct MapCameraRequest: Equatable, Sendable {
         /// one zooms to the renderer's maximum, which drops the user into a
         /// parking lot with no context.
         case point(Coordinate, zoom: Double)
+        /// Turns the map by so many degrees, clockwise positive, from
+        /// wherever it faces now.
+        case rotate(by: Double)
+        /// North up again, the tilt left as it is.
+        case north
     }
 
     var id: Int
@@ -88,6 +99,11 @@ struct MapClick: Equatable, Sendable {
         case routeLine(routeID: String)
         case waypoint(id: String)
         case track(id: String)
+        /// A fix of the track being edited, by its place in the ordered
+        /// fixes. Drawn only while editing, so only then clicked.
+        case trackPoint(trackID: String, index: Int)
+        /// One of the places a Find Near turned up, by its result's id.
+        case nearby(id: String)
         /// The pin a search put down. There is only ever one, so it needs
         /// no id.
         case searchPin
@@ -118,6 +134,9 @@ struct MapDrag: Equatable, Sendable {
     enum Subject: Equatable, Sendable {
         case routePoint(routeID: String, seq: Int?)
         case waypoint(id: String)
+        /// A fix of the track being edited, or its line when `index` is
+        /// nil, which grows a fix where it was grabbed and drags that.
+        case trackPoint(trackID: String, index: Int?)
     }
 
     var subject: Subject

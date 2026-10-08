@@ -65,14 +65,32 @@ enum OverlayGeoJSON {
     /// One `LineString` per *segment*, not per track. A break in the
     /// recording is a break in the line; joining them draws a road that does
     /// not exist.
-    static func trackLines(_ tracks: [TrackDetail]) -> FeatureCollection {
+    ///
+    /// The track whose points are being edited is drawn whole, `unthinned`,
+    /// so the line runs through every handle drawn on it; thinned, a moved
+    /// fix could be one the line skips, and the edit would not show.
+    static func trackLines(_ tracks: [TrackDetail], unthinned: String? = nil) -> FeatureCollection {
         FeatureCollection(features: tracks.flatMap { detail in
             detail.segments.filter { $0.count > 1 }.map { segment in
-                Feature(geometry: .lineString(thinned(segment)),
+                Feature(geometry: .lineString(detail.track.id == unthinned ? segment : thinned(segment)),
                         properties: Properties(id: detail.track.id,
                                                name: detail.track.name,
                                                color: ItemColor.hex(detail.track.color)))
             }
+        })
+    }
+
+    /// The fixes of the track being edited, as handles, each carrying the
+    /// track's id and its place in the ordered fixes. The caller chooses
+    /// which: a day's recording has far more than a map can draw as dots.
+    static func trackHandles(trackID: String, color: String?, points: [TrackPoint],
+                             selected: Set<String> = []) -> FeatureCollection {
+        FeatureCollection(features: points.map { point in
+            Feature(geometry: .point(point.coordinate),
+                    properties: Properties(id: trackID, seq: point.seq,
+                                           color: ItemColor.hex(color),
+                                           selected: selected.contains(handle(trackID, point.seq)),
+                                           lat: point.lat, lon: point.lon))
         })
     }
 
@@ -102,15 +120,31 @@ enum OverlayGeoJSON {
         return out
     }
 
-    /// The ruler: a point per click and the line through them.
+    /// The ruler: a point per click and the line through them, and from
+    /// three points on, the area they enclose with the line that closes it.
     static func measure(_ points: [Coordinate]) -> FeatureCollection {
         var features = points.enumerated().map { i, c in
             Feature(geometry: .point(c), properties: Properties(seq: i, lat: c.lat, lon: c.lon))
+        }
+        if points.count >= 3, let first = points.first, let last = points.last {
+            features.append(Feature(geometry: .polygon([points + [first]]), properties: Properties()))
+            features.append(Feature(geometry: .lineString([last, first]), properties: Properties(name: "closing")))
         }
         if points.count >= 2 {
             features.append(Feature(geometry: .lineString(points), properties: Properties()))
         }
         return FeatureCollection(features: features)
+    }
+
+    /// What a Find Near turned up, as dots: each carries its result's id,
+    /// so a click picks it, and its line of detail for the hover.
+    static func nearby(_ hits: [NearbyHit]) -> FeatureCollection {
+        FeatureCollection(features: hits.map { hit in
+            Feature(geometry: .point(hit.result.coordinate),
+                    properties: Properties(id: hit.id, name: hit.result.name,
+                                           lat: hit.result.coordinate.lat, lon: hit.result.coordinate.lon,
+                                           detail: hit.result.detail))
+        })
     }
 
     /// The pin for a search result, or nothing.
@@ -179,6 +213,8 @@ enum OverlayGeoJSON {
     enum Geometry: Codable, Equatable {
         case point(Coordinate)
         case lineString([Coordinate])
+        /// Rings, outer first, each closed.
+        case polygon([[Coordinate]])
 
         private enum CodingKeys: String, CodingKey { case type, coordinates }
 
@@ -191,6 +227,9 @@ enum OverlayGeoJSON {
             case .lineString(let path):
                 try c.encode("LineString", forKey: .type)
                 try c.encode(path, forKey: .coordinates)
+            case .polygon(let rings):
+                try c.encode("Polygon", forKey: .type)
+                try c.encode(rings, forKey: .coordinates)
             }
         }
 
@@ -201,6 +240,8 @@ enum OverlayGeoJSON {
                 self = .point(try c.decode(Coordinate.self, forKey: .coordinates))
             case "LineString":
                 self = .lineString(try c.decode([Coordinate].self, forKey: .coordinates))
+            case "Polygon":
+                self = .polygon(try c.decode([[Coordinate]].self, forKey: .coordinates))
             case let other:
                 throw DecodingError.dataCorruptedError(forKey: .type, in: c,
                                                        debugDescription: "unsupported geometry \(other)")
@@ -225,5 +266,7 @@ enum OverlayGeoJSON {
         /// Sprite image and its anchor, for waypoints and the search pin.
         var icon: String?
         var anchor: String?
+        /// A found place's line of detail, for the hover.
+        var detail: String?
     }
 }

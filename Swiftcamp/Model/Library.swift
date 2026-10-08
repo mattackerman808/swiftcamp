@@ -320,6 +320,16 @@ enum RoutingMode: String, Codable, CaseIterable, Sendable {
     /// the track and a deliberate point in the scrub stays put with a
     /// straight leg to the nearest way.
     case adventure
+    /// Paved roads for a car: Garmin's Driving profile, and Valhalla's car
+    /// costing, which knows a road closed to cars from one closed to a
+    /// motorcycle and keeps a car off the curvy patch, which is
+    /// motorcycle-only. A dropped point lands on the road, as Road does.
+    case driving
+    /// Footpaths, trails and quiet streets for someone on foot: Garmin's
+    /// Walking profile and Valhalla's pedestrian costing. A point lands on
+    /// a path only when one is close, as Adventure does, since a summit or
+    /// a meadow is a fair place to walk to.
+    case walking
     /// Straight lines between points and no routing at all: Garmin's
     /// off-road profile, for a trail no map knows.
     case direct
@@ -328,7 +338,67 @@ enum RoutingMode: String, Codable, CaseIterable, Sendable {
         switch self {
         case .road: "Road"
         case .adventure: "Adventure"
+        case .driving: "Driving"
+        case .walking: "Walking"
         case .direct: "Direct"
+        }
+    }
+
+    /// Whether the legs may use ways a road navigator's map may not have:
+    /// tracks, trails, footpaths, or nothing at all.
+    var leavesTheRoad: Bool {
+        switch self {
+        case .road, .driving: false
+        case .adventure, .walking, .direct: true
+        }
+    }
+
+    /// Garmin's `trp:TransportationMode` word for the mode. Road and
+    /// Adventure are both Motorcycling to a unit; which it was goes in
+    /// our own namespace. Automotive is BaseCamp's word for its Driving
+    /// profile. Walking has not been seen in a Garmin's own file yet, and
+    /// is the honest word until one says otherwise.
+    var garminTransportationMode: String {
+        switch self {
+        case .road, .adventure: "Motorcycling"
+        case .driving: "Automotive"
+        case .walking: "Walking"
+        case .direct: "Direct"
+        }
+    }
+
+    /// The mode a Garmin word means, for a file from a unit or BaseCamp.
+    /// Motorcycling is Road, since Adventure is only ever ours; anything
+    /// unknown is nil, and the route stays a road route.
+    static func garmin(_ word: String) -> RoutingMode? {
+        switch word.lowercased() {
+        case "direct": .direct
+        case "automotive", "driving", "car": .driving
+        case "walking", "pedestrian", "hiking": .walking
+        case "motorcycling": .road
+        default: nil
+        }
+    }
+
+    /// What a route in this mode may prefer. The curvy levels are a patch
+    /// on the motorcycle costing alone, so they mean nothing to a car or
+    /// on foot, and a menu should not offer what changes nothing.
+    var preferences: [RoutePreferences.Preference] {
+        switch self {
+        case .road, .adventure: RoutePreferences.Preference.allCases
+        case .driving, .walking: [.fasterTime, .shorterDistance]
+        case .direct: []
+        }
+    }
+
+    /// Which avoidances mean anything in this mode: a walker meets no
+    /// highways or toll booths, only ferries.
+    var avoidances: [(title: String, path: WritableKeyPath<RoutePreferences, Bool>)] {
+        switch self {
+        case .road, .adventure, .driving:
+            [("Highways", \.avoidHighways), ("Tolls", \.avoidTolls), ("Ferries", \.avoidFerries)]
+        case .walking: [("Ferries", \.avoidFerries)]
+        case .direct: []
         }
     }
 

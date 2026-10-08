@@ -111,6 +111,11 @@ final class LibraryModel {
         didSet { UserDefaults.standard.set(showsTrails, forKey: "showTrails") }
     }
 
+    /// Contour lines, in feet, from the DEM. Remembered.
+    var showsContours: Bool = UserDefaults.standard.bool(forKey: "showContours") {
+        didSet { UserDefaults.standard.set(showsContours, forKey: "showContours") }
+    }
+
     /// The ruler while it is out: the points clicked so far. Nil when
     /// not measuring. While it is out, every click on the map adds a
     /// point, whatever is under it, and Delete takes the last one back.
@@ -118,6 +123,7 @@ final class LibraryModel {
 
     func startMeasuring() {
         finishEditing()
+        finishEditingTrack()
         measurement = Measurement()
         rebuildOverlay()
     }
@@ -193,6 +199,29 @@ final class LibraryModel {
     /// The route being edited, if any. While set, a click on empty map adds
     /// a via point to it and its handles can be dragged.
     private(set) var editingRouteID: String?
+
+    /// The track whose fixes are out as handles, if any. While set, its
+    /// fixes can be dragged, its line grows a fix where it is clicked or
+    /// grabbed, and Delete removes the selected fix.
+    private(set) var editingTrackID: String?
+
+    /// A fix being dragged: the track as the press found it, the fix's
+    /// place, whether the drag grew it, and where the pointer is. Drawn
+    /// from here between press and release; the release is the edit.
+    @ObservationIgnored private var trackDrag: (trackID: String, index: Int, inserted: TrackPoint?,
+                                                to: Coordinate)?
+
+    /// What the map is looking at, for choosing which of a long track's
+    /// fixes to draw as handles.
+    @ObservationIgnored private var viewBox: BoundingBox?
+
+    /// Whether the edited track has more fixes in view than can be drawn
+    /// as handles, so none are, and the bar says to zoom in.
+    private(set) var trackHandlesHidden = false
+
+    /// The most fixes drawn as handles at once. A thousand dots is already
+    /// a carpet; past it the map is slow to pan and nothing can be aimed at.
+    static let trackHandleLimit = 1_500
 
     /// The drag in flight, if any. See `Drag`.
     @ObservationIgnored private var drag: Drag?
@@ -322,8 +351,16 @@ final class LibraryModel {
     }
     private(set) var renameRequest: RenameRequest?
 
-    init(store: LibraryStore = LibraryStore()) {
+    /// `launching` is the app's own model: it fills the routing cache and
+    /// runs the launch arguments. A test's model does neither, or every
+    /// test would start a gigabyte download and replay the app's script.
+    init(store: LibraryStore = LibraryStore(), launching: Bool = true) {
         self.store = store
+        guard launching else {
+            prefetch = nil
+            observe()
+            return
+        }
         if UserDefaults.standard.string(forKey: "SwiftcampRouting") == nil,
            let base = URL(string: BasemapSource.routingURL) {
             prefetch = RoutingPrefetch(base: base,
@@ -421,6 +458,21 @@ final class LibraryModel {
                 }
             case "duplicate":
                 duplicateSelection()
+            case "delete":
+                deleteSelection()
+            #if os(macOS)
+            case "copy":
+                copySelection()
+            case "cut":
+                cutSelection()
+            case "paste":
+                // Into the list named, or the one being looked at.
+                if let name = step["list"] as? String {
+                    paste(into: lists.first { $0.name == name }?.id)
+                } else {
+                    paste()
+                }
+            #endif
             case "hide":
                 setHidden(true, for: selection)
             case "show":
@@ -434,10 +486,16 @@ final class LibraryModel {
             case "measure":
                 // Out or away; `click` then adds points.
                 if step["on"] as? Bool ?? (measurement == nil) { startMeasuring() } else { stopMeasuring() }
+            case "rotate":
+                rotateMap(by: number("degrees", step))
+            case "north":
+                faceNorth()
             case "terrain":
                 showsTerrain = step["on"] as? Bool ?? !showsTerrain
             case "trails":
                 showsTrails = step["on"] as? Bool ?? !showsTrails
+            case "contours":
+                showsContours = step["on"] as? Bool ?? !showsContours
             case "showKinds":
                 // Which kinds the View menu draws; a kind not named is left.
                 var kinds = shownKinds
@@ -445,6 +503,24 @@ final class LibraryModel {
                 if let on = step["tracks"] as? Bool { kinds.tracks = on }
                 if let on = step["waypoints"] as? Bool { kinds.waypoints = on }
                 shownKinds = kinds
+            case "findNear":
+                if let category = (step["category"] as? String).flatMap(NearbyCategory.init(rawValue:)) {
+                    findNear(category, at: Coordinate(lat: number("lat", step), lon: number("lon", step)), name: "here")
+                }
+            case "findAlong":
+                if let category = (step["category"] as? String).flatMap(NearbyCategory.init(rawValue:)),
+                   let id = routes.first(where: { selection.contains($0.route.id) })?.route.id {
+                    findAlong(category, route: id)
+                }
+            #if os(macOS)
+            case "print":
+                // To a PDF at `path`, with no panel.
+                if let path = step["path"] as? String { await printMap(to: URL(fileURLWithPath: path)) }
+            #endif
+            case "editTrack":
+                if let id = tracks.first(where: { selection.contains($0.track.id) })?.track.id { editTrack(id) }
+            case "doneTrack":
+                finishEditingTrack()
             case "invert":
                 if let id = tracks.first(where: { selection.contains($0.track.id) })?.track.id { invertTrack(id) }
             case "split":
@@ -560,7 +636,7 @@ final class LibraryModel {
                     if let kinds = step["kinds"] as? [String] { preferences.setAvoided(kinds) }
                     setPreferences(preferences, forRoute: id)
                 }
-            case "click", "drag", "key", "probe", "menu", "hover":
+            case "click", "drag", "altdrag", "key", "probe", "menu", "hover":
                 pageEvent = MapPageEvent(id: (pageEvent?.id ?? 0) + 1,
                                          kind: step["action"] as! String,
                                          lon: number("lon", step), lat: number("lat", step),
@@ -691,9 +767,19 @@ final class LibraryModel {
                                       "measurement": measurement.map { m in
                                           ["points": m.points.count,
                                            "miles": (m.total / 1609.344 * 100).rounded() / 100,
+                                           "acres": m.area.map { ($0 / 4046.8564224).rounded() } as Any,
                                            "bearing": m.lastLeg.map { $0.bearing.rounded() } as Any] } as Any,
+                                      "editingTrack": editingTrackID.flatMap { name(for: $0) } as Any,
+                                      "nearby": nearby.map { panel in
+                                          ["title": panel.title, "searching": panel.isSearching,
+                                           "hits": panel.hits.map { ["name": $0.result.name, "detail": $0.result.detail,
+                                                                     "offsetMiles": ($0.offset / 1609.344 * 100).rounded() / 100,
+                                                                     "alongMiles": ($0.along / 1609.344 * 10).rounded() / 10] }] } as Any,
+                                      "trackHandlesHidden": trackHandlesHidden,
                                       "terrain": showsTerrain,
+                                      "bearing": mapBearing,
                                       "trails": showsTrails,
+                                      "contours": showsContours,
                                       "elevation": lastElevation.map { ["lat": $0.0.lat, "lon": $0.0.lon, "metres": $0.1 as Any] } as Any,
                                       "selection": Array(selection).sorted(),
                                       "canUndo": undoManager.canUndo,
@@ -1028,7 +1114,17 @@ final class LibraryModel {
         if let drag, let i = routes.firstIndex(where: { $0.route.id == drag.routeID }) {
             routes[i].points = drag.points
         }
-        let tracks = mappedTracks
+        var tracks = mappedTracks
+        var editingTrack: (id: String, color: String?, handles: [TrackPoint])?
+        if let editingTrackID, let i = tracks.firstIndex(where: { $0.track.id == editingTrackID }) {
+            if let trackDrag, trackDrag.trackID == editingTrackID {
+                tracks[i] = Self.preview(tracks[i], trackDrag)
+            }
+            let handles = Self.handles(of: tracks[i], in: viewBox)
+            let hidden = handles == nil
+            if hidden != trackHandlesHidden { trackHandlesHidden = hidden }
+            editingTrack = (editingTrackID, tracks[i].track.color, handles ?? [])
+        }
         var waypoints = mappedWaypoints
         if let waypointDrag, let i = waypoints.firstIndex(where: { $0.id == waypointDrag.id }) {
             waypoints[i].lat = waypointDrag.to.lat
@@ -1037,6 +1133,7 @@ final class LibraryModel {
         let selection = self.selection
         let searchPin = self.searchPin
         let measure = measurement?.points ?? []
+        let nearbyHits = nearby?.hits ?? []
 
         // Only the newest rebuild matters. Three observations can land in
         // quick succession on one import, and the first two describe a state
@@ -1047,7 +1144,7 @@ final class LibraryModel {
             let built = await Task.detached(priority: .userInitiated) {
                 MapOverlay.make(routes: routes, tracks: tracks,
                                 waypoints: waypoints, selection: selection, searchPin: searchPin,
-                                measure: measure)
+                                measure: measure, editingTrack: editingTrack, nearby: nearbyHits)
             }.value
             Timing.log("overlay.encode", since: started,
                        "\(built.sources.values.reduce(0) { $0 + $1.utf8.count } / 1000) KB")
@@ -1360,6 +1457,29 @@ final class LibraryModel {
         profiles[id] = ProfileEntry(key: key, profile: profile)
     }
 
+    // MARK: - Rotation
+
+    /// Which way the map faces, whole degrees clockwise from north, for
+    /// the compass. Rounded so a slow turn is not a redraw per pixel.
+    private(set) var mapBearing: Double = 0
+
+    func bearingChanged(_ bearing: Double) {
+        var rounded = GeoMath.wrap360(bearing.rounded())
+        if rounded == 360 { rounded = 0 }
+        if rounded != mapBearing { mapBearing = rounded }
+    }
+
+    /// Turns the map, as the View menu's Rotate Left and Right do.
+    func rotateMap(by degrees: Double) {
+        nextCameraID += 1
+        camera = MapCameraRequest(id: nextCameraID, target: .rotate(by: degrees))
+    }
+
+    func faceNorth() {
+        nextCameraID += 1
+        camera = MapCameraRequest(id: nextCameraID, target: .north)
+    }
+
     /// Looks at a spot on the road, close enough to read the junction.
     func look(at coordinate: Coordinate, zoom: Double = 15) {
         nextCameraID += 1
@@ -1425,6 +1545,7 @@ final class LibraryModel {
             return
         }
         if editingRouteID != nil, edit(with: click) { return }
+        if editingTrackID != nil, editTrack(with: click) { return }
 
         switch click.target {
         case .viaPoint(let routeID, let seq):
@@ -1435,8 +1556,14 @@ final class LibraryModel {
             selection = [id]
         case .track(let id):
             selection = [id]
+        case .trackPoint(let id, let index):
+            selection = [OverlayGeoJSON.handle(id, index), id]
         case .searchPin:
             break   // a look, not a library item; the menu is its interface
+        case .nearby(let id):
+            // Pinned, as a search result chosen from the list is, with the
+            // same bar to keep it.
+            if let hit = nearby?.hits.first(where: { $0.id == id }) { searchPin = hit.result; rebuildOverlay() }
         case .ground:
             selection = []
         }
@@ -1451,6 +1578,7 @@ final class LibraryModel {
     /// is still being aimed. An empty route left behind on Done is deleted.
     func newRoute() {
         finishEditing()
+        finishEditingTrack()
 
         let taken = Set(routes.map(\.route.name))
         var n = routes.count + 1
@@ -1486,6 +1614,7 @@ final class LibraryModel {
     func editRoute(_ id: String) {
         guard routes.contains(where: { $0.route.id == id }) else { return }
         finishEditing()
+        finishEditingTrack()
         // Editing what cannot be seen is a mistake waiting to happen, so
         // a hidden route is ticked back on, undoably like any tick.
         if isHidden(id) { setHidden(false, for: [id]) }
@@ -1514,6 +1643,9 @@ final class LibraryModel {
     /// having before a drag asks for them.
     func viewChanged(_ box: BoundingBox, zoom: Double) {
         viewCenter = box.center
+        viewBox = box
+        // The handles follow the view: which fixes are in it, or too many.
+        if editingTrackID != nil { rebuildOverlay() }
         search.prepare(near: box.center)
         guard zoom >= 9 else { return }
         prefetch?.warm(box)
@@ -1530,6 +1662,74 @@ final class LibraryModel {
         nextCameraID += 1
         camera = MapCameraRequest(id: nextCameraID,
                                   target: .point(result.coordinate, zoom: result.kind == .address ? 15 : 13))
+    }
+
+    // MARK: - Find near
+
+    /// What a Find Near turned up, for the panel over the map and the dots
+    /// on it: what was asked for, near what, and the hits as they arrive.
+    struct NearbyPanel: Equatable {
+        var title: String
+        var hits: [NearbyHit] = []
+        var isSearching = true
+        /// Said while a long route's index files download.
+        var note: String?
+        var alongRoute: Bool
+    }
+    private(set) var nearby: NearbyPanel?
+    @ObservationIgnored private var nearbyTask: Task<Void, Never>?
+
+    /// How far a point's search reaches: a tank's worth of looking, near
+    /// enough to ride to.
+    static let nearbyRadius = 40_000.0
+    /// How far off a route a stop may be and still be "along" it: two
+    /// miles, a detour a rider takes for fuel without thinking twice.
+    static let corridorRadius = 3_200.0
+
+    /// A category near a spot: a waypoint, the pinned result, a click.
+    func findNear(_ category: NearbyCategory, at coordinate: Coordinate, name: String) {
+        runNearby(category, title: "\(category.title) near \(name)", path: [coordinate],
+                  radius: Self.nearbyRadius, limit: 30)
+    }
+
+    /// A category along a route, in the order the road meets it.
+    func findAlong(_ category: NearbyCategory, route id: String) {
+        guard let detail = routes.first(where: { $0.route.id == id }), detail.path.count >= 2 else { return }
+        runNearby(category, title: "\(category.title) along \(detail.route.name)", path: detail.path,
+                  radius: Self.corridorRadius, limit: 300)
+    }
+
+    private func runNearby(_ category: NearbyCategory, title: String, path: [Coordinate], radius: Double, limit: Int) {
+        nearbyTask?.cancel()
+        nearby = NearbyPanel(title: title, alongRoute: path.count > 1)
+        rebuildOverlay()
+        let search = self.search
+        nearbyTask = Task {
+            let corridor = await Task.detached(priority: .userInitiated) { Corridor(path: path, radius: radius) }.value
+            let areas = PlaceIndex.shards(for: corridor).count
+            if areas > 4 {
+                nearby?.note = "Looking in \(areas) areas of the index; each downloads once."
+            }
+            let hits = await search.nearby(category, along: corridor, limit: limit)
+            guard !Task.isCancelled, nearby?.title == title else { return }
+            nearby?.hits = hits
+            nearby?.isSearching = false
+            nearby?.note = nil
+            rebuildOverlay()
+        }
+    }
+
+    func dismissNearby() {
+        nearbyTask?.cancel()
+        nearby = nil
+        rebuildOverlay()
+    }
+
+    /// The Find Near submenu for a spot, as the map's menus offer it.
+    private func findNearMenu(at coordinate: Coordinate, name: String) -> MapMenuItem {
+        MapMenuItem(title: "Find Near", children: NearbyCategory.allCases.map { category in
+            MapMenuItem(title: category.title) { self.findNear(category, at: coordinate, name: name) }
+        })
     }
 
     func dismissSearchPin() {
@@ -1778,6 +1978,215 @@ final class LibraryModel {
         selection = made
     }
 
+    // MARK: - Cut, copy and paste
+
+    /// What the last cut or copy took, exactly as it was, and the
+    /// pasteboard's change count when it was taken.
+    ///
+    /// Two copies of the same thing, on purpose. The pasteboard gets GPX,
+    /// which every other app can read and which a text editor shows as the
+    /// file it is. But GPX has no room for a stop's link to its waypoint, a
+    /// pinned point, a hidden item or a route's Adventure mode on a unit
+    /// that knows only Motorcycling, so a paste back into this library from
+    /// the GPX alone would be an import, and lossy. While the pasteboard
+    /// still holds what was put there, the paste comes from here instead.
+    private struct Clipboard {
+        var changeCount: Int
+        var routes: [RouteDetail]
+        var tracks: [TrackDetail]
+        var waypoints: [Waypoint]
+        /// A cut's paste puts the items themselves back, ids and all, once.
+        var isCut: Bool
+    }
+    @ObservationIgnored private var clipboard: Clipboard?
+
+    #if os(macOS)
+    /// The general pasteboard, or a private one for a test.
+    @ObservationIgnored var pasteboard: NSPasteboard = .general
+
+    /// GPX's own type, so another planner that knows it gets the file.
+    static let gpxPasteboardType = NSPasteboard.PasteboardType("com.topografix.gpx")
+
+    /// The selection, onto the pasteboard. Nothing selected copies nothing:
+    /// unlike Export, a copy of the whole library is never what was meant.
+    func copySelection() { copy(selection) }
+
+    func copy(_ ids: Set<String>) {
+        _ = take(ids, isCut: false)
+    }
+
+    /// The selection onto the pasteboard and out of the library, as one
+    /// undo step. A paste puts the same items back, wherever it lands.
+    func cutSelection() { cut(selection) }
+
+    func cut(_ ids: Set<String>) {
+        guard let taken = take(ids, isCut: true) else { return }
+        undoManager.beginUndoGrouping()
+        delete(taken)
+        undoManager.setActionName("Cut")
+        undoManager.endUndoGrouping()
+    }
+
+    private func take(_ ids: Set<String>, isCut: Bool) -> Set<String>? {
+        let ids = ids.filter { !isList($0) && OverlayGeoJSON.parseHandle($0) == nil }
+        guard !ids.isEmpty, let document = document(for: ids) else { return nil }
+        let data = GPXWriter.data(document)
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: Self.gpxPasteboardType)
+        pasteboard.setString(String(decoding: data, as: UTF8.self), forType: .string)
+        clipboard = Clipboard(changeCount: pasteboard.changeCount,
+                              routes: routes.filter { ids.contains($0.route.id) },
+                              tracks: tracks.filter { ids.contains($0.track.id) },
+                              waypoints: waypoints.filter { ids.contains($0.id) },
+                              isCut: isCut)
+        return ids
+    }
+
+    /// Pastes into a list, or into the one being looked at: what the last
+    /// cut or copy here took, exactly, or else whatever GPX the pasteboard
+    /// holds from elsewhere, as data, as text or as files from the Finder.
+    /// Undoable either way; the pasted items come out selected.
+    func paste() { paste(into: selectedListID) }
+
+    /// Into a list by its id, or with nil unfiled, into My Collection.
+    func paste(into target: String?) {
+        if var clipboard, clipboard.changeCount == pasteboard.changeCount {
+            // A cut's items, back as themselves if they are still gone; a
+            // second paste, or a cut that was undone, makes copies.
+            let keepIDs = clipboard.isCut
+                && !clipboard.routes.contains { r in routes.contains { $0.route.id == r.route.id } }
+                && !clipboard.tracks.contains { t in tracks.contains { $0.track.id == t.track.id } }
+                && !clipboard.waypoints.contains { w in waypoints.contains { $0.id == w.id } }
+            insert(clipboard.routes, clipboard.tracks, clipboard.waypoints, into: target, keepIDs: keepIDs)
+            clipboard.isCut = false
+            self.clipboard = clipboard
+            return
+        }
+        guard let document = pastedDocument() else {
+            failure = "There is nothing on the clipboard that Swiftcamp can paste."
+            return
+        }
+        do {
+            let result = try store.importGPX(document, into: target)
+            pendingFocus = Set(result.ids)
+            applyPendingFocus()
+            selection = Set(result.ids)
+            registerUndo("Paste") { model in model.delete(Set(result.ids)) }
+            failure = nil
+        } catch {
+            failure = error.localizedDescription
+        }
+    }
+
+    /// GPX from another app: its own type, files copied in the Finder, or
+    /// text that is a GPX document. The importer decides by the content,
+    /// so a GDB copied in the Finder pastes as well.
+    private func pastedDocument() -> GPXDocument? {
+        if let data = pasteboard.data(forType: Self.gpxPasteboardType),
+           let document = try? FileImport.read(data: data), !document.isEmpty {
+            return document
+        }
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self],
+                                             options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            var merged = GPXDocument()
+            for url in urls {
+                guard let document = try? FileImport.read(contentsOf: url) else { continue }
+                merged.waypoints += document.waypoints
+                merged.routes += document.routes
+                merged.tracks += document.tracks
+                merged.lists += document.lists
+            }
+            if !merged.isEmpty { return merged }
+        }
+        if let text = pasteboard.string(forType: .string), text.contains("<gpx"),
+           let document = try? FileImport.read(data: Data(text.utf8)), !document.isEmpty {
+            return document
+        }
+        return nil
+    }
+    #endif
+
+    /// Writes items into a list in one transaction and selects them; undo
+    /// removes them. As themselves with `keepIDs`, which is a cut being
+    /// put back; otherwise as copies, under names no other item of their
+    /// kind has, with a copied stop linked to the copy of its waypoint
+    /// when both came together.
+    private func insert(_ sourceRoutes: [RouteDetail], _ sourceTracks: [TrackDetail], _ sourceWaypoints: [Waypoint],
+                        into listID: String?, keepIDs: Bool) {
+        var waypointIDs: [String: String] = [:]
+        var takenNames = Set(waypoints.map(\.name))
+        let newWaypoints = sourceWaypoints.map { source -> Waypoint in
+            var waypoint = source
+            waypoint.listID = listID
+            if !keepIDs {
+                waypoint.id = newID()
+                waypoint.name = uniqueName(source.name, among: Array(takenNames))
+                waypoint.createdAt = .now
+            }
+            takenNames.insert(waypoint.name)
+            waypointIDs[source.id] = waypoint.id
+            return waypoint
+        }
+        let known = Set(waypoints.map(\.id))
+        takenNames = Set(routes.map(\.route.name))
+        let newRoutes = sourceRoutes.map { source -> RouteDetail in
+            var detail = source
+            detail.route.listID = listID
+            if !keepIDs {
+                detail.route.id = newID()
+                detail.route.name = uniqueName(source.route.name, among: Array(takenNames))
+                detail.route.createdAt = .now
+            }
+            takenNames.insert(detail.route.name)
+            for i in detail.points.indices {
+                detail.points[i].id = nil
+                detail.points[i].routeID = detail.route.id
+                if let linked = detail.points[i].waypointID {
+                    detail.points[i].waypointID = waypointIDs[linked] ?? (known.contains(linked) ? linked : nil)
+                }
+            }
+            return detail
+        }
+        takenNames = Set(tracks.map(\.track.name))
+        let newTracks = sourceTracks.map { source -> TrackDetail in
+            var detail = source
+            detail.track.listID = listID
+            if !keepIDs {
+                detail.track.id = newID()
+                detail.track.name = uniqueName(source.track.name, among: Array(takenNames))
+                detail.track.createdAt = .now
+            }
+            takenNames.insert(detail.track.name)
+            for i in detail.points.indices {
+                detail.points[i].id = nil
+                detail.points[i].trackID = detail.track.id
+            }
+            return detail
+        }
+        guard !newRoutes.isEmpty || !newTracks.isEmpty || !newWaypoints.isEmpty else { return }
+        do {
+            try store.insert(routes: newRoutes, tracks: newTracks, waypoints: newWaypoints)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        let ids = Set(newRoutes.map(\.route.id) + newTracks.map(\.track.id) + newWaypoints.map(\.id))
+        registerUndo("Paste") { model in model.delete(ids) }
+        waypoints.append(contentsOf: newWaypoints)
+        routes.append(contentsOf: newRoutes)
+        tracks.append(contentsOf: newTracks)
+        refreshHasContent()
+        rebuildSummaries()
+        rebuildShown()
+        rebuildOverlay()
+        selection = ids
+    }
+
+    /// Every item the sidebar is listing, for Select All.
+    func selectAllShown() {
+        selection = Set(shownRoutes.map(\.route.id) + shownTracks.map(\.track.id) + shownWaypoints.map(\.id))
+    }
+
     // MARK: - Track tools
 
     /// The same ride the other way. See `TrackDetail.inverted`.
@@ -1849,6 +2258,250 @@ final class LibraryModel {
         registerUndo(actionName) { model in model.replace(results, with: originals, actionName: actionName) }
     }
 
+    // MARK: - Editing a track's points
+
+    /// Puts a track's fixes out as handles. Ends any other editing first:
+    /// one thing is being edited at a time, and a click means one thing.
+    func editTrack(_ id: String) {
+        guard tracks.contains(where: { $0.track.id == id }) else { return }
+        finishEditing()
+        stopMeasuring()
+        if isHidden(id) { setHidden(false, for: [id]) }
+        editingTrackID = id
+        selection = [id]
+        rebuildOverlay()
+    }
+
+    func finishEditingTrack() {
+        guard let id = editingTrackID else { return }
+        editingTrackID = nil
+        trackDrag = nil
+        selection = selection.filter { OverlayGeoJSON.parseHandle($0)?.routeID != id }
+        rebuildOverlay()
+    }
+
+    /// The fixes of a track inside the view, a little beyond its edges so
+    /// a handle does not pop in at the border, or nil when there are more
+    /// than `trackHandleLimit` of them. Every fix with no view yet.
+    private static func handles(of detail: TrackDetail, in box: BoundingBox?) -> [TrackPoint]? {
+        let ordered = detail.orderedPoints
+        guard let box else { return ordered.count <= trackHandleLimit ? ordered : nil }
+        let padLat = (box.north - box.south) * 0.1, padLon = (box.east - box.west) * 0.1
+        var out: [TrackPoint] = []
+        for point in ordered
+        where point.lat >= box.south - padLat && point.lat <= box.north + padLat
+            && point.lon >= box.west - padLon && point.lon <= box.east + padLon {
+            out.append(point)
+            if out.count > trackHandleLimit { return nil }
+        }
+        return out
+    }
+
+    /// The track as a drag in flight would leave it, for drawing.
+    private static func preview(_ detail: TrackDetail,
+                                _ drag: (trackID: String, index: Int, inserted: TrackPoint?, to: Coordinate)) -> TrackDetail {
+        if var point = drag.inserted {
+            point.lat = drag.to.lat
+            point.lon = drag.to.lon
+            return detail.replacing(drag.index..<drag.index, with: [point])
+        }
+        let ordered = detail.orderedPoints
+        guard ordered.indices.contains(drag.index) else { return detail }
+        var point = ordered[drag.index]
+        point.lat = drag.to.lat
+        point.lon = drag.to.lon
+        return detail.replacing(drag.index..<(drag.index + 1), with: [point])
+    }
+
+    /// Writes fixes `range` of a track as `replacement`, in place, and
+    /// registers the inverse: the same range of the result put back as it
+    /// was. Every point edit goes through here, so each is one undo step.
+    private func replaceTrackPoints(_ trackID: String, _ range: Range<Int>, with replacement: [TrackPoint],
+                                    actionName: String) {
+        guard let i = tracks.firstIndex(where: { $0.track.id == trackID }) else { return }
+        let ordered = tracks[i].orderedPoints
+        guard range.lowerBound >= 0, range.upperBound <= ordered.count else { return }
+        let before = Array(ordered[range])
+        do {
+            try store.replaceTrackPoints(trackID: trackID, range: range, with: replacement)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        tracks[i] = tracks[i].replacing(range, with: replacement)
+        rebuildSummaries()
+        rebuildOverlay()
+        let inverse = range.lowerBound..<(range.lowerBound + replacement.count)
+        registerUndo(actionName) { model in
+            model.replaceTrackPoints(trackID, inverse, with: before, actionName: actionName)
+        }
+    }
+
+    func moveTrackPoint(_ trackID: String, index: Int, to coordinate: Coordinate) {
+        guard let detail = tracks.first(where: { $0.track.id == trackID }) else { return }
+        let ordered = detail.orderedPoints
+        guard ordered.indices.contains(index) else { return }
+        var point = ordered[index]
+        point.lat = coordinate.lat
+        point.lon = coordinate.lon
+        replaceTrackPoints(trackID, index..<(index + 1), with: [point], actionName: "Move Track Point")
+    }
+
+    /// A fix on the line nearest a spot, between the two it falls between;
+    /// selected, so Delete takes it back.
+    func insertTrackPoint(_ trackID: String, at coordinate: Coordinate) {
+        guard let detail = tracks.first(where: { $0.track.id == trackID }),
+              let leg = detail.nearestLeg(to: coordinate) else { return }
+        replaceTrackPoints(trackID, (leg + 1)..<(leg + 1),
+                           with: [detail.interpolatedPoint(at: coordinate, inLeg: leg)],
+                           actionName: "Add Track Point")
+        selection = [OverlayGeoJSON.handle(trackID, leg + 1), trackID]
+    }
+
+    /// Erases fixes, refusing to leave fewer than two: a track of one fix
+    /// draws nothing and exports as nothing a unit will show.
+    func deleteTrackPoints(_ trackID: String, _ range: Range<Int>, actionName: String) {
+        guard let detail = tracks.first(where: { $0.track.id == trackID }),
+              !range.isEmpty, detail.points.count - range.count >= 2 else { return }
+        selection = selection.filter { OverlayGeoJSON.parseHandle($0)?.routeID != trackID }
+        replaceTrackPoints(trackID, range, with: [], actionName: actionName)
+    }
+
+    /// The selected fix of the edited track, for the Delete key.
+    private func deleteSelectedTrackPoint() {
+        guard let id = editingTrackID,
+              let index = selection.compactMap(OverlayGeoJSON.parseHandle).first(where: { $0.routeID == id })?.seq
+        else { return }
+        deleteTrackPoints(id, index..<(index + 1), actionName: "Delete Track Point")
+    }
+
+    /// A click while a track's fixes are out. False when it means what it
+    /// would otherwise, so the caller falls through to selection.
+    private func editTrack(with click: MapClick) -> Bool {
+        guard let id = editingTrackID else { return false }
+        switch click.target {
+        case .trackPoint(let trackID, let index) where trackID == id:
+            selection = [OverlayGeoJSON.handle(id, index), id]
+            return true
+        case .track(let trackID) where trackID == id:
+            insertTrackPoint(id, at: click.coordinate)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// A fix, or the edited track's line, being dragged.
+    private func dragTrackPoint(_ trackID: String, _ index: Int?, _ event: MapDrag) {
+        guard trackID == editingTrackID, let detail = tracks.first(where: { $0.track.id == trackID }) else { return }
+        switch event.phase {
+        case .begin:
+            if let index {
+                trackDrag = (trackID, index, nil, event.coordinate)
+            } else {
+                guard let leg = detail.nearestLeg(to: event.coordinate) else { return }
+                trackDrag = (trackID, leg + 1, detail.interpolatedPoint(at: event.coordinate, inLeg: leg), event.coordinate)
+            }
+            selection = [OverlayGeoJSON.handle(trackID, trackDrag!.index), trackID]
+        case .move:
+            guard trackDrag?.trackID == trackID else { return }
+            trackDrag?.to = event.coordinate
+            rebuildOverlay()
+        case .end:
+            guard let drag = trackDrag, drag.trackID == trackID else { return }
+            trackDrag = nil
+            if var point = drag.inserted {
+                point.lat = event.coordinate.lat
+                point.lon = event.coordinate.lon
+                replaceTrackPoints(trackID, drag.index..<drag.index, with: [point], actionName: "Add Track Point")
+            } else {
+                moveTrackPoint(trackID, index: drag.index, to: event.coordinate)
+            }
+        }
+    }
+
+    // MARK: - Printing
+
+    #if os(macOS)
+    /// File, Print: the map as it is on screen and, under it, the selected
+    /// route's turns, the track's statistics or the waypoint's notes. With
+    /// `url`, a PDF with no panel, for a script.
+    func printMap(to url: URL? = nil) async {
+        let id = selection.first { !isList($0) && OverlayGeoJSON.parseHandle($0) == nil }
+        if let id, routes.contains(where: { $0.route.id == id }) {
+            // The turns are worked out on demand; a printout should not
+            // depend on whether the pane was opened first.
+            while routing.contains(id) { try? await Task.sleep(for: .milliseconds(200)) }
+            await loadDirections(for: id)
+        }
+        let image = await MapPrinting.snapshot()
+        let (title, subtitle, sections) = printSections(for: id)
+        let document = MapPrinting.document(title: title, subtitle: subtitle, map: image,
+                                            // Whose data is on the page, as the map
+                                            // says on screen: the Forest Service too
+                                            // while its trails are drawn.
+                                            attribution: showsTrails
+                                                ? "\(BasemapSource.attribution) · \(BasemapSource.trailsAttribution)"
+                                                : BasemapSource.attribution,
+                                            sections: sections, width: MapPrinting.printableWidth)
+        MapPrinting.print(document, to: url)
+    }
+
+    private func printSections(for id: String?) -> (String, String?, [MapPrinting.Section]) {
+        let printed = "Printed \(Date.now.formatted(date: .abbreviated, time: .omitted)) from Swiftcamp"
+        if let id, let detail = routes.first(where: { $0.route.id == id }) {
+            let directions = directionsByRoute[id]?.directions
+            var facts = [Self.miles(detail.length), detail.route.mode.title]
+            if let time = directions?.time { facts.insert(Self.duration(time), at: 1) }
+            if detail.route.mode != .direct, detail.route.preferences.prefer != .fasterTime {
+                facts.append(detail.route.preferences.prefer.title)
+            }
+            let distances = detail.distancesFromStart()
+            let stops = detail.viaPoints.enumerated().map { n, point in
+                "\(n + 1). \(point.name ?? "Via point \(point.seq + 1)")  ·  mile \(Self.milesNumber(distances[point.seq] ?? 0))"
+            }
+            var sections = [MapPrinting.Section(heading: "Stops", lines: stops)]
+            if let directions {
+                sections.append(MapPrinting.Section(heading: "Directions", lines: directions.maneuvers.enumerated().map { n, turn in
+                    "\(n + 1). \(turn.instruction)  ·  mile \(Self.milesNumber(turn.distanceFromStart))"
+                }))
+            }
+            if let comment = detail.route.comment, !comment.isEmpty {
+                sections.insert(MapPrinting.Section(heading: "Notes", lines: [comment]), at: 0)
+            }
+            return (detail.route.name, facts.joined(separator: "  ·  ") + "  —  " + printed, sections)
+        }
+        if let id, let detail = tracks.first(where: { $0.track.id == id }) {
+            let stats = trackStatistics[id] ?? TrackStatistics(detail)
+            var lines = ["\(detail.points.count.formatted()) points, \(Self.miles(stats.distance))"]
+            if let moving = stats.moving, let elapsed = stats.elapsed {
+                lines.append("\(Self.duration(moving)) moving of \(Self.duration(elapsed))")
+            }
+            if let ascent = stats.ascent, let descent = stats.descent {
+                lines.append("Climb \(Int((ascent / 0.3048).rounded()).formatted()) ft, descent \(Int((descent / 0.3048).rounded()).formatted()) ft")
+            }
+            return (detail.track.name, printed, [MapPrinting.Section(heading: "Track", lines: lines)])
+        }
+        if let id, let waypoint = waypoints.first(where: { $0.id == id }) {
+            var lines = [String(format: "%.5f, %.5f", waypoint.lat, waypoint.lon)]
+            if let elevation = waypoint.elevation { lines.append("\(Int((elevation / 0.3048).rounded()).formatted()) ft") }
+            if let comment = waypoint.comment { lines.append(comment) }
+            if let notes = waypoint.descriptionText { lines.append(notes) }
+            return (waypoint.name, printed, [MapPrinting.Section(heading: "Waypoint", lines: lines)])
+        }
+        return ("Map", printed, [])
+    }
+
+    private static func milesNumber(_ metres: Double) -> String {
+        String(format: "%.1f", metres / 1609.344)
+    }
+
+    private static func duration(_ seconds: Double) -> String {
+        let minutes = Int((seconds / 60).rounded())
+        return minutes < 60 ? "\(minutes) min" : "\(minutes / 60) h \(minutes % 60) min"
+    }
+    #endif
+
     // MARK: - Backup and restore
 
     /// Writes the library to a file of the user's choosing.
@@ -1871,6 +2524,7 @@ final class LibraryModel {
         isBusy = true
         defer { isBusy = false }
         finishEditing()
+        finishEditingTrack()
         drag = nil
         waypointDrag = nil
         selection = []
@@ -2055,7 +2709,7 @@ final class LibraryModel {
         case .viaPoint(let routeID, _) where routeID == detail.route.id:
             return false    // selects the handle, so Delete knows which
 
-        case .viaPoint, .routeLine, .track:
+        case .viaPoint, .routeLine, .track, .trackPoint, .nearby:
             return false
         }
     }
@@ -2073,6 +2727,9 @@ final class LibraryModel {
         switch event.subject {
         case .waypoint(let id):
             dragWaypoint(id, event)
+            return
+        case .trackPoint(let id, let index):
+            dragTrackPoint(id, index, event)
             return
         case .routePoint(let id, let seq):
             routeID = id
@@ -2209,6 +2866,10 @@ final class LibraryModel {
         guard let i = routes.firstIndex(where: { $0.route.id == id }), routes[i].route.mode != mode else { return }
         var header = routes[i].route
         header.mode = mode
+        // A curvy preference carried into a car or onto foot would sit in
+        // a picker that cannot show it and change nothing; undo brings it
+        // back with the mode.
+        if !mode.preferences.contains(header.preferences.prefer) { header.preferences.prefer = .fasterTime }
         reroute(id, with: header, actionName: "Change Routing")
     }
 
@@ -2287,14 +2948,20 @@ final class LibraryModel {
                 editing ? MapMenuItem(title: "Done Editing") { self.finishEditing() }
                         : MapMenuItem(title: "Edit Route") { self.editRoute(routeID) },
                 MapMenuItem(title: "Reverse Route") { self.reverseRoute(routeID) },
-            ] + RoutingMode.allCases.map { mode in
-                MapMenuItem(title: "\(mode.title) Routing", isChecked: mode == current) {
-                    self.setMode(mode, forRoute: routeID)
-                }
-            } + [
+                // Five modes are a submenu's worth, like Prefer and Avoid.
+                MapMenuItem(title: "Routing", children: RoutingMode.allCases.map { mode in
+                    MapMenuItem(title: mode.title, isChecked: mode == current) {
+                        self.setMode(mode, forRoute: routeID)
+                    }
+                }),
+            ] + (current == .direct ? [] : [
                 MapMenuItem(title: "Prefer", children: preferMenu(for: routeID)),
                 MapMenuItem(title: "Avoid", children: avoidMenu(for: routeID)),
+            ]) + [
                 .separator,
+                MapMenuItem(title: "Find Along Route", children: NearbyCategory.allCases.map { category in
+                    MapMenuItem(title: category.title) { self.findAlong(category, route: routeID) }
+                }),
                 MapMenuItem(title: "Create Track from Route") { self.makeTrack(fromRoute: routeID) },
                 MapMenuItem(title: "Rename…") { self.requestRename(routeID) },
             ]
@@ -2310,6 +2977,10 @@ final class LibraryModel {
             }
             items.append(MapMenuItem(title: "New Route Here") { self.startRoute(at: click.coordinate) })
             items.append(MapMenuItem(title: "New Waypoint Here") { self.newWaypoint(at: click.coordinate) })
+            items.append(.separator)
+            items.append(MapMenuItem(title: "Find Near Here", children: NearbyCategory.allCases.map { category in
+                MapMenuItem(title: category.title) { self.findNear(category, at: click.coordinate, name: "here") }
+            }))
             return items
 
         case .waypoint(let id):
@@ -2324,6 +2995,7 @@ final class LibraryModel {
                 self.startRoute(from: waypoint)
             })
             return items + [
+                findNearMenu(at: waypoint.coordinate, name: waypoint.name),
                 .separator,
                 MapMenuItem(title: "Rename…") { self.requestRename(id) },
                 MapMenuItem(title: "Change Icon", children: symbolMenu(for: waypoint)),
@@ -2345,11 +3017,44 @@ final class LibraryModel {
             items.append(MapMenuItem(title: "New Route from \(pin.name)") {
                 self.startRoute(at: pin.coordinate, name: pin.name, pinned: true)
             })
-            return items + [.separator, MapMenuItem(title: "Dismiss") { self.dismissSearchPin() }]
+            return items + [findNearMenu(at: pin.coordinate, name: pin.name),
+                            .separator, MapMenuItem(title: "Dismiss") { self.dismissSearchPin() }]
+
+        case .nearby(let id):
+            guard let hit = nearby?.hits.first(where: { $0.id == id }) else { return [] }
+            return [
+                MapMenuItem(title: "Save as Waypoint") {
+                    self.searchPin = hit.result
+                    self.saveSearchPin()
+                },
+                MapMenuItem(title: "New Route from \(hit.result.name)") {
+                    self.startRoute(at: hit.result.coordinate, name: hit.result.name, pinned: true)
+                },
+            ]
+
+        case .trackPoint(let id, let index):
+            guard let count = tracks.first(where: { $0.track.id == id })?.points.count else { return [] }
+            return [
+                MapMenuItem(title: "Delete Point") {
+                    self.deleteTrackPoints(id, index..<(index + 1), actionName: "Delete Track Point")
+                },
+                MapMenuItem(title: "Delete Points Before This") {
+                    self.deleteTrackPoints(id, 0..<index, actionName: "Delete Track Points")
+                },
+                MapMenuItem(title: "Delete Points After This") {
+                    self.deleteTrackPoints(id, (index + 1)..<count, actionName: "Delete Track Points")
+                },
+                .separator,
+                MapMenuItem(title: "Done Editing") { self.finishEditingTrack() },
+            ]
 
         case .track(let id):
             guard let detail = tracks.first(where: { $0.track.id == id }) else { return [] }
+            let editing = id == editingTrackID
             return [
+                editing ? MapMenuItem(title: "Add Point Here") { self.insertTrackPoint(id, at: click.coordinate) }
+                        : MapMenuItem(title: "Edit Points") { self.editTrack(id) },
+                editing ? MapMenuItem(title: "Done Editing") { self.finishEditingTrack() } : .separator,
                 MapMenuItem(title: "Split Track Here") { self.splitTrack(id, at: click.coordinate) },
                 MapMenuItem(title: "Invert Track") { self.invertTrack(id) },
                 MapMenuItem(title: "Create Route from Track") { self.makeRoute(fromTrack: id) },
@@ -2368,8 +3073,9 @@ final class LibraryModel {
 
     /// What the legs optimise for, the route's own ticked.
     private func preferMenu(for routeID: String) -> [MapMenuItem] {
-        let current = routes.first { $0.route.id == routeID }?.route.preferences ?? RoutePreferences()
-        return RoutePreferences.Preference.allCases.map { prefer in
+        let route = routes.first { $0.route.id == routeID }?.route
+        let current = route?.preferences ?? RoutePreferences()
+        return (route?.mode ?? .road).preferences.map { prefer in
             MapMenuItem(title: prefer.title, isChecked: prefer == current.prefer) {
                 var next = current
                 next.prefer = prefer
@@ -2380,11 +3086,9 @@ final class LibraryModel {
 
     /// The kinds of road to keep off, each ticked while avoided.
     private func avoidMenu(for routeID: String) -> [MapMenuItem] {
-        let current = routes.first { $0.route.id == routeID }?.route.preferences ?? RoutePreferences()
-        let kinds: [(String, WritableKeyPath<RoutePreferences, Bool>)] = [
-            ("Highways", \.avoidHighways), ("Tolls", \.avoidTolls), ("Ferries", \.avoidFerries),
-        ]
-        return kinds.map { title, path in
+        let route = routes.first { $0.route.id == routeID }?.route
+        let current = route?.preferences ?? RoutePreferences()
+        return (route?.mode ?? .road).avoidances.map { title, path in
             MapMenuItem(title: title, isChecked: current[keyPath: path]) {
                 var next = current
                 next[keyPath: path].toggle()
@@ -2546,6 +3250,13 @@ final class LibraryModel {
             }
             return
         }
+        if editingTrackID != nil {
+            switch key {
+            case .delete: deleteSelectedTrackPoint()
+            case .escape: finishEditingTrack()
+            }
+            return
+        }
         switch key {
         case .delete: deleteSelectedViaPoint()
         case .escape: finishEditing()
@@ -2616,25 +3327,29 @@ final class LibraryModel {
         }
     }
 
-    /// Deleting a waypoint can be undone; it is one row, and Delete sits
-    /// on a right-click menu where a slip is easy. A route or a track is
-    /// not, yet: a day's track is a few hundred thousand rows to hold.
+    /// Deletes anything, undoably. A route or a track is held whole in the
+    /// undo closure, points and all; that is the memory `routes` and
+    /// `tracks` already spend on it, and a day's ride lost to a slip on a
+    /// right-click menu is the worse cost.
     func delete(_ id: String) {
         if isList(id) {
             deleteList(id)
             return
         }
         if id == editingRouteID { editingRouteID = nil }
+        if id == editingTrackID { finishEditingTrack() }
         if drag?.routeID == id { drag = nil }
         if waypointDrag?.id == id { waypointDrag = nil }
         do {
-            if routes.contains(where: { $0.route.id == id }) {
+            if let detail = routes.first(where: { $0.route.id == id }) {
                 try store.deleteRoute(id: id)
-            } else if tracks.contains(where: { $0.track.id == id }) {
+                registerUndo("Delete Route") { model in model.restore(route: detail) }
+            } else if let detail = tracks.first(where: { $0.track.id == id }) {
                 try store.deleteTrack(id: id)
+                registerUndo("Delete Track") { model in model.restore(track: detail) }
             } else if let waypoint = waypoints.first(where: { $0.id == id }) {
                 try store.deleteWaypoint(id: id)
-                registerUndo("Delete Waypoint") { model in model.restore(waypoint) }
+                registerUndo("Delete Waypoint") { model in model.restore(waypoint: waypoint) }
             } else {
                 try store.deleteWaypoint(id: id)
             }
@@ -2644,9 +3359,29 @@ final class LibraryModel {
         }
     }
 
-    /// Puts a deleted waypoint back as it was, id included, so anything
-    /// that remembered it finds it again.
-    private func restore(_ waypoint: Waypoint) {
+    /// Deletes every selected item as one undo step, for the Edit menu and
+    /// the sidebar's Delete key. A route's points in the selection are the
+    /// map's handles, not items, and are left alone.
+    func deleteSelection() {
+        delete(selection)
+    }
+
+    func delete(_ ids: Set<String>) {
+        let items = ids.filter { !isList($0) && OverlayGeoJSON.parseHandle($0) == nil }
+        guard !items.isEmpty else { return }
+        undoManager.beginUndoGrouping()
+        for id in items.sorted() { delete(id) }
+        undoManager.setActionName(items.count == 1 ? "Delete" : "Delete \(items.count) Items")
+        undoManager.endUndoGrouping()
+    }
+
+    /// Puts a deleted item back as it was, id included, so anything that
+    /// remembered it finds it again. A list it was filed in, or a waypoint
+    /// one of its stops was made from, may have gone meanwhile; the item
+    /// comes back unfiled, or the stop unlinked, rather than not at all.
+    private func restore(waypoint: Waypoint) {
+        var waypoint = waypoint
+        if let listID = waypoint.listID, !isList(listID) { waypoint.listID = nil }
         do {
             try store.save(waypoint)
         } catch {
@@ -2654,5 +3389,47 @@ final class LibraryModel {
             return
         }
         registerUndo("Delete Waypoint") { model in model.delete(waypoint.id) }
+        if !waypoints.contains(where: { $0.id == waypoint.id }) { waypoints.append(waypoint) }
+        refreshHasContent()
+        rebuildShown()
+        rebuildOverlay()
+    }
+
+    private func restore(route detail: RouteDetail) {
+        var detail = detail
+        if let listID = detail.route.listID, !isList(listID) { detail.route.listID = nil }
+        let known = Set(waypoints.map(\.id))
+        for i in detail.points.indices where detail.points[i].waypointID.map({ !known.contains($0) }) ?? false {
+            detail.points[i].waypointID = nil
+        }
+        do {
+            try store.save(detail)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Delete Route") { model in model.delete(detail.route.id) }
+        if !routes.contains(where: { $0.route.id == detail.route.id }) { routes.append(detail) }
+        refreshHasContent()
+        rebuildSummaries()
+        rebuildShown()
+        rebuildOverlay()
+    }
+
+    private func restore(track detail: TrackDetail) {
+        var detail = detail
+        if let listID = detail.track.listID, !isList(listID) { detail.track.listID = nil }
+        do {
+            try store.save(detail.track, points: detail.points)
+        } catch {
+            failure = error.localizedDescription
+            return
+        }
+        registerUndo("Delete Track") { model in model.delete(detail.track.id) }
+        if !tracks.contains(where: { $0.track.id == detail.track.id }) { tracks.append(detail) }
+        refreshHasContent()
+        rebuildSummaries()
+        rebuildShown()
+        rebuildOverlay()
     }
 }

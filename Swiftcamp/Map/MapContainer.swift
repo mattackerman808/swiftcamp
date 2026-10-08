@@ -20,6 +20,8 @@ struct MapContainer: View {
     var camera: MapCameraRequest?
     /// The route whose via points can be dragged, if one is being edited.
     var editingRouteID: String?
+    /// The track whose fixes can be dragged, if one is being edited.
+    var editingTrackID: String?
     var pageEvent: MapPageEvent?
     var onClick: ((MapClick) -> Void)?
     var onDrag: ((MapDrag) -> Void)?
@@ -27,8 +29,10 @@ struct MapContainer: View {
     /// What a right-click at a spot should offer; nothing means no menu.
     var onContextMenu: ((MapClick) -> [MapMenuItem])?
     var onView: ((BoundingBox, Double) -> Void)?
+    var onBearing: ((Double) -> Void)?
     var terrain = false
     var trails = false
+    var contours = false
 
     var body: some View {
         #if os(iOS)
@@ -38,8 +42,10 @@ struct MapContainer: View {
         MapLibreMapView()
         #else
         MapWebView(overlay: overlay, camera: camera, editingRouteID: editingRouteID,
+                   editingTrackID: editingTrackID,
                    pageEvent: pageEvent, onClick: onClick, onDrag: onDrag, onKey: onKey,
-                   onContextMenu: onContextMenu, onView: onView, terrain: terrain, trails: trails)
+                   onContextMenu: onContextMenu, onView: onView, onBearing: onBearing,
+                   terrain: terrain, trails: trails, contours: contours)
         #endif
     }
 }

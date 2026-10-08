@@ -193,6 +193,77 @@ struct LibraryStore: Sendable {
         }
     }
 
+    /// Writes whole items in one transaction, ids as given: a paste, which
+    /// must land complete or not at all. Waypoints first, since a route's
+    /// stop may name one of them.
+    func insert(routes: [RouteDetail], tracks: [TrackDetail], waypoints: [Waypoint]) throws {
+        try database.writer.write { db in
+            for waypoint in waypoints {
+                var waypoint = waypoint
+                waypoint.updatedAt = .now
+                try waypoint.save(db)
+            }
+            for detail in routes {
+                var route = detail.route
+                route.updatedAt = .now
+                try route.save(db)
+                try RoutePoint.filter(Column("route_id") == route.id).deleteAll(db)
+                for (index, point) in detail.points.enumerated() {
+                    var point = point
+                    point.id = nil
+                    point.routeID = route.id
+                    point.seq = index
+                    try point.insert(db)
+                }
+            }
+            for detail in tracks {
+                var track = detail.track
+                track.updatedAt = .now
+                try track.save(db)
+                try TrackPoint.filter(Column("track_id") == track.id).deleteAll(db)
+                for (index, point) in detail.points.enumerated() {
+                    var point = point
+                    point.id = nil
+                    point.trackID = track.id
+                    point.seq = index
+                    try point.insert(db)
+                }
+            }
+        }
+    }
+
+    /// Replaces fixes `range` of a track with others, in place: moving a
+    /// fix, adding one, erasing a run. The rows after the range are
+    /// renumbered rather than the whole track rewritten, so a correction
+    /// to a day's recording is a few statements, not a few hundred
+    /// thousand inserts.
+    ///
+    /// The renumbering goes through negative numbers. `(track_id, seq)` is
+    /// unique and SQLite checks it row by row, so shifting a run in place
+    /// collides with itself whichever way it goes; moving it to the
+    /// negatives first and back cannot.
+    func replaceTrackPoints(trackID: String, range: Range<Int>, with replacement: [TrackPoint]) throws {
+        let delta = replacement.count - range.count
+        try database.writer.write { db in
+            try db.execute(sql: "DELETE FROM track_points WHERE track_id = ? AND seq >= ? AND seq < ?",
+                           arguments: [trackID, range.lowerBound, range.upperBound])
+            if delta != 0 {
+                try db.execute(sql: "UPDATE track_points SET seq = -(seq + ?) - 1 WHERE track_id = ? AND seq >= ?",
+                               arguments: [delta, trackID, range.upperBound])
+                try db.execute(sql: "UPDATE track_points SET seq = -seq - 1 WHERE track_id = ? AND seq < 0",
+                               arguments: [trackID])
+            }
+            for (offset, point) in replacement.enumerated() {
+                var point = point
+                point.id = nil
+                point.trackID = trackID
+                point.seq = range.lowerBound + offset
+                try point.insert(db)
+            }
+            try db.execute(sql: "UPDATE tracks SET updated_at = ? WHERE id = ?", arguments: [Date.now, trackID])
+        }
+    }
+
     /// Removes some tracks and writes others in one transaction: a split,
     /// a join or a simplification, which must not leave the library with
     /// both halves or neither if the app dies between two writes.

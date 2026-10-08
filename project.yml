@@ -53,9 +53,14 @@ targets:
         type: folder
       - path: Swiftcamp/Resources/routing
         type: folder
+      # The app icon, made in Icon Composer. It lives outside Swiftcamp/,
+      # so it has to be listed here or a regenerate drops it.
+      - path: SwiftCamp.icon
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: SwiftCamp
         INFOPLIST_FILE: Swiftcamp/Info.plist
         PRODUCT_NAME: Swiftcamp
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -88,6 +93,8 @@ targets:
       # The Valhalla config template; see RoutingEngine.init(streaming:).
       - path: Swiftcamp/Resources/routing
         type: folder
+      - path: SwiftCamp.icon
+        buildPhase: resources
     # Without this, a missing Valhalla build surfaces as a missing header
     # deep in the C++ bridge, which does not say what to run.
     preBuildScripts:
@@ -101,6 +108,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.swiftcamp.app.mac
+        ASSETCATALOG_COMPILER_APPICON_NAME: SwiftCamp
         PRODUCT_NAME: Swiftcamp
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.navigation

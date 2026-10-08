@@ -191,4 +191,63 @@ final class TrackEditingTests: XCTestCase {
         XCTAssertNil(stats.ascent)
         XCTAssertNil(stats.descent)
     }
+
+    // MARK: - Editing points in place
+
+    private func line(_ count: Int, segmentBreakAt: Int? = nil) -> TrackDetail {
+        let track = Track(name: "Line")
+        let points = (0..<count).map { i in
+            TrackPoint(trackID: track.id, seq: i, segment: segmentBreakAt.map { i >= $0 ? 1 : 0 } ?? 0,
+                       lat: 40, lon: -105 + Double(i) * 0.001, elevation: 2000 + Double(i) * 10,
+                       time: Date(timeIntervalSince1970: 1_700_000_000 + Double(i) * 60))
+        }
+        return TrackDetail(track: track, points: points)
+    }
+
+    func testReplacingKeepsTheIdAndRenumbers() {
+        let detail = line(5)
+        let erased = detail.replacing(1..<3, with: [])
+        XCTAssertEqual(erased.track.id, detail.track.id)
+        XCTAssertEqual(erased.points.map(\.seq), [0, 1, 2])
+        XCTAssertEqual(erased.points.map(\.elevation), [2000, 2030, 2040])
+    }
+
+    /// A fix added halfway along a leg is halfway in time and height too.
+    func testAnAddedFixIsInterpolated() throws {
+        let detail = line(3)
+        let mid = Coordinate(lat: 40, lon: -105 + 0.0005)
+        let leg = try XCTUnwrap(detail.nearestLeg(to: mid))
+        XCTAssertEqual(leg, 0)
+        let point = detail.interpolatedPoint(at: mid, inLeg: leg)
+        XCTAssertEqual(try XCTUnwrap(point.elevation), 2005, accuracy: 0.1)
+        XCTAssertEqual(try XCTUnwrap(point.time).timeIntervalSince1970, 1_700_000_030, accuracy: 0.5)
+        let added = detail.replacing(1..<1, with: [point])
+        XCTAssertEqual(added.points.count, 4)
+        XCTAssertEqual(added.orderedPoints[1].lon, mid.lon, accuracy: 1e-12)
+    }
+
+    /// The gap across a segment break is no line, so a click there lands
+    /// on a leg either side of it.
+    func testNoLegAcrossASegmentBreak() {
+        let detail = line(4, segmentBreakAt: 2)
+        let gap = Coordinate(lat: 40, lon: -105 + 0.0015)
+        XCTAssertNotEqual(detail.nearestLeg(to: gap), 1)
+    }
+
+    /// The store's in-place replacement agrees with the model's, through
+    /// the renumbering that the unique index would otherwise refuse.
+    func testTheStoreReplacesARunInPlace() throws {
+        let store = LibraryStore(try AppDatabase.inMemory())
+        let detail = line(6)
+        try store.save(detail.track, points: detail.points)
+
+        let extra = detail.interpolatedPoint(at: Coordinate(lat: 40.0001, lon: -104.9985), inLeg: 1)
+        try store.replaceTrackPoints(trackID: detail.track.id, range: 2..<2, with: [extra])
+        try store.replaceTrackPoints(trackID: detail.track.id, range: 4..<6, with: [])
+        let expected = detail.replacing(2..<2, with: [extra]).replacing(4..<6, with: [])
+
+        let stored = try store.trackPoints(trackID: detail.track.id)
+        XCTAssertEqual(stored.map(\.seq), expected.points.map(\.seq))
+        XCTAssertEqual(stored.map(\.lon), expected.points.map(\.lon))
+    }
 }

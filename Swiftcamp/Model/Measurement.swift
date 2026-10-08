@@ -22,6 +22,14 @@ struct Measurement: Equatable, Sendable {
         return GeoMath.distance(first, last)
     }
 
+    /// What the clicks enclose, closed from the last point back to the
+    /// first, in square metres: BaseCamp's area tool, for a ranch or a
+    /// burn scar. Nil until there are three points to enclose anything.
+    var area: Double? {
+        guard points.count >= 3 else { return nil }
+        return GeoMath.area(points)
+    }
+
     mutating func add(_ coordinate: Coordinate) { points.append(coordinate) }
 
     /// Takes the last point back, as Delete does.

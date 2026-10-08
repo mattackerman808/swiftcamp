@@ -122,6 +122,23 @@ enum GeoMath {
         return wrap360(atan2(y, x) * 180 / .pi)
     }
 
+    /// The area a ring of points encloses, in square metres, on the
+    /// sphere: the ring is closed from the last point back to the first.
+    /// Chamberlain and Duquette's formula, the one Turf uses, which is
+    /// within a fraction of a percent of the ellipsoid for anything a rider
+    /// would draw. A ring that crosses itself has no meaningful area and
+    /// gets the difference of its lobes, as every such formula gives.
+    static func area(_ ring: [Coordinate]) -> Double {
+        guard ring.count >= 3 else { return 0 }
+        var sum = 0.0
+        for i in ring.indices {
+            let a = ring[i], b = ring[(i + 1) % ring.count]
+            let dλ = (b.lon - a.lon) * .pi / 180
+            sum += dλ * (2 + sin(a.lat * .pi / 180) + sin(b.lat * .pi / 180))
+        }
+        return abs(sum) * earthRadius * earthRadius / 2
+    }
+
     /// Degrees normalised into `0..<360`.
     ///
     /// `truncatingRemainder` keeps the sign of the dividend, so it alone

@@ -74,14 +74,14 @@ enum GPXWriter {
             out += element("gpxx:DisplayColor", color, indent: 8)
             out += "      </gpxx:RouteExtension>\n"
         }
-        // The activity profile, in Garmin's vocabulary: Motorcycling for a
-        // road or adventure route, Direct for straight lines. Which of the
-        // first two it was is ours to remember, in our own namespace, so a
-        // re-import does not turn an adventure route back into a road one
-        // at its next edit.
+        // The activity profile, in Garmin's vocabulary; see
+        // `RoutingMode.garminTransportationMode`. Road and Adventure are
+        // both Motorcycling, so which it was is ours to remember, in our
+        // own namespace, so a re-import does not turn an adventure route
+        // back into a road one at its next edit.
         let mode = detail.route.mode
         out += "      <trp:Trip>\n"
-        out += "        <trp:TransportationMode>\(mode == .direct ? "Direct" : "Motorcycling")</trp:TransportationMode>\n"
+        out += "        <trp:TransportationMode>\(mode.garminTransportationMode)</trp:TransportationMode>\n"
         out += "      </trp:Trip>\n"
         if mode == .adventure {
             out += "      <sc:RoutingMode>\(mode.rawValue)</sc:RoutingMode>\n"
